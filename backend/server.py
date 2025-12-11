@@ -276,14 +276,15 @@ async def generate_ai_summaries(text_content: str, bookmark_id: str):
             UserMessage(text=f"Extract 3 key points:\n\n{content_snippet}")
         )
         bullet_points = []
-        for line in bullets_response.split('\n'):
-            line = line.strip()
-            if line.startswith('-') or line.startswith('•') or line.startswith('*'):
-                bullet_points.append(line.lstrip('-•* ').strip())
-        bullet_points = bullet_points[:3]
-        
-        if len(bullet_points) < 3:
-            bullet_points = [b.strip() for b in bullets_response.split('.') if b.strip()][:3]
+        if bullets_response:
+            for line in bullets_response.split('\n'):
+                line = line.strip()
+                if line.startswith('-') or line.startswith('•') or line.startswith('*'):
+                    bullet_points.append(line.lstrip('-•* ').strip())
+            bullet_points = bullet_points[:3]
+            
+            if len(bullet_points) < 3:
+                bullet_points = [b.strip() for b in bullets_response.split('.') if b.strip()][:3]
         
         long_chat = LlmChat(
             api_key=emergent_key,
