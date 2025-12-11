@@ -331,21 +331,20 @@ async def generate_ai_summaries(text_content: str, bookmark_id: str):
                     suggested_tags.append(tag)
             suggested_tags = list(set(suggested_tags))[:6]
         
-        summary = {
-            "id": str(uuid.uuid4()),
-            "bookmark_id": bookmark_id,
-            "one_sentence": one_sentence,
-            "bullet_points": bullet_points,
-            "long_form": long_form,
-            "highlights": highlights,
-            "suggested_tags": suggested_tags,
-            "processing_status": "completed",
-            "created_at": datetime.now(timezone.utc).isoformat()
-        }
-        
-        await db.ai_summaries.insert_one(summary)
+        await db.ai_summaries.update_one(
+            {"bookmark_id": bookmark_id},
+            {"$set": {
+                "one_sentence": one_sentence,
+                "bullet_points": bullet_points,
+                "long_form": long_form,
+                "highlights": highlights,
+                "suggested_tags": suggested_tags,
+                "processing_status": "completed",
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }}
+        )
         logging.info(f"AI summaries generated successfully for bookmark {bookmark_id}")
-        return summary
+        return {"processing_status": "completed"}
     except Exception as e:
         logging.error(f"Error generating AI summaries for {bookmark_id}: {e}")
         summary = {
