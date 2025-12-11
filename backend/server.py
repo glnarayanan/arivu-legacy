@@ -155,14 +155,28 @@ async def login(login_data: UserLogin):
 
 async def fetch_webpage_content(url: str):
     try:
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-        response = requests.get(url, headers=headers, timeout=10)
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+        }
+        response = requests.get(url, headers=headers, timeout=15, allow_redirects=True)
         response.raise_for_status()
         
         soup = BeautifulSoup(response.content, 'html.parser')
-        doc = Document(response.content)
         
-        title = doc.title() or soup.title.string if soup.title else urlparse(url).netloc
+        for script in soup(["script", "style", "nav", "footer", "header"]):
+            script.decompose()
+        
+        doc = Document(response.content)
+        summary_html = doc.summary()
+        
+        title = doc.title()
+        if not title or len(title.strip()) < 3:
+            if soup.title:
+                title = soup.title.string
+            else:
+                title = urlparse(url).netloc
         
         description = None
         meta_desc = soup.find('meta', attrs={'name': 'description'}) or soup.find('meta', attrs={'property': 'og:description'})
@@ -191,23 +205,37 @@ async def fetch_webpage_content(url: str):
         
         h = html2text.HTML2Text()
         h.ignore_links = False
-        text_content = h.handle(doc.summary())
+        h.ignore_images = True
+        h.body_width = 0
+        text_content = h.handle(summary_html)
+        
+        if not text_content or len(text_content.strip()) < 100:
+            body = soup.find('body')
+            if body:
+                for tag in body.find_all(['p', 'article', 'section', 'div'], recursive=True):
+                    text = tag.get_text(separator=' ', strip=True)
+                    if len(text) > 100:
+                        text_content += text + '\\n\\n'
+        
+        text_content = text_content.strip()
+        if len(text_content) < 50:
+            text_content = soup.get_text(separator='\\n', strip=True)
         
         return {
-            'title': title,
+            'title': title.strip(),
             'description': description,
             'favicon': favicon,
             'thumbnail': thumbnail,
-            'html_content': doc.summary(),
-            'text_content': text_content,
+            'html_content': summary_html,
+            'text_content': text_content[:10000],
             'domain': urlparse(url).netloc
         }
     except Exception as e:
-        logging.error(f"Error fetching webpage: {e}")
+        logging.error(f"Error fetching webpage {url}: {e}")
         return {
             'title': urlparse(url).netloc,
             'domain': urlparse(url).netloc,
-            'text_content': '',
+            'text_content': f"Failed to fetch content from {url}",
             'html_content': ''
         }
 
