@@ -572,7 +572,8 @@ async def bulk_mark_read(bookmark_ids: List[str], read_status: bool, current_use
 
 @api_router.get("/bookmarks/duplicates/detect")
 async def detect_duplicates(current_user: dict = Depends(get_current_user)):
-    bookmarks = await db.bookmarks.find({"user_id": current_user["id"]}, {"_id": 0}).to_list(1000)
+    projection = {"_id": 0, "id": 1, "url": 1, "title": 1, "text_content": 1, "domain": 1, "created_at": 1, "thumbnail": 1, "favicon": 1}
+    bookmarks = await db.bookmarks.find({"user_id": current_user["id"]}, projection).limit(500).to_list(None)
     
     url_groups = {}
     for bookmark in bookmarks:
