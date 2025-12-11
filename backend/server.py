@@ -572,6 +572,85 @@ async def add_to_collection(collection_id: str, data: AddToCollection, current_u
         raise HTTPException(status_code=404, detail="Collection not found")
     return {"message": "Bookmark added to collection"}
 
+@api_router.post("/bookmarks/import")
+async def import_bookmarks(file: bytes = None, current_user: dict = Depends(get_current_user)):
+    """Import bookmarks from browser HTML file"""
+    try:
+        from fastapi import UploadFile, File
+        html_content = file.decode('utf-8') if isinstance(file, bytes) else file
+        
+        soup = BeautifulSoup(html_content, 'html.parser')
+        links = soup.find_all('a')
+        
+        imported_count = 0
+        for link in links:
+            url = link.get('href')
+            title = link.get_text(strip=True)
+            
+            if url and url.startswith('http'):
+                bookmark = {
+                    "id": str(uuid.uuid4()),
+                    "user_id": current_user["id"],
+                    "url": url,
+                    "title": title or urlparse(url).netloc,
+                    "description": None,
+                    "favicon": None,
+                    "thumbnail": None,
+                    "html_content": None,
+                    "text_content": None,
+                    "domain": urlparse(url).netloc,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "updated_at": datetime.now(timezone.utc).isoformat()
+                }
+                
+                await db.bookmarks.insert_one(bookmark)
+                
+                ai_summary = {
+                    "id": str(uuid.uuid4()),
+                    "bookmark_id": bookmark["id"],
+                    "processing_status": "pending",
+                    "created_at": datetime.now(timezone.utc).isoformat()
+                }
+                await db.ai_summaries.insert_one(ai_summary)
+                
+                asyncio.create_task(process_bookmark_content(bookmark["id"], url, None, current_user["id"]))
+                imported_count += 1
+        
+        return {"message": f"Imported {imported_count} bookmarks", "count": imported_count}
+    except Exception as e:
+        logging.error(f"Error importing bookmarks: {e}")
+        raise HTTPException(status_code=400, detail="Failed to import bookmarks")
+
+@api_router.get("/bookmarks/export")
+async def export_bookmarks(current_user: dict = Depends(get_current_user)):
+    """Export bookmarks as browser-compatible HTML"""
+    bookmarks = await db.bookmarks.find({"user_id": current_user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(10000)
+    
+    html_parts = [
+        '<!DOCTYPE NETSCAPE-Bookmark-file-1>',
+        '<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">',
+        '<TITLE>Arivu Bookmarks</TITLE>',
+        '<H1>Arivu Bookmarks</H1>',
+        '<DL><p>'
+    ]
+    
+    for bookmark in bookmarks:
+        add_date = int(datetime.fromisoformat(bookmark['created_at']).timestamp())
+        title = bookmark.get('title', bookmark.get('url', 'Untitled'))
+        url = bookmark.get('url', '')
+        html_parts.append(f'    <DT><A HREF="{url}" ADD_DATE="{add_date}">{title}</A>')
+    
+    html_parts.append('</DL><p>')
+    
+    from fastapi.responses import Response
+    return Response(
+        content='\n'.join(html_parts),
+        media_type='text/html',
+        headers={
+            'Content-Disposition': f'attachment; filename="arivu_bookmarks_{datetime.now().strftime("%Y%m%d")}.html"'
+        }
+    )
+
 app.include_router(api_router)
 
 app.add_middleware(
