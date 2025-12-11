@@ -441,6 +441,7 @@ async def get_bookmarks(
     collection_id: Optional[str] = None,
     read_status: Optional[str] = None,
     sort_by: Optional[str] = "created_at",
+    limit: Optional[int] = 100,
     current_user: dict = Depends(get_current_user)
 ):
     query = {"user_id": current_user["id"]}
@@ -454,7 +455,7 @@ async def get_bookmarks(
         query["read_status"] = False
     
     if collection_id:
-        collection = await db.collections.find_one({"id": collection_id}, {"_id": 0})
+        collection = await db.collections.find_one({"id": collection_id}, {"_id": 0, "bookmark_ids": 1})
         if collection:
             query["id"] = {"$in": collection.get("bookmark_ids", [])}
     
@@ -467,18 +468,40 @@ async def get_bookmarks(
         sort_field = "title"
         sort_order = 1
     
-    bookmarks = await db.bookmarks.find(query, {"_id": 0}).sort(sort_field, sort_order).to_list(1000)
+    projection = {
+        "_id": 0,
+        "id": 1,
+        "url": 1,
+        "title": 1,
+        "description": 1,
+        "domain": 1,
+        "thumbnail": 1,
+        "favicon": 1,
+        "reading_time": 1,
+        "read_status": 1,
+        "created_at": 1,
+        "updated_at": 1
+    }
+    
+    bookmarks = await db.bookmarks.find(query, projection).sort(sort_field, sort_order).limit(min(limit, 1000)).to_list(None)
     
     if search:
         search_lower = search.lower()
         bookmarks = [b for b in bookmarks if 
                     search_lower in (b.get('title') or '').lower() or 
-                    search_lower in (b.get('text_content') or '').lower() or
                     search_lower in (b.get('description') or '').lower()]
+    
+    bookmark_ids = [b["id"] for b in bookmarks]
+    summaries = await db.ai_summaries.find(
+        {"bookmark_id": {"$in": bookmark_ids}}, 
+        {"_id": 0}
+    ).to_list(None)
+    
+    summary_map = {s["bookmark_id"]: s for s in summaries}
     
     result = []
     for bookmark in bookmarks:
-        summary = await db.ai_summaries.find_one({"bookmark_id": bookmark["id"]}, {"_id": 0})
+        summary = summary_map.get(bookmark["id"])
         
         if tag and summary:
             if tag.lower() not in [t.lower() for t in summary.get('suggested_tags', [])]:
