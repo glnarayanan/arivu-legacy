@@ -394,7 +394,7 @@ async def process_bookmark_content(bookmark_id: str, url: str, collection_id: Op
         logging.error(f"Error processing bookmark {bookmark_id}: {e}")
 
 @api_router.post("/bookmarks", response_model=Bookmark)
-async def create_bookmark(bookmark_data: BookmarkCreate, current_user: dict = Depends(get_current_user)):
+async def create_bookmark(bookmark_data: BookmarkCreate, background_tasks: BackgroundTasks, current_user: dict = Depends(get_current_user)):
     parsed_url = urlparse(bookmark_data.url)
     
     bookmark = {
