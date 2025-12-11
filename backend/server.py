@@ -307,11 +307,12 @@ async def generate_ai_summaries(text_content: str, bookmark_id: str):
             UserMessage(text=f"Extract key quotes or statements:\n\n{content_snippet}")
         )
         highlights = []
-        for line in highlights_response.split('\n'):
-            line = line.strip().strip('-•*"').strip('"').strip()
-            if len(line) > 10:
-                highlights.append(line)
-        highlights = highlights[:5]
+        if highlights_response:
+            for line in highlights_response.split('\n'):
+                line = line.strip().strip('-•*"').strip('"').strip()
+                if len(line) > 10:
+                    highlights.append(line)
+            highlights = highlights[:5]
         
         tags_chat = LlmChat(
             api_key=emergent_key,
