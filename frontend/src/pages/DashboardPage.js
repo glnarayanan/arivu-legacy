@@ -762,6 +762,9 @@ const DashboardPage = ({ onLogout }) => {
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* Keyboard Shortcuts Modal */}
+      <KeyboardShortcutsModal open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
     </div>
   );
 };
