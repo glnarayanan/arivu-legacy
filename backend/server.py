@@ -347,18 +347,15 @@ async def generate_ai_summaries(text_content: str, bookmark_id: str):
         return {"processing_status": "completed"}
     except Exception as e:
         logging.error(f"Error generating AI summaries for {bookmark_id}: {e}")
-        summary = {
-            "id": str(uuid.uuid4()),
-            "bookmark_id": bookmark_id,
-            "processing_status": "failed",
-            "one_sentence": "AI processing failed",
-            "bullet_points": [],
-            "highlights": [],
-            "suggested_tags": [],
-            "created_at": datetime.now(timezone.utc).isoformat()
-        }
-        await db.ai_summaries.insert_one(summary)
-        return summary
+        await db.ai_summaries.update_one(
+            {"bookmark_id": bookmark_id},
+            {"$set": {
+                "processing_status": "failed",
+                "one_sentence": "AI processing failed",
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }}
+        )
+        return {"processing_status": "failed"}
 
 def calculate_reading_time(text_content: str) -> int:
     """Calculate estimated reading time in minutes (avg 200 words/min)"""
