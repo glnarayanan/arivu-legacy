@@ -264,7 +264,7 @@ async def generate_ai_summaries(text_content: str, bookmark_id: str):
         one_sentence = await one_sentence_chat.send_message(
             UserMessage(text=f"Summarize in ONE sentence:\n\n{content_snippet}")
         )
-        one_sentence = one_sentence.strip()
+        one_sentence = one_sentence.strip() if one_sentence else "Summary unavailable"
         
         bullet_chat = LlmChat(
             api_key=emergent_key,
