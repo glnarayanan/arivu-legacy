@@ -590,6 +590,70 @@ const DashboardPage = ({ onLogout }) => {
           </div>
         </div>
 
+        {/* Bulk Operations Toolbar */}
+        {bulkMode && (
+          <div className="mb-6 p-4 bg-muted/50 rounded-xl border">
+            <div className="flex items-center justify-between flex-wrap gap-4">
+              <div className="flex items-center gap-4">
+                <span className="text-sm font-medium">
+                  {selectedBookmarks.length} selected
+                </span>
+                <div className="flex gap-2">
+                  <Button
+                    data-testid="select-all-btn"
+                    variant="outline"
+                    size="sm"
+                    onClick={selectAllBookmarks}
+                    disabled={selectedBookmarks.length === bookmarks.length}
+                  >
+                    Select All
+                  </Button>
+                  <Button
+                    data-testid="deselect-all-btn"
+                    variant="outline"
+                    size="sm"
+                    onClick={deselectAllBookmarks}
+                    disabled={selectedBookmarks.length === 0}
+                  >
+                    Deselect All
+                  </Button>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  data-testid="bulk-mark-read-btn"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleBulkMarkRead(true)}
+                  disabled={selectedBookmarks.length === 0}
+                >
+                  <CheckCircle className="w-4 h-4 mr-2" />
+                  Mark Read
+                </Button>
+                <Button
+                  data-testid="bulk-mark-unread-btn"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleBulkMarkRead(false)}
+                  disabled={selectedBookmarks.length === 0}
+                >
+                  <Circle className="w-4 h-4 mr-2" />
+                  Mark Unread
+                </Button>
+                <Button
+                  data-testid="bulk-delete-btn"
+                  variant="destructive"
+                  size="sm"
+                  onClick={handleBulkDelete}
+                  disabled={selectedBookmarks.length === 0}
+                >
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Delete Selected
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
         {/* Bookmarks Grid */}
         {loading ? (
           <div className="flex items-center justify-center py-20">
