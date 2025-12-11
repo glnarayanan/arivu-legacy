@@ -439,6 +439,8 @@ async def get_bookmarks(
     tag: Optional[str] = None,
     domain: Optional[str] = None,
     collection_id: Optional[str] = None,
+    read_status: Optional[str] = None,
+    sort_by: Optional[str] = "created_at",
     current_user: dict = Depends(get_current_user)
 ):
     query = {"user_id": current_user["id"]}
@@ -446,12 +448,26 @@ async def get_bookmarks(
     if domain:
         query["domain"] = domain
     
+    if read_status == "read":
+        query["read_status"] = True
+    elif read_status == "unread":
+        query["read_status"] = False
+    
     if collection_id:
         collection = await db.collections.find_one({"id": collection_id}, {"_id": 0})
         if collection:
             query["id"] = {"$in": collection.get("bookmark_ids", [])}
     
-    bookmarks = await db.bookmarks.find(query, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    sort_field = "created_at"
+    sort_order = -1
+    if sort_by == "reading_time":
+        sort_field = "reading_time"
+        sort_order = 1
+    elif sort_by == "title":
+        sort_field = "title"
+        sort_order = 1
+    
+    bookmarks = await db.bookmarks.find(query, {"_id": 0}).sort(sort_field, sort_order).to_list(1000)
     
     if search:
         search_lower = search.lower()
