@@ -48,6 +48,8 @@ const DashboardPage = ({ onLogout }) => {
       if (filterTag) params.append('tag', filterTag);
       if (filterDomain) params.append('domain', filterDomain);
       if (filterCollection) params.append('collection_id', filterCollection);
+      if (readFilter !== 'all') params.append('read_status', readFilter);
+      if (sortBy) params.append('sort_by', sortBy);
 
       const response = await axios.get(`${API}/bookmarks?${params.toString()}`, {
         headers: { Authorization: `Bearer ${token}` }
