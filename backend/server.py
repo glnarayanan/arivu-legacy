@@ -681,6 +681,8 @@ async def import_bookmarks(file: bytes = None, current_user: dict = Depends(get_
                     "html_content": None,
                     "text_content": None,
                     "domain": urlparse(url).netloc,
+                    "reading_time": None,
+                    "read_status": False,
                     "created_at": datetime.now(timezone.utc).isoformat(),
                     "updated_at": datetime.now(timezone.utc).isoformat()
                 }
