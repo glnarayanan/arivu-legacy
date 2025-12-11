@@ -101,23 +101,63 @@ const DashboardPage = ({ onLogout }) => {
 
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+        if (e.key === 'Escape') {
+          e.target.blur();
+          setDialogOpen(false);
+          setCollectionDialogOpen(false);
+          setImportDialogOpen(false);
+          setShortcutsOpen(false);
+        }
+        return;
+      }
+
+      if (e.key === 'q' || e.key === 'Q') {
         e.preventDefault();
         setDialogOpen(true);
       }
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+      if (e.key === '/' || e.key === 'f' || e.key === 'F') {
         e.preventDefault();
         document.querySelector('[data-testid="search-input"]')?.focus();
+      }
+      if (e.key === '?') {
+        e.preventDefault();
+        setShortcutsOpen(true);
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        document.querySelector('[data-testid="search-input"]')?.focus();
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'p') {
+        e.preventDefault();
+        window.print();
       }
       if (e.key === 'Escape') {
         setDialogOpen(false);
         setCollectionDialogOpen(false);
         setImportDialogOpen(false);
+        setShortcutsOpen(false);
+        setSelectedIndex(-1);
+      }
+
+      if (bookmarks.length > 0) {
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          setSelectedIndex(prev => Math.min(prev + 1, bookmarks.length - 1));
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          setSelectedIndex(prev => Math.max(prev - 1, -1));
+        }
+        if (e.key === 'Enter' && selectedIndex >= 0) {
+          e.preventDefault();
+          navigate(`/bookmark/${bookmarks[selectedIndex].id}`);
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [bookmarks, selectedIndex, navigate]);
 
   const handleAddBookmark = async (e) => {
     e.preventDefault();
