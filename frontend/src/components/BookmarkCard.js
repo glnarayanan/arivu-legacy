@@ -52,6 +52,33 @@ const BookmarkCard = ({ bookmark, onDelete, onClick, bulkMode, isSelected, onTog
         </div>
       )}
 
+      {/* Bulk Select Checkbox */}
+      {bulkMode && (
+        <div className="absolute top-4 right-4 z-10">
+          <div className={`w-6 h-6 rounded border-2 flex items-center justify-center ${ 
+            isSelected ? 'bg-violet-500 border-violet-500' : 'bg-white border-gray-300'
+          }`}>
+            {isSelected && (
+              <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+              </svg>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Read Status Badge */}
+      {bookmark.read_status && (
+        <div className="absolute top-4 left-4 z-10">
+          <div className="flex items-center gap-1 px-2 py-1 bg-green-100 dark:bg-green-900/30 rounded-full">
+            <svg className="w-3 h-3 text-green-600 dark:text-green-400" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+            </svg>
+            <span className="text-xs font-medium text-green-600 dark:text-green-400">Read</span>
+          </div>
+        </div>
+      )}
+
       {/* Content */}
       <div className="p-5 space-y-3">
         {/* Title */}
