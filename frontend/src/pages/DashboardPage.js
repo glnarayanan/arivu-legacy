@@ -272,6 +272,61 @@ const DashboardPage = ({ onLogout }) => {
                   </form>
                 </DialogContent>
               </Dialog>
+              <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button
+                    data-testid="import-btn"
+                    variant="ghost"
+                    size="sm"
+                    className="rounded-full"
+                  >
+                    <UploadIcon className="w-4 h-4 mr-2" />
+                    Import
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="rounded-2xl" aria-describedby="import-description">
+                  <DialogHeader>
+                    <DialogTitle className="font-heading">Import Bookmarks</DialogTitle>
+                    <p id="import-description" className="text-sm text-muted-foreground sr-only">
+                      Import bookmarks from your browser HTML file
+                    </p>
+                  </DialogHeader>
+                  <form onSubmit={handleImportBookmarks} className="space-y-4">
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Select HTML file</label>
+                      <Input
+                        data-testid="import-file-input"
+                        type="file"
+                        accept=".html"
+                        onChange={(e) => setImportFile(e.target.files[0])}
+                        required
+                        className="rounded-xl"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Export bookmarks from Chrome, Firefox, or Safari
+                      </p>
+                    </div>
+                    <Button
+                      data-testid="import-submit-btn"
+                      type="submit"
+                      className="w-full rounded-full"
+                      disabled={importing}
+                    >
+                      {importing ? 'Importing...' : 'Import Bookmarks'}
+                    </Button>
+                  </form>
+                </DialogContent>
+              </Dialog>
+              <Button
+                data-testid="export-btn"
+                variant="ghost"
+                size="sm"
+                className="rounded-full"
+                onClick={handleExportBookmarks}
+              >
+                <DownloadIcon className="w-4 h-4 mr-2" />
+                Export
+              </Button>
               <Button
                 data-testid="duplicates-btn"
                 variant="ghost"
