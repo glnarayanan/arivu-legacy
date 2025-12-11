@@ -28,7 +28,8 @@ load_dotenv(ROOT_DIR / '.env')
 
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+db_name = os.environ.get('DB_NAME', 'arivu_db')
+db = client[db_name]
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
