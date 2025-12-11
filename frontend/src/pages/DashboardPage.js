@@ -28,6 +28,9 @@ const DashboardPage = ({ onLogout }) => {
   const [collectionDialogOpen, setCollectionDialogOpen] = useState(false);
   const [allTags, setAllTags] = useState([]);
   const [allDomains, setAllDomains] = useState([]);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [importFile, setImportFile] = useState(null);
+  const [importing, setImporting] = useState(false);
 
   const token = localStorage.getItem('token');
   const user = JSON.parse(localStorage.getItem('user') || '{}');
