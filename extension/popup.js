@@ -1,4 +1,4 @@
-const API_URL = 'https://knolhub.preview.emergentagent.com/api';
+const API_URL = 'https://arivu.preview.emergentagent.com/api';
 
 let currentTab = null;
 let token = null;

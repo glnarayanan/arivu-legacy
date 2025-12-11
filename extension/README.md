@@ -17,7 +17,7 @@ Quick save bookmarks to Arivu with AI-powered summaries.
 
 ## Usage
 
-1. Log in to Arivu (https://knolhub.preview.emergentagent.com)
+1. Log in to Arivu (https://arivu.preview.emergentagent.com)
 2. Click the extension icon to save current page
 3. Or use keyboard shortcut: `Ctrl+Shift+S` (Windows/Linux) or `Cmd+Shift+S` (Mac)
 
@@ -27,3 +27,7 @@ Quick save bookmarks to Arivu with AI-powered summaries.
 - Select collection for organization
 - Keyboard shortcut support
 - Auto-sync with Arivu account
+
+## Note
+
+This extension requires an active Arivu account. Sign up at https://arivu.preview.emergentagent.com/auth
