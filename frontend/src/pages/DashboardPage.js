@@ -573,7 +573,7 @@ const DashboardPage = ({ onLogout }) => {
               </DialogContent>
             </Dialog>
 
-            {(filterTag || filterDomain || filterCollection) && (
+            {(filterTag || filterDomain || filterCollection || readFilter !== 'all' || sortBy !== 'created_at') && (
               <Button
                 data-testid="clear-filters-btn"
                 variant="ghost"
@@ -583,6 +583,8 @@ const DashboardPage = ({ onLogout }) => {
                   setFilterTag('');
                   setFilterDomain('');
                   setFilterCollection('');
+                  setReadFilter('all');
+                  setSortBy('created_at');
                 }}
               >
                 Clear filters
