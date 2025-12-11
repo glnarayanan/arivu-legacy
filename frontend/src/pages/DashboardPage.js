@@ -332,13 +332,13 @@ const DashboardPage = ({ onLogout }) => {
         )}
       </div>
 
-      {/* Floating Action Button */}
+      {/* Floating Action Button - Positioned to avoid overlays */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogTrigger asChild>
           <Button
             data-testid="add-bookmark-fab"
             size="lg"
-            className="fixed bottom-6 right-6 rounded-full w-14 h-14 shadow-xl hover:shadow-2xl"
+            className="fixed bottom-6 right-20 md:right-6 rounded-full w-14 h-14 shadow-xl hover:shadow-2xl z-40"
           >
             <PlusIcon className="w-6 h-6" />
           </Button>
