@@ -50,7 +50,7 @@ const BookmarkCard = ({ bookmark, onDelete, onClick, bulkMode, isSelected, onTog
         )}
 
         {/* Thumbnail */}
-        <div className="flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden bg-muted">
+        <div className="flex-shrink-0 w-12 h-12 rounded-lg overflow-hidden bg-muted">
           {bookmark.thumbnail ? (
             <img
               src={bookmark.thumbnail}
