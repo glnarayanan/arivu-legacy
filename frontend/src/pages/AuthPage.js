@@ -46,7 +46,7 @@ const AuthPage = ({ onLogin }) => {
             <BookmarkIcon className="w-8 h-8" />
           </div>
           <h1 className="font-heading text-4xl font-bold tracking-tight mb-2">
-            KnolHub
+            Arivu
           </h1>
           <p className="text-muted-foreground">
             Your AI-powered second brain for the web
@@ -127,6 +127,10 @@ const AuthPage = ({ onLogin }) => {
               {loading ? 'Processing...' : isLogin ? 'Log In' : 'Create Account'}
             </Button>
           </form>
+
+          <div className="mt-4 text-center text-xs text-muted-foreground">
+            <p>Keyboard shortcuts: Ctrl+K (Add bookmark) • Ctrl+S (Search)</p>
+          </div>
         </div>
       </div>
     </div>
