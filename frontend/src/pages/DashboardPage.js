@@ -81,6 +81,36 @@ const DashboardPage = ({ onLogout }) => {
     fetchCollections();
   }, [searchQuery, filterTag, filterDomain, filterCollection]);
 
+  useEffect(() => {
+    const hasPendingAI = bookmarks.some(b => b.ai_summary?.processing_status === 'pending');
+    if (hasPendingAI) {
+      const interval = setInterval(() => {
+        fetchBookmarks();
+      }, 5000);
+      return () => clearInterval(interval);
+    }
+  }, [bookmarks]);
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        setDialogOpen(true);
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        document.querySelector('[data-testid="search-input"]')?.focus();
+      }
+      if (e.key === 'Escape') {
+        setDialogOpen(false);
+        setCollectionDialogOpen(false);
+        setImportDialogOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   const handleAddBookmark = async (e) => {
     e.preventDefault();
     if (!newBookmarkUrl) return;
