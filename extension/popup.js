@@ -1,14 +1,23 @@
-const API_URL = 'https://arivu.preview.emergentagent.com/api';
+// Get API URL from environment or use the current deployment URL
+const API_URL = window.location.hostname.includes('localhost') 
+  ? 'http://localhost:8001/api'
+  : `${window.location.protocol}//${window.location.hostname}/api`;
 
 let currentTab = null;
 let token = null;
 
 async function init() {
-  const result = await chrome.storage.local.get(['token']);
+  const result = await chrome.storage.local.get(['token', 'apiUrl']);
   token = result.token;
+  const apiUrl = result.apiUrl || API_URL;
 
   if (!token) {
     document.getElementById('loginPrompt').style.display = 'block';
+    // Update the link with current hostname
+    const loginLink = document.querySelector('.login-link');
+    if (loginLink) {
+      loginLink.href = `${window.location.protocol}//${window.location.hostname}/auth`;
+    }
     return;
   }
 
@@ -20,12 +29,12 @@ async function init() {
   document.getElementById('url').value = tab.url;
   document.getElementById('title').value = tab.title;
 
-  loadCollections();
+  loadCollections(apiUrl);
 }
 
-async function loadCollections() {
+async function loadCollections(apiUrl) {
   try {
-    const response = await fetch(`${API_URL}/collections`, {
+    const response = await fetch(`${apiUrl}/collections`, {
       headers: {
         'Authorization': `Bearer ${token}`
       }
@@ -55,10 +64,12 @@ document.getElementById('saveForm').addEventListener('submit', async (e) => {
   status.style.display = 'none';
 
   try {
+    const result = await chrome.storage.local.get(['apiUrl']);
+    const apiUrl = result.apiUrl || API_URL;
     const url = document.getElementById('url').value;
     const collectionId = document.getElementById('collection').value || null;
 
-    const response = await fetch(`${API_URL}/bookmarks`, {
+    const response = await fetch(`${apiUrl}/bookmarks`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
