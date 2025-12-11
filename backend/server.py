@@ -357,10 +357,18 @@ async def generate_ai_summaries(text_content: str, bookmark_id: str):
         await db.ai_summaries.insert_one(summary)
         return summary
 
+def calculate_reading_time(text_content: str) -> int:
+    """Calculate estimated reading time in minutes (avg 200 words/min)"""
+    if not text_content:
+        return 0
+    word_count = len(text_content.split())
+    return max(1, round(word_count / 200))
+
 async def process_bookmark_content(bookmark_id: str, url: str, collection_id: Optional[str] = None, user_id: str = None):
     """Background task to fetch content and generate AI summaries"""
     try:
         content = await fetch_webpage_content(url)
+        reading_time = calculate_reading_time(content.get('text_content', ''))
         
         await db.bookmarks.update_one(
             {"id": bookmark_id},
@@ -372,6 +380,7 @@ async def process_bookmark_content(bookmark_id: str, url: str, collection_id: Op
                 "html_content": content.get('html_content'),
                 "text_content": content.get('text_content'),
                 "domain": content.get('domain'),
+                "reading_time": reading_time,
                 "updated_at": datetime.now(timezone.utc).isoformat()
             }}
         )
