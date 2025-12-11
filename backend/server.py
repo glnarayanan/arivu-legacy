@@ -295,7 +295,7 @@ async def generate_ai_summaries(text_content: str, bookmark_id: str):
         long_form = await long_chat.send_message(
             UserMessage(text=f"Create a detailed summary with Overview, Key Facts, and Main Points:\n\n{content_snippet}")
         )
-        long_form = long_form.strip()
+        long_form = long_form.strip() if long_form else "Detailed summary unavailable"
         
         highlights_chat = LlmChat(
             api_key=emergent_key,
