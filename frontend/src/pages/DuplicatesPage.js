@@ -81,7 +81,9 @@ const DuplicatesPage = ({ onLogout }) => {
                 <ArrowLeftIcon className="w-4 h-4 mr-2" />
                 Back
               </Button>
-              <h1 className="font-heading text-2xl font-bold tracking-tight">Duplicate Detection</h1>
+              <div className="flex items-center gap-3">
+                <h1 className="font-heading text-2xl font-bold tracking-tight">Duplicate Detection</h1>
+              </div>
             </div>
           </div>
         </div>
