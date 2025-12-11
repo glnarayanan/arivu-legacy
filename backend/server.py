@@ -424,12 +424,13 @@ async def create_bookmark(bookmark_data: BookmarkCreate, background_tasks: Backg
     }
     await db.ai_summaries.insert_one(ai_summary)
     
-    asyncio.create_task(process_bookmark_content(
+    background_tasks.add_task(
+        process_bookmark_content,
         bookmark["id"], 
         bookmark_data.url, 
         bookmark_data.collection_id,
         current_user["id"]
-    ))
+    )
     
     if bookmark_data.collection_id:
         await db.collections.update_one(
