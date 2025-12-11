@@ -87,7 +87,7 @@ const DashboardPage = ({ onLogout }) => {
   useEffect(() => {
     fetchBookmarks();
     fetchCollections();
-  }, [searchQuery, filterTag, filterDomain, filterCollection]);
+  }, [searchQuery, filterTag, filterDomain, filterCollection, readFilter, sortBy]);
 
   useEffect(() => {
     const hasPendingAI = bookmarks.some(b => b.ai_summary?.processing_status === 'pending');
