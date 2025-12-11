@@ -164,6 +164,61 @@ const DashboardPage = ({ onLogout }) => {
     }
   };
 
+  const handleImportBookmarks = async (e) => {
+    e.preventDefault();
+    if (!importFile) return;
+
+    setImporting(true);
+    try {
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        try {
+          const response = await axios.post(
+            `${API}/bookmarks/import`,
+            event.target.result,
+            {
+              headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'text/plain'
+              }
+            }
+          );
+          toast.success(`Imported ${response.data.count} bookmarks! AI processing...`);
+          setImportFile(null);
+          setImportDialogOpen(false);
+          fetchBookmarks();
+        } catch (error) {
+          toast.error('Failed to import bookmarks');
+        } finally {
+          setImporting(false);
+        }
+      };
+      reader.readAsText(importFile);
+    } catch (error) {
+      toast.error('Failed to read file');
+      setImporting(false);
+    }
+  };
+
+  const handleExportBookmarks = async () => {
+    try {
+      const response = await axios.get(`${API}/bookmarks/export`, {
+        headers: { Authorization: `Bearer ${token}` },
+        responseType: 'blob'
+      });
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `arivu_bookmarks_${new Date().toISOString().split('T')[0]}.html`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      toast.success('Bookmarks exported successfully!');
+    } catch (error) {
+      toast.error('Failed to export bookmarks');
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
