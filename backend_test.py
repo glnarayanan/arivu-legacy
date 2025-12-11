@@ -294,7 +294,7 @@ def main():
     print("🚀 Starting Arivu API Testing...")
     print("=" * 50)
     
-    tester = KnolHubAPITester()
+    tester = ArivuAPITester()
     
     # Test authentication
     print("\n📝 Testing Authentication...")
