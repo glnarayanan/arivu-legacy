@@ -71,9 +71,14 @@ const BookmarkCard = ({ bookmark, onDelete, onClick }) => {
 
         {/* AI Processing Status */}
         {bookmark.ai_summary?.processing_status === 'pending' && (
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <SparklesIcon className="w-3 h-3 animate-pulse ai-gradient" />
-            <span>AI processing...</span>
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <SparklesIcon className="w-3 h-3 animate-pulse ai-gradient" />
+              <span>AI processing...</span>
+            </div>
+            <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
+              <div className="h-full bg-gradient-to-r from-violet-500 to-teal-400 rounded-full animate-pulse" style={{width: '60%'}}></div>
+            </div>
           </div>
         )}
 
