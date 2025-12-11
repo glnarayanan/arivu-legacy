@@ -324,11 +324,12 @@ async def generate_ai_summaries(text_content: str, bookmark_id: str):
             UserMessage(text=f"Generate relevant tags:\n\n{content_snippet[:1500]}")
         )
         suggested_tags = []
-        for tag in tags_response.replace(',', ' ').replace('\n', ' ').split():
-            tag = tag.strip().strip('.,;:').lower()
-            if tag and len(tag) > 2:
-                suggested_tags.append(tag)
-        suggested_tags = list(set(suggested_tags))[:6]
+        if tags_response:
+            for tag in tags_response.replace(',', ' ').replace('\n', ' ').split():
+                tag = tag.strip().strip('.,;:').lower()
+                if tag and len(tag) > 2:
+                    suggested_tags.append(tag)
+            suggested_tags = list(set(suggested_tags))[:6]
         
         summary = {
             "id": str(uuid.uuid4()),
