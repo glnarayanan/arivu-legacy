@@ -230,9 +230,12 @@ const DashboardPage = ({ onLogout }) => {
                   New Collection
                 </Button>
               </DialogTrigger>
-              <DialogContent className="rounded-2xl">
+              <DialogContent className="rounded-2xl" aria-describedby="create-collection-description">
                 <DialogHeader>
                   <DialogTitle className="font-heading">Create Collection</DialogTitle>
+                  <p id="create-collection-description" className="text-sm text-muted-foreground sr-only">
+                    Create a new collection to organize your bookmarks
+                  </p>
                 </DialogHeader>
                 <form onSubmit={handleCreateCollection} className="space-y-4">
                   <Input
@@ -241,6 +244,7 @@ const DashboardPage = ({ onLogout }) => {
                     value={newCollectionName}
                     onChange={(e) => setNewCollectionName(e.target.value)}
                     className="rounded-xl"
+                    autoFocus
                   />
                   <Button data-testid="create-collection-btn" type="submit" className="w-full rounded-full">
                     Create
