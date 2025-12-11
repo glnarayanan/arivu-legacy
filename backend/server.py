@@ -703,7 +703,8 @@ async def import_bookmarks(file: bytes = None, current_user: dict = Depends(get_
 @api_router.get("/bookmarks/export")
 async def export_bookmarks(current_user: dict = Depends(get_current_user)):
     """Export bookmarks as browser-compatible HTML"""
-    bookmarks = await db.bookmarks.find({"user_id": current_user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(10000)
+    projection = {"_id": 0, "url": 1, "title": 1, "created_at": 1}
+    bookmarks = await db.bookmarks.find({"user_id": current_user["id"]}, projection).sort("created_at", -1).limit(5000).to_list(None)
     
     html_parts = [
         '<!DOCTYPE NETSCAPE-Bookmark-file-1>',
