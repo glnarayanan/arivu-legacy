@@ -701,7 +701,8 @@ async def import_bookmarks(file: bytes = None, background_tasks: BackgroundTasks
                 }
                 await db.ai_summaries.insert_one(ai_summary)
                 
-                asyncio.create_task(process_bookmark_content(bookmark["id"], url, None, current_user["id"]))
+                if background_tasks:
+                    background_tasks.add_task(process_bookmark_content, bookmark["id"], url, None, current_user["id"])
                 imported_count += 1
         
         return {"message": f"Imported {imported_count} bookmarks", "count": imported_count}
