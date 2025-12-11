@@ -1,72 +1,479 @@
-from fastapi import FastAPI, APIRouter
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict
-from typing import List
+from pydantic import BaseModel, Field, ConfigDict, EmailStr
+from typing import List, Optional
 import uuid
-from datetime import datetime, timezone
-
+from datetime import datetime, timezone, timedelta
+import jwt
+from passlib.context import CryptContext
+import asyncio
+from urllib.parse import urlparse
+import requests
+from bs4 import BeautifulSoup
+from readability import Document
+import html2text
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+import re
+from emergentintegrations.llm.chat import LlmChat, UserMessage
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-# MongoDB connection
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
-# Create the main app without a prefix
 app = FastAPI()
-
-# Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
 
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+security = HTTPBearer()
 
-# Define Models
-class StatusCheck(BaseModel):
-    model_config = ConfigDict(extra="ignore")  # Ignore MongoDB's _id field
-    
+SECRET_KEY = os.environ.get('SECRET_KEY', 'your-secret-key-change-in-production')
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 10080
+
+class UserSignup(BaseModel):
+    email: EmailStr
+    password: str
+    name: str
+
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
+
+class TokenResponse(BaseModel):
+    token: str
+    user: dict
+
+class BookmarkCreate(BaseModel):
+    url: str
+    collection_id: Optional[str] = None
+
+class Bookmark(BaseModel):
+    model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    client_name: str
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    user_id: str
+    url: str
+    title: Optional[str] = None
+    description: Optional[str] = None
+    favicon: Optional[str] = None
+    thumbnail: Optional[str] = None
+    html_content: Optional[str] = None
+    text_content: Optional[str] = None
+    domain: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-class StatusCheckCreate(BaseModel):
-    client_name: str
+class AISummary(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    bookmark_id: str
+    one_sentence: Optional[str] = None
+    bullet_points: List[str] = []
+    long_form: Optional[str] = None
+    highlights: List[str] = []
+    suggested_tags: List[str] = []
+    processing_status: str = "pending"
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-# Add your routes to the router instead of directly to app
-@api_router.get("/")
-async def root():
-    return {"message": "Hello World"}
+class Collection(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str
+    name: str
+    bookmark_ids: List[str] = []
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-@api_router.post("/status", response_model=StatusCheck)
-async def create_status_check(input: StatusCheckCreate):
-    status_dict = input.model_dump()
-    status_obj = StatusCheck(**status_dict)
+class CollectionCreate(BaseModel):
+    name: str
+
+class AddToCollection(BaseModel):
+    bookmark_id: str
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.now(timezone.utc) + expires_delta
+    else:
+        expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    token = credentials.credentials
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id: str = payload.get("sub")
+        if user_id is None:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        user = await db.users.find_one({"id": user_id}, {"_id": 0})
+        if user is None:
+            raise HTTPException(status_code=401, detail="User not found")
+        return user
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+@api_router.post("/auth/signup", response_model=TokenResponse)
+async def signup(user_data: UserSignup):
+    existing_user = await db.users.find_one({"email": user_data.email})
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Email already registered")
     
-    # Convert to dict and serialize datetime to ISO string for MongoDB
-    doc = status_obj.model_dump()
-    doc['timestamp'] = doc['timestamp'].isoformat()
+    user = {
+        "id": str(uuid.uuid4()),
+        "email": user_data.email,
+        "name": user_data.name,
+        "password_hash": pwd_context.hash(user_data.password),
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.users.insert_one(user)
     
-    _ = await db.status_checks.insert_one(doc)
-    return status_obj
+    token = create_access_token(data={"sub": user["id"]})
+    user_response = {"id": user["id"], "email": user["email"], "name": user["name"]}
+    return {"token": token, "user": user_response}
 
-@api_router.get("/status", response_model=List[StatusCheck])
-async def get_status_checks():
-    # Exclude MongoDB's _id field from the query results
-    status_checks = await db.status_checks.find({}, {"_id": 0}).to_list(1000)
+@api_router.post("/auth/login", response_model=TokenResponse)
+async def login(login_data: UserLogin):
+    user = await db.users.find_one({"email": login_data.email})
+    if not user or not pwd_context.verify(login_data.password, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
     
-    # Convert ISO string timestamps back to datetime objects
-    for check in status_checks:
-        if isinstance(check['timestamp'], str):
-            check['timestamp'] = datetime.fromisoformat(check['timestamp'])
-    
-    return status_checks
+    token = create_access_token(data={"sub": user["id"]})
+    user_response = {"id": user["id"], "email": user["email"], "name": user["name"]}
+    return {"token": token, "user": user_response}
 
-# Include the router in the main app
+async def fetch_webpage_content(url: str):
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        
+        soup = BeautifulSoup(response.content, 'html.parser')
+        doc = Document(response.content)
+        
+        title = doc.title() or soup.title.string if soup.title else urlparse(url).netloc
+        
+        description = None
+        meta_desc = soup.find('meta', attrs={'name': 'description'}) or soup.find('meta', attrs={'property': 'og:description'})
+        if meta_desc and meta_desc.get('content'):
+            description = meta_desc.get('content')
+        
+        favicon = None
+        favicon_tag = soup.find('link', rel='icon') or soup.find('link', rel='shortcut icon')
+        if favicon_tag and favicon_tag.get('href'):
+            favicon_url = favicon_tag.get('href')
+            if favicon_url.startswith('//'):
+                favicon = 'https:' + favicon_url
+            elif favicon_url.startswith('/'):
+                parsed = urlparse(url)
+                favicon = f"{parsed.scheme}://{parsed.netloc}{favicon_url}"
+            elif not favicon_url.startswith('http'):
+                parsed = urlparse(url)
+                favicon = f"{parsed.scheme}://{parsed.netloc}/{favicon_url}"
+            else:
+                favicon = favicon_url
+        
+        thumbnail = None
+        og_image = soup.find('meta', attrs={'property': 'og:image'})
+        if og_image and og_image.get('content'):
+            thumbnail = og_image.get('content')
+        
+        h = html2text.HTML2Text()
+        h.ignore_links = False
+        text_content = h.handle(doc.summary())
+        
+        return {
+            'title': title,
+            'description': description,
+            'favicon': favicon,
+            'thumbnail': thumbnail,
+            'html_content': doc.summary(),
+            'text_content': text_content,
+            'domain': urlparse(url).netloc
+        }
+    except Exception as e:
+        logging.error(f"Error fetching webpage: {e}")
+        return {
+            'title': urlparse(url).netloc,
+            'domain': urlparse(url).netloc,
+            'text_content': '',
+            'html_content': ''
+        }
+
+async def generate_ai_summaries(text_content: str, bookmark_id: str):
+    try:
+        emergent_key = os.environ.get('EMERGENT_LLM_KEY')
+        
+        one_sentence_chat = LlmChat(
+            api_key=emergent_key,
+            session_id=f"summary-1s-{bookmark_id}",
+            system_message="You are a factual summarizer. Create a single, concise sentence summarizing the main point."
+        ).with_model("gemini", "gemini-2.5-flash")
+        
+        one_sentence = await one_sentence_chat.send_message(
+            UserMessage(text=f"Summarize this in ONE sentence:\n{text_content[:3000]}")
+        )
+        
+        bullet_chat = LlmChat(
+            api_key=emergent_key,
+            session_id=f"summary-bullets-{bookmark_id}",
+            system_message="You are a factual summarizer. Extract 3 key bullet points. Return only the bullets, no intro."
+        ).with_model("gemini", "gemini-2.5-flash")
+        
+        bullets_response = await bullet_chat.send_message(
+            UserMessage(text=f"Extract 3 key bullet points:\n{text_content[:3000]}")
+        )
+        bullet_points = [line.strip('- ').strip() for line in bullets_response.split('\n') if line.strip().startswith('-') or line.strip().startswith('•')][:3]
+        
+        long_chat = LlmChat(
+            api_key=emergent_key,
+            session_id=f"summary-long-{bookmark_id}",
+            system_message="You are a factual summarizer. Create a detailed summary with sections: Overview, Key Facts, Main Points."
+        ).with_model("gemini", "gemini-2.5-flash")
+        
+        long_form = await long_chat.send_message(
+            UserMessage(text=f"Create a detailed summary with sections:\n{text_content[:4000]}")
+        )
+        
+        highlights_chat = LlmChat(
+            api_key=emergent_key,
+            session_id=f"highlights-{bookmark_id}",
+            system_message="Extract 3-5 important quotes or key statements from the text. Return only the quotes."
+        ).with_model("gemini", "gemini-2.5-flash")
+        
+        highlights_response = await highlights_chat.send_message(
+            UserMessage(text=f"Extract key quotes:\n{text_content[:3000]}")
+        )
+        highlights = [line.strip('- "').strip('"').strip() for line in highlights_response.split('\n') if line.strip()][:5]
+        
+        tags_chat = LlmChat(
+            api_key=emergent_key,
+            session_id=f"tags-{bookmark_id}",
+            system_message="Generate 3-5 relevant tags/keywords. Return only comma-separated tags."
+        ).with_model("gemini", "gemini-2.5-flash")
+        
+        tags_response = await tags_chat.send_message(
+            UserMessage(text=f"Generate tags:\n{text_content[:2000]}")
+        )
+        suggested_tags = [tag.strip() for tag in tags_response.replace(',', ' ').split() if tag.strip()][:5]
+        
+        summary = {
+            "id": str(uuid.uuid4()),
+            "bookmark_id": bookmark_id,
+            "one_sentence": one_sentence.strip(),
+            "bullet_points": bullet_points,
+            "long_form": long_form.strip(),
+            "highlights": highlights,
+            "suggested_tags": suggested_tags,
+            "processing_status": "completed",
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        
+        await db.ai_summaries.insert_one(summary)
+        return summary
+    except Exception as e:
+        logging.error(f"Error generating AI summaries: {e}")
+        summary = {
+            "id": str(uuid.uuid4()),
+            "bookmark_id": bookmark_id,
+            "processing_status": "failed",
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        await db.ai_summaries.insert_one(summary)
+        return summary
+
+@api_router.post("/bookmarks", response_model=Bookmark)
+async def create_bookmark(bookmark_data: BookmarkCreate, current_user: dict = Depends(get_current_user)):
+    content = await fetch_webpage_content(bookmark_data.url)
+    
+    bookmark = {
+        "id": str(uuid.uuid4()),
+        "user_id": current_user["id"],
+        "url": bookmark_data.url,
+        "title": content.get('title'),
+        "description": content.get('description'),
+        "favicon": content.get('favicon'),
+        "thumbnail": content.get('thumbnail'),
+        "html_content": content.get('html_content'),
+        "text_content": content.get('text_content'),
+        "domain": content.get('domain'),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.bookmarks.insert_one(bookmark)
+    
+    asyncio.create_task(generate_ai_summaries(content.get('text_content', ''), bookmark["id"]))
+    
+    if bookmark_data.collection_id:
+        await db.collections.update_one(
+            {"id": bookmark_data.collection_id, "user_id": current_user["id"]},
+            {"$addToSet": {"bookmark_ids": bookmark["id"]}}
+        )
+    
+    return Bookmark(**bookmark)
+
+@api_router.get("/bookmarks", response_model=List[dict])
+async def get_bookmarks(
+    search: Optional[str] = None,
+    tag: Optional[str] = None,
+    domain: Optional[str] = None,
+    collection_id: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    query = {"user_id": current_user["id"]}
+    
+    if domain:
+        query["domain"] = domain
+    
+    if collection_id:
+        collection = await db.collections.find_one({"id": collection_id}, {"_id": 0})
+        if collection:
+            query["id"] = {"$in": collection.get("bookmark_ids", [])}
+    
+    bookmarks = await db.bookmarks.find(query, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    
+    if search:
+        search_lower = search.lower()
+        bookmarks = [b for b in bookmarks if 
+                    search_lower in (b.get('title') or '').lower() or 
+                    search_lower in (b.get('text_content') or '').lower() or
+                    search_lower in (b.get('description') or '').lower()]
+    
+    result = []
+    for bookmark in bookmarks:
+        summary = await db.ai_summaries.find_one({"bookmark_id": bookmark["id"]}, {"_id": 0})
+        
+        if tag and summary:
+            if tag.lower() not in [t.lower() for t in summary.get('suggested_tags', [])]:
+                continue
+        
+        bookmark_with_summary = {**bookmark}
+        if summary:
+            bookmark_with_summary["ai_summary"] = summary
+        result.append(bookmark_with_summary)
+    
+    return result
+
+@api_router.get("/bookmarks/{bookmark_id}")
+async def get_bookmark(bookmark_id: str, current_user: dict = Depends(get_current_user)):
+    bookmark = await db.bookmarks.find_one({"id": bookmark_id, "user_id": current_user["id"]}, {"_id": 0})
+    if not bookmark:
+        raise HTTPException(status_code=404, detail="Bookmark not found")
+    
+    summary = await db.ai_summaries.find_one({"bookmark_id": bookmark_id}, {"_id": 0})
+    
+    result = {**bookmark}
+    if summary:
+        result["ai_summary"] = summary
+    
+    return result
+
+@api_router.delete("/bookmarks/{bookmark_id}")
+async def delete_bookmark(bookmark_id: str, current_user: dict = Depends(get_current_user)):
+    result = await db.bookmarks.delete_one({"id": bookmark_id, "user_id": current_user["id"]})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Bookmark not found")
+    
+    await db.ai_summaries.delete_one({"bookmark_id": bookmark_id})
+    await db.collections.update_many(
+        {"user_id": current_user["id"]},
+        {"$pull": {"bookmark_ids": bookmark_id}}
+    )
+    
+    return {"message": "Bookmark deleted"}
+
+@api_router.get("/bookmarks/duplicates/detect")
+async def detect_duplicates(current_user: dict = Depends(get_current_user)):
+    bookmarks = await db.bookmarks.find({"user_id": current_user["id"]}, {"_id": 0}).to_list(1000)
+    
+    url_groups = {}
+    for bookmark in bookmarks:
+        normalized_url = re.sub(r'(\?|#).*$', '', bookmark['url']).lower().strip('/')
+        if normalized_url not in url_groups:
+            url_groups[normalized_url] = []
+        url_groups[normalized_url].append(bookmark)
+    
+    duplicates = []
+    for url, group in url_groups.items():
+        if len(group) > 1:
+            duplicates.append({"type": "exact_url", "bookmarks": group})
+    
+    texts = [b.get('text_content', '')[:1000] for b in bookmarks if b.get('text_content')]
+    if len(texts) > 1:
+        try:
+            vectorizer = TfidfVectorizer(max_features=100)
+            tfidf_matrix = vectorizer.fit_transform(texts)
+            similarities = cosine_similarity(tfidf_matrix)
+            
+            for i in range(len(bookmarks)):
+                for j in range(i + 1, len(bookmarks)):
+                    if similarities[i][j] > 0.85:
+                        duplicates.append({
+                            "type": "similar_content",
+                            "similarity": float(similarities[i][j]),
+                            "bookmarks": [bookmarks[i], bookmarks[j]]
+                        })
+        except:
+            pass
+    
+    return {"duplicates": duplicates}
+
+@api_router.post("/bookmarks/merge")
+async def merge_bookmarks(bookmark_ids: List[str], current_user: dict = Depends(get_current_user)):
+    if len(bookmark_ids) < 2:
+        raise HTTPException(status_code=400, detail="Need at least 2 bookmarks to merge")
+    
+    bookmarks = await db.bookmarks.find({"id": {"$in": bookmark_ids}, "user_id": current_user["id"]}, {"_id": 0}).to_list(100)
+    if len(bookmarks) < 2:
+        raise HTTPException(status_code=404, detail="Bookmarks not found")
+    
+    keep_bookmark = bookmarks[0]
+    delete_ids = [b["id"] for b in bookmarks[1:]]
+    
+    await db.bookmarks.delete_many({"id": {"$in": delete_ids}})
+    await db.ai_summaries.delete_many({"bookmark_id": {"$in": delete_ids}})
+    
+    return {"message": "Bookmarks merged", "kept_bookmark": keep_bookmark}
+
+@api_router.post("/collections", response_model=Collection)
+async def create_collection(collection_data: CollectionCreate, current_user: dict = Depends(get_current_user)):
+    collection = {
+        "id": str(uuid.uuid4()),
+        "user_id": current_user["id"],
+        "name": collection_data.name,
+        "bookmark_ids": [],
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.collections.insert_one(collection)
+    return Collection(**collection)
+
+@api_router.get("/collections", response_model=List[Collection])
+async def get_collections(current_user: dict = Depends(get_current_user)):
+    collections = await db.collections.find({"user_id": current_user["id"]}, {"_id": 0}).to_list(1000)
+    return [Collection(**c) for c in collections]
+
+@api_router.post("/collections/{collection_id}/add")
+async def add_to_collection(collection_id: str, data: AddToCollection, current_user: dict = Depends(get_current_user)):
+    result = await db.collections.update_one(
+        {"id": collection_id, "user_id": current_user["id"]},
+        {"$addToSet": {"bookmark_ids": data.bookmark_id}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Collection not found")
+    return {"message": "Bookmark added to collection"}
+
 app.include_router(api_router)
 
 app.add_middleware(
@@ -77,7 +484,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
