@@ -519,6 +519,34 @@ async def delete_bookmark(bookmark_id: str, current_user: dict = Depends(get_cur
     
     return {"message": "Bookmark deleted"}
 
+@api_router.post("/bookmarks/bulk-delete")
+async def bulk_delete_bookmarks(bookmark_ids: List[str], current_user: dict = Depends(get_current_user)):
+    result = await db.bookmarks.delete_many({"id": {"$in": bookmark_ids}, "user_id": current_user["id"]})
+    await db.ai_summaries.delete_many({"bookmark_id": {"$in": bookmark_ids}})
+    await db.collections.update_many(
+        {"user_id": current_user["id"]},
+        {"$pull": {"bookmark_ids": {"$in": bookmark_ids}}}
+    )
+    return {"message": f"Deleted {result.deleted_count} bookmarks", "count": result.deleted_count}
+
+@api_router.patch("/bookmarks/{bookmark_id}/read-status")
+async def update_read_status(bookmark_id: str, read_status: bool, current_user: dict = Depends(get_current_user)):
+    result = await db.bookmarks.update_one(
+        {"id": bookmark_id, "user_id": current_user["id"]},
+        {"$set": {"read_status": read_status, "updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Bookmark not found")
+    return {"message": "Read status updated"}
+
+@api_router.post("/bookmarks/bulk-mark-read")
+async def bulk_mark_read(bookmark_ids: List[str], read_status: bool, current_user: dict = Depends(get_current_user)):
+    result = await db.bookmarks.update_many(
+        {"id": {"$in": bookmark_ids}, "user_id": current_user["id"]},
+        {"$set": {"read_status": read_status, "updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    return {"message": f"Updated {result.modified_count} bookmarks", "count": result.modified_count}
+
 @api_router.get("/bookmarks/duplicates/detect")
 async def detect_duplicates(current_user: dict = Depends(get_current_user)):
     bookmarks = await db.bookmarks.find({"user_id": current_user["id"]}, {"_id": 0}).to_list(1000)
