@@ -163,12 +163,13 @@ async def fetch_webpage_content(url: str):
         response = requests.get(url, headers=headers, timeout=15, allow_redirects=True)
         response.raise_for_status()
         
-        soup = BeautifulSoup(response.content, 'html.parser')
+        html_content = response.text
+        soup = BeautifulSoup(html_content, 'html.parser')
         
         for script in soup(["script", "style", "nav", "footer", "header"]):
             script.decompose()
         
-        doc = Document(response.content)
+        doc = Document(html_content)
         summary_html = doc.summary()
         
         title = doc.title()
@@ -207,31 +208,35 @@ async def fetch_webpage_content(url: str):
         h.ignore_links = False
         h.ignore_images = True
         h.body_width = 0
-        text_content = h.handle(summary_html)
+        text_content = h.handle(summary_html).strip()
         
         if not text_content or len(text_content.strip()) < 100:
-            body = soup.find('body')
-            if body:
-                for tag in body.find_all(['p', 'article', 'section', 'div'], recursive=True):
-                    text = tag.get_text(separator=' ', strip=True)
-                    if len(text) > 100:
-                        text_content += text + '\\n\\n'
+            cleaned_soup = BeautifulSoup(summary_html, 'html.parser')
+            paragraphs = cleaned_soup.find_all(['p', 'article', 'section'])
+            text_parts = []
+            for p in paragraphs:
+                text = p.get_text(separator=' ', strip=True)
+                if len(text) > 50:
+                    text_parts.append(text)
+            if text_parts:
+                text_content = '\\n\\n'.join(text_parts)
         
-        text_content = text_content.strip()
         if len(text_content) < 50:
             text_content = soup.get_text(separator='\\n', strip=True)
         
+        text_content = ' '.join(text_content.split())[:10000]
+        
         return {
-            'title': title.strip(),
+            'title': title.strip() if title else urlparse(url).netloc,
             'description': description,
             'favicon': favicon,
             'thumbnail': thumbnail,
             'html_content': summary_html,
-            'text_content': text_content[:10000],
+            'text_content': text_content,
             'domain': urlparse(url).netloc
         }
     except Exception as e:
-        logging.error(f"Error fetching webpage {url}: {e}")
+        logging.error(f"Error fetching webpage {url}: {str(e)}")
         return {
             'title': urlparse(url).netloc,
             'domain': urlparse(url).netloc,
