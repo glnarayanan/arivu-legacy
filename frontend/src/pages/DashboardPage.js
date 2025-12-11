@@ -144,6 +144,46 @@ const DashboardPage = ({ onLogout }) => {
               <h1 className="font-heading text-2xl font-bold tracking-tight">KnolHub</h1>
             </div>
             <div className="flex items-center gap-2">
+              <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button
+                    data-testid="add-bookmark-header-btn"
+                    size="sm"
+                    className="rounded-full"
+                  >
+                    <PlusIcon className="w-4 h-4 mr-2" />
+                    Add Bookmark
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="rounded-2xl" aria-describedby="add-bookmark-header-description">
+                  <DialogHeader>
+                    <DialogTitle className="font-heading">Add Bookmark</DialogTitle>
+                    <p id="add-bookmark-header-description" className="text-sm text-muted-foreground sr-only">
+                      Enter a URL to save and get AI-powered summaries
+                    </p>
+                  </DialogHeader>
+                  <form onSubmit={handleAddBookmark} className="space-y-4">
+                    <Input
+                      data-testid="bookmark-url-input-header"
+                      type="url"
+                      placeholder="https://example.com/article"
+                      value={newBookmarkUrl}
+                      onChange={(e) => setNewBookmarkUrl(e.target.value)}
+                      required
+                      className="rounded-xl"
+                      autoFocus
+                    />
+                    <Button
+                      data-testid="save-bookmark-btn-header"
+                      type="submit"
+                      className="w-full rounded-full"
+                      disabled={addingBookmark}
+                    >
+                      {addingBookmark ? 'Saving...' : 'Save Bookmark'}
+                    </Button>
+                  </form>
+                </DialogContent>
+              </Dialog>
               <Button
                 data-testid="duplicates-btn"
                 variant="ghost"
