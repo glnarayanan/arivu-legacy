@@ -6,7 +6,7 @@ import { Input } from '../components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { toast } from 'sonner';
-import { BookmarkIcon, PlusIcon, SearchIcon, FilterIcon, SparklesIcon, FolderIcon, LogOutIcon, CopyIcon, UploadIcon, DownloadIcon, CheckSquare, Square, Trash2, CheckCircle, Circle, Clock, BookOpen } from 'lucide-react';
+import { BookmarkIcon, PlusIcon, SearchIcon, FilterIcon, SparklesIcon, FolderIcon, LogOutIcon, CopyIcon, UploadIcon, DownloadIcon, CheckSquare, Square, Trash2, CheckCircle, Circle, Clock, BookOpen, Grid3x3, List } from 'lucide-react';
 import KeyboardShortcutsModal from '../components/KeyboardShortcutsModal';
 import BookmarkCard from '../components/BookmarkCard';
 
