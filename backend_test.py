@@ -291,7 +291,7 @@ class ArivuAPITester:
         return False
 
 def main():
-    print("🚀 Starting KnolHub API Testing...")
+    print("🚀 Starting Arivu API Testing...")
     print("=" * 50)
     
     tester = KnolHubAPITester()
