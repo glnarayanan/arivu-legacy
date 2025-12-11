@@ -339,9 +339,12 @@ const DashboardPage = ({ onLogout }) => {
             <PlusIcon className="w-6 h-6" />
           </Button>
         </DialogTrigger>
-        <DialogContent className="rounded-2xl">
+        <DialogContent className="rounded-2xl" aria-describedby="add-bookmark-description-fab">
           <DialogHeader>
             <DialogTitle className="font-heading">Add Bookmark</DialogTitle>
+            <p id="add-bookmark-description-fab" className="text-sm text-muted-foreground sr-only">
+              Enter a URL to save and get AI-powered summaries
+            </p>
           </DialogHeader>
           <form onSubmit={handleAddBookmark} className="space-y-4">
             <Input
@@ -352,6 +355,7 @@ const DashboardPage = ({ onLogout }) => {
               onChange={(e) => setNewBookmarkUrl(e.target.value)}
               required
               className="rounded-xl"
+              autoFocus
             />
             <Button
               data-testid="save-bookmark-btn-fab"
