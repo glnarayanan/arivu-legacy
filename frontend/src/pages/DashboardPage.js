@@ -471,6 +471,28 @@ const DashboardPage = ({ onLogout }) => {
           </div>
 
           <div className="flex flex-wrap gap-3 items-center">
+            {/* View Mode Toggle */}
+            <div className="flex gap-1 p-1 bg-muted rounded-xl">
+              <Button
+                data-testid="list-view-btn"
+                variant={viewMode === 'list' ? 'default' : 'ghost'}
+                size="sm"
+                className="h-8 px-3"
+                onClick={() => setViewMode('list')}
+              >
+                <List className="w-4 h-4" />
+              </Button>
+              <Button
+                data-testid="grid-view-btn"
+                variant={viewMode === 'grid' ? 'default' : 'ghost'}
+                size="sm"
+                className="h-8 px-3"
+                onClick={() => setViewMode('grid')}
+              >
+                <Grid3x3 className="w-4 h-4" />
+              </Button>
+            </div>
+
             <Button
               data-testid="bulk-mode-btn"
               variant={bulkMode ? "default" : "outline"}
