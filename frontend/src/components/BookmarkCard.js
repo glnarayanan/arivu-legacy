@@ -2,7 +2,7 @@ import { ExternalLinkIcon, TrashIcon, SparklesIcon, ClockIcon } from 'lucide-rea
 import { Button } from './ui/button';
 import { formatDistanceToNow } from 'date-fns';
 
-const BookmarkCard = ({ bookmark, onDelete, onClick }) => {
+const BookmarkCard = ({ bookmark, onDelete, onClick, bulkMode, isSelected, onToggleSelect, isHighlighted }) => {
   const handleDelete = (e) => {
     e.stopPropagation();
     if (window.confirm('Delete this bookmark?')) {
@@ -15,11 +15,22 @@ const BookmarkCard = ({ bookmark, onDelete, onClick }) => {
     window.open(bookmark.url, '_blank');
   };
 
+  const handleCardClick = (e) => {
+    if (bulkMode) {
+      e.stopPropagation();
+      onToggleSelect();
+    } else {
+      onClick();
+    }
+  };
+
   return (
     <div
       data-testid={`bookmark-card-${bookmark.id}`}
-      onClick={onClick}
-      className="bookmark-card group relative overflow-hidden rounded-2xl border bg-card transition-all hover:border-primary/20 hover:shadow-lg cursor-pointer"
+      onClick={handleCardClick}
+      className={`bookmark-card group relative overflow-hidden rounded-2xl border bg-card transition-all hover:border-primary/20 hover:shadow-lg cursor-pointer ${
+        isHighlighted ? 'ring-2 ring-primary' : ''
+      } ${isSelected ? 'ring-2 ring-violet-500' : ''}`}
     >
       {/* Thumbnail */}
       {bookmark.thumbnail ? (
