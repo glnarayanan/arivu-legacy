@@ -31,6 +31,12 @@ const DashboardPage = ({ onLogout }) => {
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [importFile, setImportFile] = useState(null);
   const [importing, setImporting] = useState(false);
+  const [selectedBookmarks, setSelectedBookmarks] = useState([]);
+  const [bulkMode, setBulkMode] = useState(false);
+  const [selectedIndex, setSelectedIndex] = useState(-1);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [readFilter, setReadFilter] = useState('all');
+  const [sortBy, setSortBy] = useState('created_at');
 
   const token = localStorage.getItem('token');
   const user = JSON.parse(localStorage.getItem('user') || '{}');
