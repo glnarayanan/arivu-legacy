@@ -638,7 +638,7 @@ async def create_collection(collection_data: CollectionCreate, current_user: dic
 
 @api_router.get("/collections", response_model=List[Collection])
 async def get_collections(current_user: dict = Depends(get_current_user)):
-    collections = await db.collections.find({"user_id": current_user["id"]}, {"_id": 0}).to_list(1000)
+    collections = await db.collections.find({"user_id": current_user["id"]}, {"_id": 0}).limit(100).to_list(None)
     return [Collection(**c) for c in collections]
 
 @api_router.post("/collections/{collection_id}/add")
