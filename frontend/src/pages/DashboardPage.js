@@ -267,6 +267,59 @@ const DashboardPage = ({ onLogout }) => {
     }
   };
 
+  const handleBulkDelete = async () => {
+    if (selectedBookmarks.length === 0) return;
+    if (!window.confirm(`Delete ${selectedBookmarks.length} bookmarks?`)) return;
+
+    try {
+      await axios.post(
+        `${API}/bookmarks/bulk-delete`,
+        selectedBookmarks,
+        { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
+      );
+      toast.success(`Deleted ${selectedBookmarks.length} bookmarks`);
+      setSelectedBookmarks([]);
+      setBulkMode(false);
+      fetchBookmarks();
+    } catch (error) {
+      toast.error('Failed to delete bookmarks');
+    }
+  };
+
+  const handleBulkMarkRead = async (status) => {
+    if (selectedBookmarks.length === 0) return;
+
+    try {
+      await axios.post(
+        `${API}/bookmarks/bulk-mark-read`,
+        { bookmark_ids: selectedBookmarks, read_status: status },
+        { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
+      );
+      toast.success(`Marked ${selectedBookmarks.length} as ${status ? 'read' : 'unread'}`);
+      setSelectedBookmarks([]);
+      setBulkMode(false);
+      fetchBookmarks();
+    } catch (error) {
+      toast.error('Failed to update bookmarks');
+    }
+  };
+
+  const toggleBookmarkSelection = (bookmarkId) => {
+    setSelectedBookmarks(prev => 
+      prev.includes(bookmarkId) 
+        ? prev.filter(id => id !== bookmarkId)
+        : [...prev, bookmarkId]
+    );
+  };
+
+  const selectAllBookmarks = () => {
+    setSelectedBookmarks(bookmarks.map(b => b.id));
+  };
+
+  const deselectAllBookmarks = () => {
+    setSelectedBookmarks([]);
+  };
+
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
