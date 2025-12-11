@@ -659,7 +659,7 @@ async def add_to_collection(collection_id: str, data: AddToCollection, current_u
     return {"message": "Bookmark added to collection"}
 
 @api_router.post("/bookmarks/import")
-async def import_bookmarks(file: bytes = None, current_user: dict = Depends(get_current_user)):
+async def import_bookmarks(file: bytes = None, background_tasks: BackgroundTasks = None, current_user: dict = Depends(get_current_user)):
     """Import bookmarks from browser HTML file"""
     try:
         from fastapi import UploadFile, File
