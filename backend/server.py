@@ -69,6 +69,8 @@ class Bookmark(BaseModel):
     html_content: Optional[str] = None
     text_content: Optional[str] = None
     domain: Optional[str] = None
+    reading_time: Optional[int] = None
+    read_status: bool = False
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
