@@ -728,7 +728,10 @@ const DashboardPage = ({ onLogout }) => {
             </Dialog>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+          <div className={viewMode === 'grid' 
+            ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
+            : "space-y-3"
+          }>
             {bookmarks.map((bookmark, index) => (
               <BookmarkCard
                 key={bookmark.id}
@@ -739,6 +742,7 @@ const DashboardPage = ({ onLogout }) => {
                 isSelected={selectedBookmarks.includes(bookmark.id)}
                 onToggleSelect={() => toggleBookmarkSelection(bookmark.id)}
                 isHighlighted={selectedIndex === index}
+                viewMode={viewMode}
               />
             ))}
           </div>
