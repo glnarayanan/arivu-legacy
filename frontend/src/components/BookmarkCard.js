@@ -150,10 +150,17 @@ const BookmarkCard = ({ bookmark, onDelete, onClick, bulkMode, isSelected, onTog
           </div>
         </div>
 
-        {/* Created timestamp */}
-        <div className="flex items-center gap-1 text-xs text-muted-foreground">
-          <ClockIcon className="w-3 h-3" />
-          <span>{formatDistanceToNow(new Date(bookmark.created_at), { addSuffix: true })}</span>
+        {/* Reading time & Created timestamp */}
+        <div className="flex items-center justify-between text-xs text-muted-foreground">
+          <div className="flex items-center gap-1">
+            <ClockIcon className="w-3 h-3" />
+            <span>{formatDistanceToNow(new Date(bookmark.created_at), { addSuffix: true })}</span>
+          </div>
+          {bookmark.reading_time && (
+            <div className="flex items-center gap-1 px-2 py-0.5 bg-muted rounded-full">
+              <span className="font-mono">{bookmark.reading_time} min read</span>
+            </div>
+          )}
         </div>
       </div>
     </div>
