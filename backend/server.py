@@ -355,28 +355,64 @@ async def generate_ai_summaries(text_content: str, bookmark_id: str):
         await db.ai_summaries.insert_one(summary)
         return summary
 
+async def process_bookmark_content(bookmark_id: str, url: str, collection_id: Optional[str] = None, user_id: str = None):
+    """Background task to fetch content and generate AI summaries"""
+    try:
+        content = await fetch_webpage_content(url)
+        
+        await db.bookmarks.update_one(
+            {"id": bookmark_id},
+            {"$set": {
+                "title": content.get('title'),
+                "description": content.get('description'),
+                "favicon": content.get('favicon'),
+                "thumbnail": content.get('thumbnail'),
+                "html_content": content.get('html_content'),
+                "text_content": content.get('text_content'),
+                "domain": content.get('domain'),
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }}
+        )
+        
+        await generate_ai_summaries(content.get('text_content', ''), bookmark_id)
+    except Exception as e:
+        logging.error(f"Error processing bookmark {bookmark_id}: {e}")
+
 @api_router.post("/bookmarks", response_model=Bookmark)
 async def create_bookmark(bookmark_data: BookmarkCreate, current_user: dict = Depends(get_current_user)):
-    content = await fetch_webpage_content(bookmark_data.url)
+    parsed_url = urlparse(bookmark_data.url)
     
     bookmark = {
         "id": str(uuid.uuid4()),
         "user_id": current_user["id"],
         "url": bookmark_data.url,
-        "title": content.get('title'),
-        "description": content.get('description'),
-        "favicon": content.get('favicon'),
-        "thumbnail": content.get('thumbnail'),
-        "html_content": content.get('html_content'),
-        "text_content": content.get('text_content'),
-        "domain": content.get('domain'),
+        "title": parsed_url.netloc or "Loading...",
+        "description": None,
+        "favicon": None,
+        "thumbnail": None,
+        "html_content": None,
+        "text_content": None,
+        "domain": parsed_url.netloc,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "updated_at": datetime.now(timezone.utc).isoformat()
     }
     
     await db.bookmarks.insert_one(bookmark)
     
-    asyncio.create_task(generate_ai_summaries(content.get('text_content', ''), bookmark["id"]))
+    ai_summary = {
+        "id": str(uuid.uuid4()),
+        "bookmark_id": bookmark["id"],
+        "processing_status": "pending",
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.ai_summaries.insert_one(ai_summary)
+    
+    asyncio.create_task(process_bookmark_content(
+        bookmark["id"], 
+        bookmark_data.url, 
+        bookmark_data.collection_id,
+        current_user["id"]
+    ))
     
     if bookmark_data.collection_id:
         await db.collections.update_one(
