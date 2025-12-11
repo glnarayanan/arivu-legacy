@@ -229,7 +229,7 @@ const DashboardPage = ({ onLogout }) => {
               <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-primary text-primary-foreground">
                 <BookmarkIcon className="w-5 h-5" />
               </div>
-              <h1 className="font-heading text-2xl font-bold tracking-tight">KnolHub</h1>
+              <h1 className="font-heading text-2xl font-bold tracking-tight">Arivu</h1>
             </div>
             <div className="flex items-center gap-2">
               <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
