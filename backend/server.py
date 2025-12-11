@@ -405,6 +405,8 @@ async def create_bookmark(bookmark_data: BookmarkCreate, current_user: dict = De
         "html_content": None,
         "text_content": None,
         "domain": parsed_url.netloc,
+        "reading_time": None,
+        "read_status": False,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "updated_at": datetime.now(timezone.utc).isoformat()
     }
