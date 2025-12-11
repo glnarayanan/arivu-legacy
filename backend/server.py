@@ -241,67 +241,91 @@ async def fetch_webpage_content(url: str):
 
 async def generate_ai_summaries(text_content: str, bookmark_id: str):
     try:
+        if not text_content or len(text_content.strip()) < 50:
+            raise ValueError("Insufficient content for AI processing")
+        
         emergent_key = os.environ.get('EMERGENT_LLM_KEY')
+        content_snippet = text_content[:4000].strip()
         
         one_sentence_chat = LlmChat(
             api_key=emergent_key,
             session_id=f"summary-1s-{bookmark_id}",
-            system_message="You are a factual summarizer. Create a single, concise sentence summarizing the main point."
+            system_message="You are a factual summarizer. Create ONE concise sentence (max 20 words) summarizing the main point. Be direct and factual."
         ).with_model("gemini", "gemini-2.5-flash")
         
         one_sentence = await one_sentence_chat.send_message(
-            UserMessage(text=f"Summarize this in ONE sentence:\n{text_content[:3000]}")
+            UserMessage(text=f"Summarize in ONE sentence:\n\n{content_snippet}")
         )
+        one_sentence = one_sentence.strip()
         
         bullet_chat = LlmChat(
             api_key=emergent_key,
             session_id=f"summary-bullets-{bookmark_id}",
-            system_message="You are a factual summarizer. Extract 3 key bullet points. Return only the bullets, no intro."
+            system_message="Extract exactly 3 key bullet points. Format as:\n- Point 1\n- Point 2\n- Point 3\nBe factual and concise."
         ).with_model("gemini", "gemini-2.5-flash")
         
         bullets_response = await bullet_chat.send_message(
-            UserMessage(text=f"Extract 3 key bullet points:\n{text_content[:3000]}")
+            UserMessage(text=f"Extract 3 key points:\n\n{content_snippet}")
         )
-        bullet_points = [line.strip('- ').strip() for line in bullets_response.split('\n') if line.strip().startswith('-') or line.strip().startswith('•')][:3]
+        bullet_points = []
+        for line in bullets_response.split('\n'):
+            line = line.strip()
+            if line.startswith('-') or line.startswith('•') or line.startswith('*'):
+                bullet_points.append(line.lstrip('-•* ').strip())
+        bullet_points = bullet_points[:3]
+        
+        if len(bullet_points) < 3:
+            bullet_points = [b.strip() for b in bullets_response.split('.') if b.strip()][:3]
         
         long_chat = LlmChat(
             api_key=emergent_key,
             session_id=f"summary-long-{bookmark_id}",
-            system_message="You are a factual summarizer. Create a detailed summary with sections: Overview, Key Facts, Main Points."
+            system_message="Create a comprehensive summary (150-200 words) with clear sections. Be factual and well-structured."
         ).with_model("gemini", "gemini-2.5-flash")
         
         long_form = await long_chat.send_message(
-            UserMessage(text=f"Create a detailed summary with sections:\n{text_content[:4000]}")
+            UserMessage(text=f"Create a detailed summary with Overview, Key Facts, and Main Points:\n\n{content_snippet}")
         )
+        long_form = long_form.strip()
         
         highlights_chat = LlmChat(
             api_key=emergent_key,
             session_id=f"highlights-{bookmark_id}",
-            system_message="Extract 3-5 important quotes or key statements from the text. Return only the quotes."
+            system_message="Extract 3-5 important direct quotes or key statements. Return one per line without bullets."
         ).with_model("gemini", "gemini-2.5-flash")
         
         highlights_response = await highlights_chat.send_message(
-            UserMessage(text=f"Extract key quotes:\n{text_content[:3000]}")
+            UserMessage(text=f"Extract key quotes or statements:\n\n{content_snippet}")
         )
-        highlights = [line.strip('- "').strip('"').strip() for line in highlights_response.split('\n') if line.strip()][:5]
+        highlights = []
+        for line in highlights_response.split('\n'):
+            line = line.strip().strip('-•*"').strip('"').strip()
+            if len(line) > 10:
+                highlights.append(line)
+        highlights = highlights[:5]
         
         tags_chat = LlmChat(
             api_key=emergent_key,
             session_id=f"tags-{bookmark_id}",
-            system_message="Generate 3-5 relevant tags/keywords. Return only comma-separated tags."
+            system_message="Generate 4-6 relevant single-word or two-word tags. Return comma-separated lowercase tags."
         ).with_model("gemini", "gemini-2.5-flash")
         
         tags_response = await tags_chat.send_message(
-            UserMessage(text=f"Generate tags:\n{text_content[:2000]}")
+            UserMessage(text=f"Generate relevant tags:\n\n{content_snippet[:1500]}")
         )
-        suggested_tags = [tag.strip() for tag in tags_response.replace(',', ' ').split() if tag.strip()][:5]
+        suggested_tags = []
+        for tag in tags_response.replace(',', ' ').replace('\n', ' ').split():
+            tag = tag.strip().strip('.,;:').lower()
+            if tag and len(tag) > 2:
+                suggested_tags.append(tag)
+        suggested_tags = list(set(suggested_tags))[:6]
         
         summary = {
             "id": str(uuid.uuid4()),
             "bookmark_id": bookmark_id,
-            "one_sentence": one_sentence.strip(),
+            "one_sentence": one_sentence,
             "bullet_points": bullet_points,
-            "long_form": long_form.strip(),
+            "long_form": long_form,
             "highlights": highlights,
             "suggested_tags": suggested_tags,
             "processing_status": "completed",
@@ -309,13 +333,18 @@ async def generate_ai_summaries(text_content: str, bookmark_id: str):
         }
         
         await db.ai_summaries.insert_one(summary)
+        logging.info(f"AI summaries generated successfully for bookmark {bookmark_id}")
         return summary
     except Exception as e:
-        logging.error(f"Error generating AI summaries: {e}")
+        logging.error(f"Error generating AI summaries for {bookmark_id}: {e}")
         summary = {
             "id": str(uuid.uuid4()),
             "bookmark_id": bookmark_id,
             "processing_status": "failed",
+            "one_sentence": "AI processing failed",
+            "bullet_points": [],
+            "highlights": [],
+            "suggested_tags": [],
             "created_at": datetime.now(timezone.utc).isoformat()
         }
         await db.ai_summaries.insert_one(summary)
