@@ -468,7 +468,42 @@ const DashboardPage = ({ onLogout }) => {
             />
           </div>
 
-          <div className="flex flex-wrap gap-3">
+          <div className="flex flex-wrap gap-3 items-center">
+            <Button
+              data-testid="bulk-mode-btn"
+              variant={bulkMode ? "default" : "outline"}
+              size="sm"
+              className="rounded-xl"
+              onClick={() => setBulkMode(!bulkMode)}
+            >
+              {bulkMode ? <CheckSquare className="w-4 h-4 mr-2" /> : <Square className="w-4 h-4 mr-2" />}
+              Bulk Select
+            </Button>
+
+            <Select value={readFilter} onValueChange={setReadFilter}>
+              <SelectTrigger data-testid="read-filter" className="w-[180px] rounded-xl">
+                <BookOpen className="w-4 h-4 mr-2" />
+                <SelectValue placeholder="Reading status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All articles</SelectItem>
+                <SelectItem value="unread">Unread only</SelectItem>
+                <SelectItem value="read">Read only</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <Select value={sortBy} onValueChange={setSortBy}>
+              <SelectTrigger data-testid="sort-filter" className="w-[180px] rounded-xl">
+                <Clock className="w-4 h-4 mr-2" />
+                <SelectValue placeholder="Sort by" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="created_at">Date added</SelectItem>
+                <SelectItem value="reading_time">Reading time</SelectItem>
+                <SelectItem value="title">Title</SelectItem>
+              </SelectContent>
+            </Select>
+
             <Select value={filterTag} onValueChange={setFilterTag}>
               <SelectTrigger data-testid="tag-filter" className="w-[180px] rounded-xl">
                 <FilterIcon className="w-4 h-4 mr-2" />
