@@ -38,6 +38,7 @@ const DashboardPage = ({ onLogout }) => {
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [readFilter, setReadFilter] = useState('all');
   const [sortBy, setSortBy] = useState('created_at');
+  const [viewMode, setViewMode] = useState('list');
 
   const token = localStorage.getItem('token');
   const user = JSON.parse(localStorage.getItem('user') || '{}');
