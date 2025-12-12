@@ -252,80 +252,100 @@ async def generate_ai_summaries(text_content: str, bookmark_id: str):
         if not text_content or len(text_content.strip()) < 50:
             raise ValueError("Insufficient content for AI processing")
         
-        emergent_key = os.environ.get('EMERGENT_LLM_KEY')
+        gemini_api_key = os.environ.get('GEMINI_API_KEY')
+        if not gemini_api_key:
+            raise ValueError("GEMINI_API_KEY not found in environment variables")
+        
+        genai.configure(api_key=gemini_api_key)
+        model = genai.GenerativeModel('gemini-2.0-flash-exp')
+        
         content_snippet = text_content[:4000].strip()
         
-        one_sentence_chat = LlmChat(
-            api_key=emergent_key,
-            session_id=f"summary-1s-{bookmark_id}",
-            system_message="You are a factual summarizer. Create ONE concise sentence (max 20 words) summarizing the main point. Be direct and factual."
-        ).with_model("gemini", "gemini-2.5-flash")
+        # Generate one-sentence summary
+        one_sentence_prompt = f"""You are a factual summarizer. Create ONE concise sentence (max 20 words) summarizing the main point. Be direct and factual.
+
+Summarize in ONE sentence:
+
+{content_snippet}"""
         
-        one_sentence = await one_sentence_chat.send_message(
-            UserMessage(text=f"Summarize in ONE sentence:\n\n{content_snippet}")
+        response = await asyncio.to_thread(
+            model.generate_content,
+            one_sentence_prompt
         )
-        one_sentence = one_sentence.strip() if one_sentence else "Summary unavailable"
+        one_sentence = response.text.strip() if response.text else "Summary unavailable"
         
-        bullet_chat = LlmChat(
-            api_key=emergent_key,
-            session_id=f"summary-bullets-{bookmark_id}",
-            system_message="Extract exactly 3 key bullet points. Format as:\n- Point 1\n- Point 2\n- Point 3\nBe factual and concise."
-        ).with_model("gemini", "gemini-2.5-flash")
+        # Generate bullet points
+        bullets_prompt = f"""Extract exactly 3 key bullet points. Format as:
+- Point 1
+- Point 2
+- Point 3
+Be factual and concise.
+
+Extract 3 key points:
+
+{content_snippet}"""
         
-        bullets_response = await bullet_chat.send_message(
-            UserMessage(text=f"Extract 3 key points:\n\n{content_snippet}")
+        response = await asyncio.to_thread(
+            model.generate_content,
+            bullets_prompt
         )
         bullet_points = []
-        if bullets_response:
-            for line in bullets_response.split('\n'):
+        if response.text:
+            for line in response.text.split('\n'):
                 line = line.strip()
                 if line.startswith('-') or line.startswith('•') or line.startswith('*'):
                     bullet_points.append(line.lstrip('-•* ').strip())
             bullet_points = bullet_points[:3]
             
             if len(bullet_points) < 3:
-                bullet_points = [b.strip() for b in bullets_response.split('.') if b.strip()][:3]
+                bullet_points = [b.strip() for b in response.text.split('.') if b.strip()][:3]
         
-        long_chat = LlmChat(
-            api_key=emergent_key,
-            session_id=f"summary-long-{bookmark_id}",
-            system_message="Create a comprehensive summary (150-200 words) with clear sections. Be factual and well-structured."
-        ).with_model("gemini", "gemini-2.5-flash")
+        # Generate long-form summary
+        long_form_prompt = f"""Create a comprehensive summary (150-200 words) with clear sections. Be factual and well-structured.
+
+Create a detailed summary with Overview, Key Facts, and Main Points:
+
+{content_snippet}"""
         
-        long_form = await long_chat.send_message(
-            UserMessage(text=f"Create a detailed summary with Overview, Key Facts, and Main Points:\n\n{content_snippet}")
+        response = await asyncio.to_thread(
+            model.generate_content,
+            long_form_prompt
         )
-        long_form = long_form.strip() if long_form else "Detailed summary unavailable"
+        long_form = response.text.strip() if response.text else "Detailed summary unavailable"
         
-        highlights_chat = LlmChat(
-            api_key=emergent_key,
-            session_id=f"highlights-{bookmark_id}",
-            system_message="Extract 3-5 important direct quotes or key statements. Return one per line without bullets."
-        ).with_model("gemini", "gemini-2.5-flash")
+        # Extract highlights
+        highlights_prompt = f"""Extract 3-5 important direct quotes or key statements. Return one per line without bullets.
+
+Extract key quotes or statements:
+
+{content_snippet}"""
         
-        highlights_response = await highlights_chat.send_message(
-            UserMessage(text=f"Extract key quotes or statements:\n\n{content_snippet}")
+        response = await asyncio.to_thread(
+            model.generate_content,
+            highlights_prompt
         )
         highlights = []
-        if highlights_response:
-            for line in highlights_response.split('\n'):
+        if response.text:
+            for line in response.text.split('\n'):
                 line = line.strip().strip('-•*"').strip('"').strip()
                 if len(line) > 10:
                     highlights.append(line)
             highlights = highlights[:5]
         
-        tags_chat = LlmChat(
-            api_key=emergent_key,
-            session_id=f"tags-{bookmark_id}",
-            system_message="Generate 4-6 relevant single-word or two-word tags. Return comma-separated lowercase tags."
-        ).with_model("gemini", "gemini-2.5-flash")
+        # Generate tags
+        tags_prompt = f"""Generate 4-6 relevant single-word or two-word tags. Return comma-separated lowercase tags.
+
+Generate relevant tags:
+
+{content_snippet[:1500]}"""
         
-        tags_response = await tags_chat.send_message(
-            UserMessage(text=f"Generate relevant tags:\n\n{content_snippet[:1500]}")
+        response = await asyncio.to_thread(
+            model.generate_content,
+            tags_prompt
         )
         suggested_tags = []
-        if tags_response:
-            for tag in tags_response.replace(',', ' ').replace('\n', ' ').split():
+        if response.text:
+            for tag in response.text.replace(',', ' ').replace('\n', ' ').split():
                 tag = tag.strip().strip('.,;:').lower()
                 if tag and len(tag) > 2:
                     suggested_tags.append(tag)
