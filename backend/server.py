@@ -127,6 +127,25 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
+# Health check endpoint for Docker/Kubernetes
+@api_router.get("/health")
+async def health_check():
+    """Health check endpoint for monitoring and container orchestration."""
+    try:
+        # Check database connectivity
+        await db.command('ping')
+        return {
+            "status": "healthy",
+            "service": "arivu-backend",
+            "database": "connected",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Service unhealthy: {str(e)}"
+        )
+
 @api_router.post("/auth/signup", response_model=TokenResponse)
 async def signup(user_data: UserSignup):
     existing_user = await db.users.find_one({"email": user_data.email})
