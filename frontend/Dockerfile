@@ -7,10 +7,10 @@ FROM node:18-alpine as builder
 WORKDIR /app
 
 # Copy package files
-COPY package.json yarn.lock ./
+COPY package.json ./
 
 # Install dependencies with Yarn
-RUN yarn install --frozen-lockfile --production=false
+RUN yarn install --production=false
 
 # Copy application code
 COPY . .
