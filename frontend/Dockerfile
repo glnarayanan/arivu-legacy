@@ -7,10 +7,10 @@ FROM node:lts-alpine as builder
 WORKDIR /app
 
 # Copy package files
-COPY package.json ./
+COPY package.json yarn.lock* ./
 
 # Install dependencies with Yarn
-RUN yarn install --production=false
+RUN yarn install --frozen-lockfile --production=false
 
 # Copy application code
 COPY . .
