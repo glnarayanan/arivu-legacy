@@ -12,21 +12,25 @@ function App() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (token) {
+    const accessToken = localStorage.getItem('accessToken');
+    const refreshToken = localStorage.getItem('refreshToken');
+    if (accessToken && refreshToken) {
       setIsAuthenticated(true);
     }
     setLoading(false);
   }, []);
 
-  const handleLogin = (token, user) => {
-    localStorage.setItem('token', token);
+  const handleLogin = (accessToken, refreshToken, user) => {
+    localStorage.setItem('accessToken', accessToken);
+    localStorage.setItem('refreshToken', refreshToken);
     localStorage.setItem('user', JSON.stringify(user));
     setIsAuthenticated(true);
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('token');
+    localStorage.removeItem('accessToken');
+    localStorage.removeItem('refreshToken');
+    localStorage.removeItem('token'); // Remove old token if exists
     localStorage.removeItem('user');
     setIsAuthenticated(false);
   };

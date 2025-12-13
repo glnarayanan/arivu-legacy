@@ -29,10 +29,13 @@ const AuthPage = ({ onLogin }) => {
         : formData;
 
       const response = await axios.post(`${API}${endpoint}`, payload);
-      onLogin(response.data.token, response.data.user);
+
+      // Store both access and refresh tokens
+      onLogin(response.data.access_token, response.data.refresh_token, response.data.user);
       toast.success(isLogin ? 'Welcome back!' : 'Account created successfully!');
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Authentication failed');
+      const errorMsg = error.response?.data?.detail || 'Authentication failed';
+      toast.error(errorMsg);
     } finally {
       setLoading(false);
     }

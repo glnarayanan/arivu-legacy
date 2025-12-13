@@ -1,19 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import axiosInstance from '../utils/axiosConfig';
 import { Button } from '../components/ui/button';
 import { toast } from 'sonner';
 import { ArrowLeftIcon, CopyIcon, MergeIcon, TrashIcon, ExternalLinkIcon } from 'lucide-react';
-
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
 
 const DuplicatesPage = ({ onLogout }) => {
   const navigate = useNavigate();
   const [duplicates, setDuplicates] = useState([]);
   const [loading, setLoading] = useState(true);
-
-  const token = localStorage.getItem('token');
 
   useEffect(() => {
     fetchDuplicates();
@@ -21,9 +16,7 @@ const DuplicatesPage = ({ onLogout }) => {
 
   const fetchDuplicates = async () => {
     try {
-      const response = await axios.get(`${API}/bookmarks/duplicates/detect`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const response = await axiosInstance.get(`/bookmarks/duplicates/detect`);
       setDuplicates(response.data.duplicates || []);
     } catch (error) {
       toast.error('Failed to detect duplicates');
@@ -35,16 +28,7 @@ const DuplicatesPage = ({ onLogout }) => {
   const handleMerge = async (bookmarks) => {
     const ids = bookmarks.map(b => b.id);
     try {
-      await axios.post(
-        `${API}/bookmarks/merge`,
-        ids,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          }
-        }
-      );
+      await axiosInstance.post(`/bookmarks/merge`, ids);
       toast.success('Duplicates merged!');
       fetchDuplicates();
     } catch (error) {
@@ -54,9 +38,7 @@ const DuplicatesPage = ({ onLogout }) => {
 
   const handleDelete = async (bookmarkId) => {
     try {
-      await axios.delete(`${API}/bookmarks/${bookmarkId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      await axiosInstance.delete(`/bookmarks/${bookmarkId}`);
       toast.success('Bookmark deleted');
       fetchDuplicates();
     } catch (error) {
