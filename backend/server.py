@@ -956,34 +956,54 @@ async def import_bookmarks(request: Request, background_tasks: BackgroundTasks, 
             logger.warning(f"User {current_user['id']} attempted to import non-UTF-8 file")
             raise HTTPException(status_code=400, detail="File must be UTF-8 encoded HTML")
 
-        # Validate file contains HTML bookmark structure
+        # Validate file contains content
         if not html_content or len(html_content.strip()) == 0:
             raise HTTPException(status_code=400, detail="File is empty")
 
-        # Check for basic HTML structure and bookmark links
+        # Detect file format: HTML bookmark file or plain text URL list
         html_lower = html_content.lower()
-        if not ('<a' in html_lower or '<A' in html_lower):
-            logger.warning(f"User {current_user['id']} attempted to import file without bookmark links")
-            raise HTTPException(status_code=400, detail="File does not appear to be a valid HTML bookmark file (no links found)")
+        is_html_format = '<a' in html_lower or '<A' in html_lower
 
-        soup = BeautifulSoup(html_content, 'html.parser')
-        links = soup.find_all('a')
-
-        # Validate at least one link was found
-        if not links or len(links) == 0:
-            logger.warning(f"User {current_user['id']} imported file with no parseable bookmarks")
-            raise HTTPException(status_code=400, detail="No bookmarks found in file")
-
-        # Limit number of bookmarks per import
+        urls_to_import = []
         MAX_BOOKMARKS_PER_IMPORT = 1000
-        links = links[:MAX_BOOKMARKS_PER_IMPORT]
 
-        logger.info(f"User {current_user['id']} importing {len(links)} bookmarks")
+        if is_html_format:
+            # Process HTML bookmark file (browser export format)
+            soup = BeautifulSoup(html_content, 'html.parser')
+            links = soup.find_all('a')
+
+            if not links or len(links) == 0:
+                logger.warning(f"User {current_user['id']} imported HTML file with no parseable bookmarks")
+                raise HTTPException(status_code=400, detail="No bookmarks found in HTML file")
+
+            for link in links[:MAX_BOOKMARKS_PER_IMPORT]:
+                url = link.get('href')
+                title = link.get_text(strip=True)
+
+                if url and url.startswith('http'):
+                    urls_to_import.append({'url': url, 'title': title or urlparse(url).netloc})
+        else:
+            # Process plain text URL list (one URL per line)
+            lines = html_content.strip().split('\n')
+            for line in lines[:MAX_BOOKMARKS_PER_IMPORT]:
+                url = line.strip()
+
+                # Skip empty lines and non-URL lines
+                if not url or not url.startswith('http'):
+                    continue
+
+                urls_to_import.append({'url': url, 'title': urlparse(url).netloc})
+
+        # Validate at least one URL was found
+        if not urls_to_import:
+            raise HTTPException(status_code=400, detail="No valid URLs found in file")
+
+        logger.info(f"User {current_user['id']} importing {len(urls_to_import)} bookmarks")
         imported_count = 0
-        for link in links:
-            url = link.get('href')
-            title = link.get_text(strip=True)
-            
+        for item in urls_to_import:
+            url = item['url']
+            title = item['title']
+
             if url and url.startswith('http'):
                 bookmark = {
                     "id": str(uuid.uuid4()),
