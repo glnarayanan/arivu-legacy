@@ -934,15 +934,39 @@ async def add_to_collection(collection_id: str, data: AddToCollection, current_u
 async def import_bookmarks(request: Request, file: bytes = None, background_tasks: BackgroundTasks = None, current_user: dict = Depends(get_current_user)):
     """Import bookmarks from browser HTML file"""
     try:
+        # Validate file exists
+        if not file:
+            raise HTTPException(status_code=400, detail="No file provided")
+
         # Validate file size (max 10MB)
         MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
-        if file and len(file) > MAX_FILE_SIZE:
+        if len(file) > MAX_FILE_SIZE:
             raise HTTPException(status_code=413, detail="File too large (max 10MB)")
-        from fastapi import UploadFile, File
-        html_content = file.decode('utf-8') if isinstance(file, bytes) else file
-        
+
+        # Decode and validate file is valid UTF-8 HTML
+        try:
+            html_content = file.decode('utf-8') if isinstance(file, bytes) else file
+        except UnicodeDecodeError:
+            logger.warning(f"User {current_user['id']} attempted to import non-UTF-8 file")
+            raise HTTPException(status_code=400, detail="File must be UTF-8 encoded HTML")
+
+        # Validate file contains HTML bookmark structure
+        if not html_content or len(html_content.strip()) == 0:
+            raise HTTPException(status_code=400, detail="File is empty")
+
+        # Check for basic HTML structure and bookmark links
+        html_lower = html_content.lower()
+        if not ('<a' in html_lower or '<A' in html_lower):
+            logger.warning(f"User {current_user['id']} attempted to import file without bookmark links")
+            raise HTTPException(status_code=400, detail="File does not appear to be a valid HTML bookmark file (no links found)")
+
         soup = BeautifulSoup(html_content, 'html.parser')
         links = soup.find_all('a')
+
+        # Validate at least one link was found
+        if not links or len(links) == 0:
+            logger.warning(f"User {current_user['id']} imported file with no parseable bookmarks")
+            raise HTTPException(status_code=400, detail="No bookmarks found in file")
 
         # Limit number of bookmarks per import
         MAX_BOOKMARKS_PER_IMPORT = 1000

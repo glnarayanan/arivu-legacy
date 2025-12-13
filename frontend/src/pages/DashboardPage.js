@@ -40,7 +40,6 @@ const DashboardPage = ({ onLogout }) => {
   const [sortBy, setSortBy] = useState('created_at');
   const [viewMode, setViewMode] = useState('list');
 
-  const token = localStorage.getItem('token');
   const user = JSON.parse(localStorage.getItem('user') || '{}');
 
   const fetchBookmarks = async () => {
@@ -53,9 +52,7 @@ const DashboardPage = ({ onLogout }) => {
       if (readFilter !== 'all') params.append('read_status', readFilter);
       if (sortBy) params.append('sort_by', sortBy);
 
-      const response = await axios.get(`${API}/bookmarks?${params.toString()}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const response = await axiosInstance.get(`/bookmarks?${params.toString()}`);
       setBookmarks(response.data);
 
       const tags = new Set();
@@ -77,9 +74,7 @@ const DashboardPage = ({ onLogout }) => {
 
   const fetchCollections = async () => {
     try {
-      const response = await axios.get(`${API}/collections`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const response = await axiosInstance.get(`/collections`);
       setCollections(response.data);
     } catch (error) {
       console.error('Failed to fetch collections');
@@ -167,11 +162,7 @@ const DashboardPage = ({ onLogout }) => {
 
     setAddingBookmark(true);
     try {
-      await axios.post(
-        `${API}/bookmarks`,
-        { url: newBookmarkUrl },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      await axiosInstance.post(`/bookmarks`, { url: newBookmarkUrl });
       toast.success('Bookmark saved! AI is processing summaries...');
       setNewBookmarkUrl('');
       setDialogOpen(false);
@@ -188,11 +179,7 @@ const DashboardPage = ({ onLogout }) => {
     if (!newCollectionName) return;
 
     try {
-      await axios.post(
-        `${API}/collections`,
-        { name: newCollectionName },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      await axiosInstance.post(`/collections`, { name: newCollectionName });
       toast.success('Collection created!');
       setNewCollectionName('');
       setCollectionDialogOpen(false);
@@ -204,9 +191,7 @@ const DashboardPage = ({ onLogout }) => {
 
   const handleDeleteBookmark = async (bookmarkId) => {
     try {
-      await axios.delete(`${API}/bookmarks/${bookmarkId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      await axiosInstance.delete(`/bookmarks/${bookmarkId}`);
       toast.success('Bookmark deleted');
       fetchBookmarks();
     } catch (error) {
@@ -223,15 +208,10 @@ const DashboardPage = ({ onLogout }) => {
       const reader = new FileReader();
       reader.onload = async (event) => {
         try {
-          const response = await axios.post(
-            `${API}/bookmarks/import`,
+          const response = await axiosInstance.post(
+            `/bookmarks/import`,
             event.target.result,
-            {
-              headers: {
-                Authorization: `Bearer ${token}`,
-                'Content-Type': 'text/plain'
-              }
-            }
+            { headers: { 'Content-Type': 'text/plain' } }
           );
           toast.success(`Imported ${response.data.count} bookmarks! AI processing...`);
           setImportFile(null);
@@ -252,8 +232,7 @@ const DashboardPage = ({ onLogout }) => {
 
   const handleExportBookmarks = async () => {
     try {
-      const response = await axios.get(`${API}/bookmarks/export`, {
-        headers: { Authorization: `Bearer ${token}` },
+      const response = await axiosInstance.get(`/bookmarks/export`, {
         responseType: 'blob'
       });
       const url = window.URL.createObjectURL(new Blob([response.data]));
@@ -274,11 +253,7 @@ const DashboardPage = ({ onLogout }) => {
     if (!window.confirm(`Delete ${selectedBookmarks.length} bookmarks?`)) return;
 
     try {
-      await axios.post(
-        `${API}/bookmarks/bulk-delete`,
-        selectedBookmarks,
-        { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
-      );
+      await axiosInstance.post(`/bookmarks/bulk-delete`, selectedBookmarks);
       toast.success(`Deleted ${selectedBookmarks.length} bookmarks`);
       setSelectedBookmarks([]);
       setBulkMode(false);
@@ -292,11 +267,10 @@ const DashboardPage = ({ onLogout }) => {
     if (selectedBookmarks.length === 0) return;
 
     try {
-      await axios.post(
-        `${API}/bookmarks/bulk-mark-read`,
-        { bookmark_ids: selectedBookmarks, read_status: status },
-        { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
-      );
+      await axiosInstance.post(`/bookmarks/bulk-mark-read`, {
+        bookmark_ids: selectedBookmarks,
+        read_status: status
+      });
       toast.success(`Marked ${selectedBookmarks.length} as ${status ? 'read' : 'unread'}`);
       setSelectedBookmarks([]);
       setBulkMode(false);
