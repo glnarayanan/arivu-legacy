@@ -934,9 +934,12 @@ async def add_to_collection(collection_id: str, data: AddToCollection, current_u
 
 @api_router.post("/bookmarks/import")
 @limiter.limit("3/hour")  # Limit imports to prevent abuse
-async def import_bookmarks(request: Request, file: bytes = None, background_tasks: BackgroundTasks = None, current_user: dict = Depends(get_current_user)):
+async def import_bookmarks(request: Request, background_tasks: BackgroundTasks, current_user: dict = Depends(get_current_user)):
     """Import bookmarks from browser HTML file"""
     try:
+        # Read file content from request body
+        file = await request.body()
+
         # Validate file exists
         if not file:
             raise HTTPException(status_code=400, detail="No file provided")
@@ -1015,9 +1018,12 @@ async def import_bookmarks(request: Request, file: bytes = None, background_task
 
         logger.info(f"Successfully imported {imported_count} bookmarks for user {current_user['id']}")
         return {"message": f"Imported {imported_count} bookmarks", "count": imported_count}
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is (these are validation errors with proper messages)
+        raise
     except Exception as e:
-        logger.error(f"Error importing bookmarks for user {current_user['id']}: {type(e).__name__}")
-        raise HTTPException(status_code=400, detail="Failed to import bookmarks")
+        logger.error(f"Error importing bookmarks for user {current_user['id']}: {type(e).__name__} - {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to import bookmarks: {str(e)}")
 
 @api_router.get("/bookmarks/export")
 async def export_bookmarks(current_user: dict = Depends(get_current_user)):
