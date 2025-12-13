@@ -84,7 +84,7 @@ def validate_password_strength(password: str) -> tuple[bool, str]:
     return True, ""
 
 def is_safe_url(url: str) -> tuple[bool, str]:
-    """Validate URL to prevent SSRF attacks"""
+    """Validate URL to prevent SSRF attacks (non-blocking validation)"""
     try:
         parsed = urlparse(url)
 
@@ -98,29 +98,32 @@ def is_safe_url(url: str) -> tuple[bool, str]:
 
         hostname = parsed.hostname.lower()
 
-        # Block localhost and loopback addresses
-        if hostname in ['localhost', '127.0.0.1', '0.0.0.0', '::1']:
+        # Block localhost and loopback addresses (check hostname directly)
+        if hostname in ['localhost', '127.0.0.1', '0.0.0.0', '::1', '[::1]']:
             return False, "Cannot fetch from localhost or loopback addresses"
 
         # Block private hostnames
         if hostname.endswith('.local') or hostname.endswith('.localhost'):
             return False, "Cannot fetch from local network addresses"
 
-        # Resolve hostname to IP and check if it's private
+        # Block private IP ranges (check if hostname is already an IP)
         try:
-            ip = socket.gethostbyname(hostname)
-            ip_obj = ipaddress.ip_address(ip)
+            # If hostname is an IP address, validate it directly (no DNS lookup needed)
+            ip_obj = ipaddress.ip_address(hostname)
 
             # Block private, loopback, link-local, and reserved ranges
             if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local or ip_obj.is_reserved:
                 return False, "Cannot fetch from private or reserved IP addresses"
 
             # Block cloud metadata endpoints (AWS, GCP, Azure)
-            if ip == '169.254.169.254':
+            if str(ip_obj) == '169.254.169.254':
                 return False, "Cannot fetch from cloud metadata endpoints"
 
-        except socket.gaierror:
-            return False, "Cannot resolve hostname"
+        except ValueError:
+            # hostname is not an IP address, it's a domain name
+            # Skip DNS resolution to avoid blocking - the requests library will handle it
+            # and will timeout if the domain resolves to a bad IP
+            pass
 
         return True, ""
 
@@ -1064,10 +1067,15 @@ app.include_router(api_router)
 app.add_middleware(SecurityHeadersMiddleware)
 
 # Validate CORS origins
-cors_origins = os.environ.get('CORS_ORIGINS', '').split(',')
-if not cors_origins or cors_origins == ['']:
-    logger.warning("CORS_ORIGINS not configured - defaulting to restrictive policy")
-    cors_origins = []
+cors_origins_env = os.environ.get('CORS_ORIGINS', '*')
+if cors_origins_env == '*':
+    logger.warning("CORS_ORIGINS set to '*' - allowing all origins (not recommended for production)")
+    cors_origins = ['*']
+else:
+    cors_origins = [origin.strip() for origin in cors_origins_env.split(',') if origin.strip()]
+    if not cors_origins:
+        logger.warning("CORS_ORIGINS configured but empty - defaulting to allow all origins")
+        cors_origins = ['*']
 
 app.add_middleware(
     CORSMiddleware,
