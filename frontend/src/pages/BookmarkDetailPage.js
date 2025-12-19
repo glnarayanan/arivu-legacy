@@ -1,13 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import axiosInstance from '../utils/axiosConfig';
 import { Button } from '../components/ui/button';
 import { toast } from 'sonner';
 import { ArrowLeftIcon, ExternalLinkIcon, SparklesIcon, ListIcon, BookOpenIcon } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
-
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
 
 const BookmarkDetailPage = ({ onLogout }) => {
   const { id } = useParams();
@@ -15,14 +12,10 @@ const BookmarkDetailPage = ({ onLogout }) => {
   const [bookmark, setBookmark] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  const token = localStorage.getItem('token');
-
   useEffect(() => {
     const fetchBookmark = async () => {
       try {
-        const response = await axios.get(`${API}/bookmarks/${id}`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
+        const response = await axiosInstance.get(`/bookmarks/${id}`);
         setBookmark(response.data);
       } catch (error) {
         toast.error('Failed to load bookmark');
@@ -33,7 +26,7 @@ const BookmarkDetailPage = ({ onLogout }) => {
     };
 
     fetchBookmark();
-  }, [id, token, navigate]);
+  }, [id, navigate]);
 
   if (loading) {
     return (

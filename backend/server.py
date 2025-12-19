@@ -1,12 +1,13 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, BackgroundTasks
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, BackgroundTasks, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict, EmailStr
+from pydantic import BaseModel, Field, ConfigDict, EmailStr, HttpUrl, validator
 from typing import List, Optional
 import uuid
 from datetime import datetime, timezone, timedelta
@@ -22,9 +23,24 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 import re
 import google.generativeai as genai
+import ipaddress
+import socket
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
+
+# Configure structured logging
+logging.basicConfig(
+    level=os.environ.get('LOG_LEVEL', 'INFO').upper(),
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
@@ -34,29 +50,132 @@ db = client[db_name]
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
 
+# Initialize rate limiter
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
 
-SECRET_KEY = os.environ.get('SECRET_KEY', 'your-secret-key-change-in-production')
+# Validate SECRET_KEY is set and strong
+SECRET_KEY = os.environ.get('SECRET_KEY')
+if not SECRET_KEY or len(SECRET_KEY) < 32:
+    logger.error("SECRET_KEY must be set and at least 32 characters long")
+    raise ValueError("SECRET_KEY must be set and at least 32 characters long")
+
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 10080
+ACCESS_TOKEN_EXPIRE_MINUTES = 60  # 1 hour for access tokens
+REFRESH_TOKEN_EXPIRE_DAYS = 30  # 30 days for refresh tokens
+
+# Security validation functions
+def validate_password_strength(password: str) -> tuple[bool, str]:
+    """Validate password meets security requirements"""
+    if len(password) < 8:
+        return False, "Password must be at least 8 characters long"
+    if not re.search(r'[A-Z]', password):
+        return False, "Password must contain at least one uppercase letter"
+    if not re.search(r'[a-z]', password):
+        return False, "Password must contain at least one lowercase letter"
+    if not re.search(r'\d', password):
+        return False, "Password must contain at least one number"
+    if not re.search(r'[!@#$%^&*(),.?":{}|<>]', password):
+        return False, "Password must contain at least one special character"
+    return True, ""
+
+def is_safe_url(url: str) -> tuple[bool, str]:
+    """Validate URL to prevent SSRF attacks (non-blocking validation)"""
+    try:
+        parsed = urlparse(url)
+
+        # Only allow http/https schemes
+        if parsed.scheme not in ['http', 'https']:
+            return False, "Only HTTP and HTTPS URLs are allowed"
+
+        # Must have a hostname
+        if not parsed.hostname:
+            return False, "Invalid URL: missing hostname"
+
+        hostname = parsed.hostname.lower()
+
+        # Block localhost and loopback addresses (check hostname directly)
+        if hostname in ['localhost', '127.0.0.1', '0.0.0.0', '::1', '[::1]']:
+            return False, "Cannot fetch from localhost or loopback addresses"
+
+        # Block private hostnames
+        if hostname.endswith('.local') or hostname.endswith('.localhost'):
+            return False, "Cannot fetch from local network addresses"
+
+        # Block private IP ranges (check if hostname is already an IP)
+        try:
+            # If hostname is an IP address, validate it directly (no DNS lookup needed)
+            ip_obj = ipaddress.ip_address(hostname)
+
+            # Block private, loopback, link-local, and reserved ranges
+            if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local or ip_obj.is_reserved:
+                return False, "Cannot fetch from private or reserved IP addresses"
+
+            # Block cloud metadata endpoints (AWS, GCP, Azure)
+            if str(ip_obj) == '169.254.169.254':
+                return False, "Cannot fetch from cloud metadata endpoints"
+
+        except ValueError:
+            # hostname is not an IP address, it's a domain name
+            # Skip DNS resolution to avoid blocking - the requests library will handle it
+            # and will timeout if the domain resolves to a bad IP
+            pass
+
+        return True, ""
+
+    except Exception as e:
+        logger.warning(f"URL validation error: {str(e)}")
+        return False, "Invalid URL format"
 
 class UserSignup(BaseModel):
     email: EmailStr
     password: str
     name: str
 
+    @validator('name')
+    def validate_name(cls, v):
+        if not v or len(v.strip()) == 0:
+            raise ValueError('Name cannot be empty')
+        if len(v) > 100:
+            raise ValueError('Name too long (max 100 characters)')
+        if not re.match(r'^[\w\s\-\.]+$', v):
+            raise ValueError('Name contains invalid characters')
+        return v.strip()
+
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
 
 class TokenResponse(BaseModel):
-    token: str
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
     user: dict
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
 
 class BookmarkCreate(BaseModel):
     url: str
     collection_id: Optional[str] = None
+
+    @validator('url')
+    def validate_url(cls, v):
+        if not v or len(v.strip()) == 0:
+            raise ValueError('URL cannot be empty')
+        if len(v) > 2048:
+            raise ValueError('URL too long (max 2048 characters)')
+
+        # Validate URL is safe (SSRF protection)
+        is_safe, error_msg = is_safe_url(v)
+        if not is_safe:
+            raise ValueError(error_msg)
+
+        return v.strip()
 
 class Bookmark(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -98,26 +217,53 @@ class Collection(BaseModel):
 class CollectionCreate(BaseModel):
     name: str
 
+    @validator('name')
+    def validate_name(cls, v):
+        if not v or len(v.strip()) == 0:
+            raise ValueError('Collection name cannot be empty')
+        if len(v) > 100:
+            raise ValueError('Collection name too long (max 100 characters)')
+        if not re.match(r'^[\w\s\-\.]+$', v):
+            raise ValueError('Collection name contains invalid characters')
+        return v.strip()
+
 class AddToCollection(BaseModel):
     bookmark_id: str
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    """Create JWT access token"""
     to_encode = data.copy()
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
     else:
         expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode.update({"exp": expire})
+    to_encode.update({"exp": expire, "type": "access"})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+def create_refresh_token(data: dict):
+    """Create JWT refresh token"""
+    to_encode = data.copy()
+    expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    to_encode.update({"exp": expire, "type": "refresh"})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    """Validate access token and return current user"""
     token = credentials.credentials
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+
+        # Verify this is an access token
+        token_type = payload.get("type")
+        if token_type != "access":
+            raise HTTPException(status_code=401, detail="Invalid token type")
+
         user_id: str = payload.get("sub")
         if user_id is None:
             raise HTTPException(status_code=401, detail="Invalid token")
+
         user = await db.users.find_one({"id": user_id}, {"_id": 0})
         if user is None:
             raise HTTPException(status_code=401, detail="User not found")
@@ -147,11 +293,22 @@ async def health_check():
         )
 
 @api_router.post("/auth/signup", response_model=TokenResponse)
-async def signup(user_data: UserSignup):
+@limiter.limit("3/hour")  # Limit signups to prevent abuse
+async def signup(request: Request, user_data: UserSignup):
+    """Register a new user with password validation"""
+    # Validate password strength
+    is_valid, error_msg = validate_password_strength(user_data.password)
+    if not is_valid:
+        logger.info(f"Signup failed: weak password for email {user_data.email}")
+        raise HTTPException(status_code=400, detail=error_msg)
+
+    # Check if email already exists
     existing_user = await db.users.find_one({"email": user_data.email})
     if existing_user:
+        logger.info(f"Signup failed: email already registered {user_data.email}")
         raise HTTPException(status_code=400, detail="Email already registered")
-    
+
+    # Create new user
     user = {
         "id": str(uuid.uuid4()),
         "email": user_data.email,
@@ -160,29 +317,100 @@ async def signup(user_data: UserSignup):
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     await db.users.insert_one(user)
-    
-    token = create_access_token(data={"sub": user["id"]})
+
+    # Create tokens
+    access_token = create_access_token(data={"sub": user["id"]})
+    refresh_token = create_refresh_token(data={"sub": user["id"]})
+
     user_response = {"id": user["id"], "email": user["email"], "name": user["name"]}
-    return {"token": token, "user": user_response}
+    logger.info(f"User registered successfully: {user['id']}")
+
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+        "user": user_response
+    }
 
 @api_router.post("/auth/login", response_model=TokenResponse)
-async def login(login_data: UserLogin):
+@limiter.limit("5/minute")  # Prevent brute force attacks
+async def login(request: Request, login_data: UserLogin):
+    """Authenticate user and return tokens"""
     user = await db.users.find_one({"email": login_data.email})
     if not user or not pwd_context.verify(login_data.password, user["password_hash"]):
+        logger.warning(f"Login failed: invalid credentials for {login_data.email}")
         raise HTTPException(status_code=401, detail="Invalid credentials")
-    
-    token = create_access_token(data={"sub": user["id"]})
+
+    # Create tokens
+    access_token = create_access_token(data={"sub": user["id"]})
+    refresh_token = create_refresh_token(data={"sub": user["id"]})
+
     user_response = {"id": user["id"], "email": user["email"], "name": user["name"]}
-    return {"token": token, "user": user_response}
+    logger.info(f"User logged in successfully: {user['id']}")
+
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+        "user": user_response
+    }
+
+@api_router.post("/auth/refresh", response_model=TokenResponse)
+@limiter.limit("10/minute")
+async def refresh_token_endpoint(request: Request, token_data: RefreshTokenRequest):
+    """Refresh access token using refresh token"""
+    try:
+        payload = jwt.decode(token_data.refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
+
+        # Verify this is a refresh token
+        token_type = payload.get("type")
+        if token_type != "refresh":
+            raise HTTPException(status_code=401, detail="Invalid token type")
+
+        user_id: str = payload.get("sub")
+        if user_id is None:
+            raise HTTPException(status_code=401, detail="Invalid token")
+
+        # Verify user still exists
+        user = await db.users.find_one({"id": user_id}, {"_id": 0})
+        if user is None:
+            raise HTTPException(status_code=401, detail="User not found")
+
+        # Create new tokens
+        new_access_token = create_access_token(data={"sub": user_id})
+        new_refresh_token = create_refresh_token(data={"sub": user_id})
+
+        user_response = {"id": user["id"], "email": user["email"], "name": user["name"]}
+        logger.info(f"Tokens refreshed for user: {user_id}")
+
+        return {
+            "access_token": new_access_token,
+            "refresh_token": new_refresh_token,
+            "token_type": "bearer",
+            "user": user_response
+        }
+    except jwt.ExpiredSignatureError:
+        logger.info("Refresh token expired")
+        raise HTTPException(status_code=401, detail="Refresh token expired")
+    except jwt.InvalidTokenError:
+        logger.warning("Invalid refresh token")
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
 
 async def fetch_webpage_content(url: str):
+    """Fetch and parse webpage content with security validation"""
     try:
+        # Validate URL is safe before fetching
+        is_safe, error_msg = is_safe_url(url)
+        if not is_safe:
+            logger.warning(f"Unsafe URL blocked: {error_msg}")
+            raise ValueError(f"Unsafe URL: {error_msg}")
+
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
             'Accept-Language': 'en-US,en;q=0.5',
         }
-        response = requests.get(url, headers=headers, timeout=15, allow_redirects=True)
+        response = requests.get(url, headers=headers, timeout=15, allow_redirects=True, max_redirects=5)
         response.raise_for_status()
         
         html_content = response.text
@@ -248,6 +476,7 @@ async def fetch_webpage_content(url: str):
         
         text_content = ' '.join(text_content.split())[:10000]
         
+        logger.info(f"Successfully fetched content from {urlparse(url).netloc}")
         return {
             'title': title.strip() if title else urlparse(url).netloc,
             'description': description,
@@ -258,21 +487,26 @@ async def fetch_webpage_content(url: str):
             'domain': urlparse(url).netloc
         }
     except Exception as e:
-        logging.error(f"Error fetching webpage {url}: {str(e)}")
+        # Sanitize URL in logs - remove query params and fragments
+        safe_url = urlparse(url)._replace(query='', fragment='').geturl()
+        logger.error(f"Error fetching webpage from domain {urlparse(url).netloc}: {type(e).__name__}")
         return {
             'title': urlparse(url).netloc,
             'domain': urlparse(url).netloc,
-            'text_content': f"Failed to fetch content from {url}",
+            'text_content': f"Failed to fetch content",
             'html_content': ''
         }
 
 async def generate_ai_summaries(text_content: str, bookmark_id: str):
+    """Generate AI summaries for bookmark content"""
     try:
         if not text_content or len(text_content.strip()) < 50:
+            logger.info(f"Insufficient content for AI processing: bookmark {bookmark_id}")
             raise ValueError("Insufficient content for AI processing")
-        
+
         gemini_api_key = os.environ.get('GEMINI_API_KEY')
         if not gemini_api_key:
+            logger.error("GEMINI_API_KEY not configured")
             raise ValueError("GEMINI_API_KEY not found in environment variables")
         
         genai.configure(api_key=gemini_api_key)
@@ -382,10 +616,10 @@ Generate relevant tags:
                 "updated_at": datetime.now(timezone.utc).isoformat()
             }}
         )
-        logging.info(f"AI summaries generated successfully for bookmark {bookmark_id}")
+        logger.info(f"AI summaries generated successfully for bookmark {bookmark_id}")
         return {"processing_status": "completed"}
     except Exception as e:
-        logging.error(f"Error generating AI summaries for {bookmark_id}: {e}")
+        logger.error(f"Error generating AI summaries for bookmark {bookmark_id}: {type(e).__name__}")
         await db.ai_summaries.update_one(
             {"bookmark_id": bookmark_id},
             {"$set": {
@@ -406,9 +640,10 @@ def calculate_reading_time(text_content: str) -> int:
 async def process_bookmark_content(bookmark_id: str, url: str, collection_id: Optional[str] = None, user_id: str = None):
     """Background task to fetch content and generate AI summaries"""
     try:
+        logger.info(f"Processing bookmark content: {bookmark_id}")
         content = await fetch_webpage_content(url)
         reading_time = calculate_reading_time(content.get('text_content', ''))
-        
+
         await db.bookmarks.update_one(
             {"id": bookmark_id},
             {"$set": {
@@ -423,13 +658,15 @@ async def process_bookmark_content(bookmark_id: str, url: str, collection_id: Op
                 "updated_at": datetime.now(timezone.utc).isoformat()
             }}
         )
-        
+
         await generate_ai_summaries(content.get('text_content', ''), bookmark_id)
+        logger.info(f"Successfully processed bookmark: {bookmark_id}")
     except Exception as e:
-        logging.error(f"Error processing bookmark {bookmark_id}: {e}")
+        logger.error(f"Error processing bookmark {bookmark_id}: {type(e).__name__}")
 
 @api_router.post("/bookmarks", response_model=Bookmark)
-async def create_bookmark(bookmark_data: BookmarkCreate, background_tasks: BackgroundTasks, current_user: dict = Depends(get_current_user)):
+@limiter.limit("20/minute")  # Limit bookmark creation to prevent abuse
+async def create_bookmark(request: Request, bookmark_data: BookmarkCreate, background_tasks: BackgroundTasks, current_user: dict = Depends(get_current_user)):
     parsed_url = urlparse(bookmark_data.url)
     
     bookmark = {
@@ -585,7 +822,8 @@ async def delete_bookmark(bookmark_id: str, current_user: dict = Depends(get_cur
     return {"message": "Bookmark deleted"}
 
 @api_router.post("/bookmarks/bulk-delete")
-async def bulk_delete_bookmarks(bookmark_ids: List[str], current_user: dict = Depends(get_current_user)):
+@limiter.limit("10/minute")  # Limit bulk operations
+async def bulk_delete_bookmarks(request: Request, bookmark_ids: List[str], current_user: dict = Depends(get_current_user)):
     result = await db.bookmarks.delete_many({"id": {"$in": bookmark_ids}, "user_id": current_user["id"]})
     await db.ai_summaries.delete_many({"bookmark_id": {"$in": bookmark_ids}})
     await db.collections.update_many(
@@ -605,7 +843,8 @@ async def update_read_status(bookmark_id: str, read_status: bool, current_user: 
     return {"message": "Read status updated"}
 
 @api_router.post("/bookmarks/bulk-mark-read")
-async def bulk_mark_read(bookmark_ids: List[str], read_status: bool, current_user: dict = Depends(get_current_user)):
+@limiter.limit("10/minute")  # Limit bulk operations
+async def bulk_mark_read(request: Request, bookmark_ids: List[str], read_status: bool, current_user: dict = Depends(get_current_user)):
     result = await db.bookmarks.update_many(
         {"id": {"$in": bookmark_ids}, "user_id": current_user["id"]},
         {"$set": {"read_status": read_status, "updated_at": datetime.now(timezone.utc).isoformat()}}
@@ -694,20 +933,77 @@ async def add_to_collection(collection_id: str, data: AddToCollection, current_u
     return {"message": "Bookmark added to collection"}
 
 @api_router.post("/bookmarks/import")
-async def import_bookmarks(file: bytes = None, background_tasks: BackgroundTasks = None, current_user: dict = Depends(get_current_user)):
+@limiter.limit("3/hour")  # Limit imports to prevent abuse
+async def import_bookmarks(request: Request, background_tasks: BackgroundTasks, current_user: dict = Depends(get_current_user)):
     """Import bookmarks from browser HTML file"""
     try:
-        from fastapi import UploadFile, File
-        html_content = file.decode('utf-8') if isinstance(file, bytes) else file
-        
-        soup = BeautifulSoup(html_content, 'html.parser')
-        links = soup.find_all('a')
-        
+        # Read file content from request body
+        file = await request.body()
+
+        # Validate file exists
+        if not file:
+            raise HTTPException(status_code=400, detail="No file provided")
+
+        # Validate file size (max 10MB)
+        MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+        if len(file) > MAX_FILE_SIZE:
+            raise HTTPException(status_code=413, detail="File too large (max 10MB)")
+
+        # Decode and validate file is valid UTF-8 HTML
+        try:
+            html_content = file.decode('utf-8') if isinstance(file, bytes) else file
+        except UnicodeDecodeError:
+            logger.warning(f"User {current_user['id']} attempted to import non-UTF-8 file")
+            raise HTTPException(status_code=400, detail="File must be UTF-8 encoded HTML")
+
+        # Validate file contains content
+        if not html_content or len(html_content.strip()) == 0:
+            raise HTTPException(status_code=400, detail="File is empty")
+
+        # Detect file format: HTML bookmark file or plain text URL list
+        html_lower = html_content.lower()
+        is_html_format = '<a' in html_lower or '<A' in html_lower
+
+        urls_to_import = []
+        MAX_BOOKMARKS_PER_IMPORT = 1000
+
+        if is_html_format:
+            # Process HTML bookmark file (browser export format)
+            soup = BeautifulSoup(html_content, 'html.parser')
+            links = soup.find_all('a')
+
+            if not links or len(links) == 0:
+                logger.warning(f"User {current_user['id']} imported HTML file with no parseable bookmarks")
+                raise HTTPException(status_code=400, detail="No bookmarks found in HTML file")
+
+            for link in links[:MAX_BOOKMARKS_PER_IMPORT]:
+                url = link.get('href')
+                title = link.get_text(strip=True)
+
+                if url and url.startswith('http'):
+                    urls_to_import.append({'url': url, 'title': title or urlparse(url).netloc})
+        else:
+            # Process plain text URL list (one URL per line)
+            lines = html_content.strip().split('\n')
+            for line in lines[:MAX_BOOKMARKS_PER_IMPORT]:
+                url = line.strip()
+
+                # Skip empty lines and non-URL lines
+                if not url or not url.startswith('http'):
+                    continue
+
+                urls_to_import.append({'url': url, 'title': urlparse(url).netloc})
+
+        # Validate at least one URL was found
+        if not urls_to_import:
+            raise HTTPException(status_code=400, detail="No valid URLs found in file")
+
+        logger.info(f"User {current_user['id']} importing {len(urls_to_import)} bookmarks")
         imported_count = 0
-        for link in links:
-            url = link.get('href')
-            title = link.get_text(strip=True)
-            
+        for item in urls_to_import:
+            url = item['url']
+            title = item['title']
+
             if url and url.startswith('http'):
                 bookmark = {
                     "id": str(uuid.uuid4()),
@@ -739,11 +1035,15 @@ async def import_bookmarks(file: bytes = None, background_tasks: BackgroundTasks
                 if background_tasks:
                     background_tasks.add_task(process_bookmark_content, bookmark["id"], url, None, current_user["id"])
                 imported_count += 1
-        
+
+        logger.info(f"Successfully imported {imported_count} bookmarks for user {current_user['id']}")
         return {"message": f"Imported {imported_count} bookmarks", "count": imported_count}
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is (these are validation errors with proper messages)
+        raise
     except Exception as e:
-        logging.error(f"Error importing bookmarks: {e}")
-        raise HTTPException(status_code=400, detail="Failed to import bookmarks")
+        logger.error(f"Error importing bookmarks for user {current_user['id']}: {type(e).__name__} - {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to import bookmarks: {str(e)}")
 
 @api_router.get("/bookmarks/export")
 async def export_bookmarks(current_user: dict = Depends(get_current_user)):
@@ -776,21 +1076,40 @@ async def export_bookmarks(current_user: dict = Depends(get_current_user)):
         }
     )
 
+# Security headers middleware
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        return response
+
 app.include_router(api_router)
+
+# Add security headers middleware
+app.add_middleware(SecurityHeadersMiddleware)
+
+# Validate CORS origins
+cors_origins_env = os.environ.get('CORS_ORIGINS', '*')
+if cors_origins_env == '*':
+    logger.warning("CORS_ORIGINS set to '*' - allowing all origins (not recommended for production)")
+    cors_origins = ['*']
+else:
+    cors_origins = [origin.strip() for origin in cors_origins_env.split(',') if origin.strip()]
+    if not cors_origins:
+        logger.warning("CORS_ORIGINS configured but empty - defaulting to allow all origins")
+        cors_origins = ['*']
 
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_origins=cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
 
 @app.on_event("shutdown")
 async def shutdown_db_client():

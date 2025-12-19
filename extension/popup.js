@@ -4,14 +4,16 @@ const API_URL = window.location.hostname.includes('localhost')
   : `${window.location.protocol}//${window.location.hostname}/api`;
 
 let currentTab = null;
-let token = null;
+let accessToken = null;
+let refreshToken = null;
 
 async function init() {
-  const result = await chrome.storage.local.get(['token', 'apiUrl']);
-  token = result.token;
+  const result = await chrome.storage.local.get(['accessToken', 'refreshToken', 'apiUrl']);
+  accessToken = result.accessToken;
+  refreshToken = result.refreshToken;
   const apiUrl = result.apiUrl || API_URL;
 
-  if (!token) {
+  if (!accessToken || !refreshToken) {
     document.getElementById('loginPrompt').style.display = 'block';
     // Update the link with current hostname
     const loginLink = document.querySelector('.login-link');
@@ -36,11 +38,11 @@ async function loadCollections(apiUrl) {
   try {
     const response = await fetch(`${apiUrl}/collections`, {
       headers: {
-        'Authorization': `Bearer ${token}`
+        'Authorization': `Bearer ${accessToken}`
       }
     });
     const collections = await response.json();
-    
+
     const select = document.getElementById('collection');
     collections.forEach(col => {
       const option = document.createElement('option');
@@ -73,7 +75,7 @@ document.getElementById('saveForm').addEventListener('submit', async (e) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
+        'Authorization': `Bearer ${accessToken}`
       },
       body: JSON.stringify({ url, collection_id: collectionId })
     });
