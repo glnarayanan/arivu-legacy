@@ -8,7 +8,7 @@ import os
 import logging
 from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict, EmailStr, HttpUrl, validator
-from typing import List, Optional
+from typing import List, Optional, Dict
 import uuid
 from datetime import datetime, timezone, timedelta
 import jwt
@@ -1201,6 +1201,45 @@ async def bulk_mark_read(request: Request, bookmark_ids: List[str], read_status:
         {"$set": {"read_status": read_status, "updated_at": datetime.now(timezone.utc).isoformat()}}
     )
     return {"message": f"Updated {result.modified_count} bookmarks", "count": result.modified_count}
+
+# Phase 1: Access Tracking & Aging Endpoints
+
+@api_router.post("/bookmarks/{bookmark_id}/accessed")
+async def track_bookmark_access(
+    bookmark_id: str,
+    source: str = "detail",  # "detail" or "external"
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Track when a bookmark is meaningfully accessed.
+    Called when user views detail page or opens external URL.
+    """
+    # Validate ownership
+    bookmark = await db.bookmarks.find_one({
+        "id": bookmark_id,
+        "user_id": current_user["id"]
+    })
+    if not bookmark:
+        raise HTTPException(status_code=404, detail="Bookmark not found")
+
+    now = datetime.now(timezone.utc).isoformat()
+
+    # Atomic update with tracking
+    await db.bookmarks.update_one(
+        {"id": bookmark_id},
+        {
+            "$set": {"last_accessed": now},
+            "$inc": {"view_count": 1},
+            "$push": {
+                "access_history": {
+                    "$each": [{"timestamp": now, "source": source}],
+                    "$slice": -20  # Keep only last 20
+                }
+            }
+        }
+    )
+
+    return {"status": "tracked", "timestamp": now}
 
 @api_router.get("/bookmarks/duplicates/detect")
 async def detect_duplicates(current_user: dict = Depends(get_current_user)):

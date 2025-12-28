@@ -1,6 +1,8 @@
 import { ExternalLinkIcon, TrashIcon, SparklesIcon, ClockIcon, BookOpenIcon } from 'lucide-react';
 import { Button } from './ui/button';
 import { formatDistanceToNow } from 'date-fns';
+import AgingIndicator from './AgingIndicator';
+import axiosInstance from '../utils/axiosConfig';
 
 const BookmarkCard = ({ bookmark, onDelete, onClick, bulkMode, isSelected, onToggleSelect, isHighlighted, viewMode = 'list' }) => {
   const handleDelete = (e) => {
