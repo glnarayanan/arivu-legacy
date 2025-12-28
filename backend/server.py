@@ -326,6 +326,10 @@ class Bookmark(BaseModel):
     read_status: bool = False
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    # Phase 1: Access tracking fields
+    last_accessed: Optional[datetime] = None
+    view_count: Optional[int] = 0
+    access_history: Optional[List[Dict[str, str]]] = []
 
 class AISummary(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -1058,7 +1062,9 @@ async def get_bookmarks(
         "reading_time": 1,
         "read_status": 1,
         "created_at": 1,
-        "updated_at": 1
+        "updated_at": 1,
+        "last_accessed": 1,  # Phase 1: For aging indicators
+        "view_count": 1       # Phase 1: For usage tracking
     }
     
     bookmarks = await db.bookmarks.find(query, projection).sort(sort_field, sort_order).limit(min(limit, 1000)).to_list(None)
@@ -1092,18 +1098,64 @@ async def get_bookmarks(
     
     return result
 
+# Phase 1: Aged Bookmarks Endpoint (MUST be before /{bookmark_id} to avoid route collision)
+@api_router.get("/bookmarks/aged")
+async def get_aged_bookmarks(
+    min_days: int = 30,
+    limit: int = 100,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get count and list of bookmarks not accessed in min_days.
+    Used for aged bookmarks banner.
+    """
+    cutoff_date = datetime.now(timezone.utc) - timedelta(days=min_days)
+
+    query = {
+        "user_id": current_user["id"],
+        "$or": [
+            {"last_accessed": {"$lt": cutoff_date.isoformat()}},
+            {"last_accessed": {"$exists": False}}  # Unmigrated bookmarks
+        ]
+    }
+
+    projection = {
+        "_id": 0,
+        "id": 1,
+        "title": 1,
+        "url": 1,
+        "domain": 1,
+        "thumbnail": 1,
+        "created_at": 1,
+        "last_accessed": 1,
+        "view_count": 1
+    }
+
+    bookmarks = await db.bookmarks.find(query, projection) \
+        .sort("last_accessed", 1) \
+        .limit(limit) \
+        .to_list(None)
+
+    return {
+        "count": len(bookmarks),
+        "bookmarks": bookmarks
+    }
+
 @api_router.get("/bookmarks/{bookmark_id}")
 async def get_bookmark(bookmark_id: str, current_user: dict = Depends(get_current_user)):
     bookmark = await db.bookmarks.find_one({"id": bookmark_id, "user_id": current_user["id"]}, {"_id": 0})
     if not bookmark:
         raise HTTPException(status_code=404, detail="Bookmark not found")
-    
+
     summary = await db.ai_summaries.find_one({"bookmark_id": bookmark_id}, {"_id": 0})
-    
+
     result = {**bookmark}
     if summary:
         result["ai_summary"] = summary
-    
+
+    # Phase 1: Auto-track detail page view
+    await track_bookmark_access(bookmark_id, "detail", current_user)
+
     return result
 
 @api_router.delete("/bookmarks/{bookmark_id}")

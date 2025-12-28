@@ -6,9 +6,10 @@ import { Input } from '../components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { toast } from 'sonner';
-import { BookmarkIcon, PlusIcon, SearchIcon, FilterIcon, SparklesIcon, FolderIcon, LogOutIcon, CopyIcon, UploadIcon, DownloadIcon, CheckSquare, Square, Trash2, CheckCircle, Circle, Clock, BookOpen, Grid3x3, List } from 'lucide-react';
+import { BookmarkIcon, PlusIcon, SearchIcon, FilterIcon, SparklesIcon, FolderIcon, LogOutIcon, CopyIcon, UploadIcon, DownloadIcon, CheckSquare, Square, Trash2, CheckCircle, Circle, Clock, BookOpen, Grid3x3, List, Archive } from 'lucide-react';
 import KeyboardShortcutsModal from '../components/KeyboardShortcutsModal';
 import BookmarkCard from '../components/BookmarkCard';
+import AgedBookmarksBanner from '../components/AgedBookmarksBanner';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -36,6 +37,9 @@ const DashboardPage = ({ onLogout }) => {
   const [readFilter, setReadFilter] = useState('all');
   const [sortBy, setSortBy] = useState('created_at');
   const [viewMode, setViewMode] = useState('list');
+  // Phase 1: Aged bookmarks
+  const [agedCount, setAgedCount] = useState(0);
+  const [showAgedOnly, setShowAgedOnly] = useState(false);
 
   const user = JSON.parse(localStorage.getItem('user') || '{}');
 
@@ -78,9 +82,20 @@ const DashboardPage = ({ onLogout }) => {
     }
   };
 
+  // Phase 1: Fetch aged bookmarks count
+  const fetchAgedCount = async () => {
+    try {
+      const response = await axiosInstance.get(`/bookmarks/aged?min_days=30&limit=100`);
+      setAgedCount(response.data.count);
+    } catch (error) {
+      console.error('Failed to fetch aged count:', error);
+    }
+  };
+
   useEffect(() => {
     fetchBookmarks();
     fetchCollections();
+    fetchAgedCount();  // Phase 1: Fetch aged count
   }, [searchQuery, filterTag, filterDomain, filterCollection, readFilter, sortBy]);
 
   useEffect(() => {
@@ -521,6 +536,30 @@ const DashboardPage = ({ onLogout }) => {
           </div>
         </div>
 
+        {/* Phase 1: Aged Bookmarks Banner */}
+        <AgedBookmarksBanner
+          agedCount={agedCount}
+          onViewAged={() => setShowAgedOnly(true)}
+        />
+
+        {/* Aged Bookmarks Filter Toggle */}
+        {showAgedOnly && (
+          <div className="mb-4 p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg flex items-center justify-between">
+            <div className="flex items-center gap-2 text-sm text-amber-900 dark:text-amber-100">
+              <Archive className="w-4 h-4" />
+              <span>Showing stale bookmarks only (not accessed in 30+ days)</span>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowAgedOnly(false)}
+              className="text-amber-700 hover:text-amber-900 dark:text-amber-300 dark:hover:text-amber-100"
+            >
+              Clear Filter
+            </Button>
+          </div>
+        )}
+
         {/* Bulk Operations Toolbar */}
         {bulkMode && (
           <div className="mb-6 p-4 bg-muted/50 rounded-xl border">
@@ -633,11 +672,19 @@ const DashboardPage = ({ onLogout }) => {
             </Dialog>
           </div>
         ) : (
-          <div className={viewMode === 'grid' 
+          <div className={viewMode === 'grid'
             ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
             : "space-y-3"
           }>
-            {bookmarks.map((bookmark, index) => (
+            {/* Phase 1: Client-side aging filter */}
+            {bookmarks
+              .filter(bookmark => {
+                if (!showAgedOnly) return true;
+                const lastAccessed = new Date(bookmark.last_accessed || bookmark.created_at);
+                const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+                return lastAccessed < thirtyDaysAgo;
+              })
+              .map((bookmark, index) => (
               <BookmarkCard
                 key={bookmark.id}
                 bookmark={bookmark}

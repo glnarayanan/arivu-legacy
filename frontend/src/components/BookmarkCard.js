@@ -10,8 +10,17 @@ const BookmarkCard = ({ bookmark, onDelete, onClick, bulkMode, isSelected, onTog
     }
   };
 
-  const handleExternalLink = (e) => {
+  const handleExternalLink = async (e) => {
     e.stopPropagation();
+
+    // Track external URL access (Phase 1: fire and forget)
+    try {
+      await axiosInstance.post(`/bookmarks/${bookmark.id}/accessed?source=external`);
+    } catch (error) {
+      console.error('Failed to track external access:', error);
+      // Don't block user from opening URL
+    }
+
     window.open(bookmark.url, '_blank');
   };
 
@@ -98,6 +107,8 @@ const BookmarkCard = ({ bookmark, onDelete, onClick, bulkMode, isSelected, onTog
               )}
               <span className="truncate max-w-[120px]">{bookmark.domain}</span>
             </div>
+            <span>•</span>
+            <AgingIndicator bookmark={bookmark} size="compact" />
             <span>•</span>
             <span>{formatDistanceToNow(new Date(bookmark.created_at), { addSuffix: true })}</span>
             {bookmark.reading_time && (
@@ -288,9 +299,12 @@ const BookmarkCard = ({ bookmark, onDelete, onClick, bulkMode, isSelected, onTog
 
         {/* Reading time & Date */}
         <div className="flex items-center justify-between text-xs text-muted-foreground pt-1">
-          <div className="flex items-center gap-1">
-            <ClockIcon className="w-3 h-3" />
-            <span>{formatDistanceToNow(new Date(bookmark.created_at), { addSuffix: true })}</span>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1">
+              <ClockIcon className="w-3 h-3" />
+              <span>{formatDistanceToNow(new Date(bookmark.created_at), { addSuffix: true })}</span>
+            </div>
+            <AgingIndicator bookmark={bookmark} size="compact" />
           </div>
           {bookmark.reading_time && (
             <div className="flex items-center gap-1 px-2 py-0.5 bg-muted rounded-full">
