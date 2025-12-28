@@ -43,7 +43,19 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
+# Configure MongoDB client with timeouts to prevent hanging connections
+client = AsyncIOMotorClient(
+    mongo_url,
+    serverSelectionTimeoutMS=5000,      # 5 second timeout for server selection
+    connectTimeoutMS=10000,              # 10 second timeout for initial connection
+    socketTimeoutMS=30000,               # 30 second timeout for socket operations
+    maxPoolSize=50,                      # Limit connection pool size
+    minPoolSize=5,                       # Maintain minimum connections for performance
+    maxIdleTimeMS=45000,                 # Close idle connections after 45 seconds
+    waitQueueTimeoutMS=10000,            # 10 second timeout waiting for connection from pool
+    retryWrites=True,                    # Enable retry for write operations
+    retryReads=True                      # Enable retry for read operations
+)
 db_name = os.environ.get('DB_NAME', 'arivu_db')
 db = client[db_name]
 
@@ -498,7 +510,30 @@ async def fetch_webpage_content(url: str):
         }
 
 async def generate_ai_summaries(text_content: str, bookmark_id: str):
-    """Generate AI summaries for bookmark content"""
+    """Generate AI summaries for bookmark content with timeout protection"""
+    try:
+        # Wrap AI processing with 60-second timeout to prevent hanging
+        return await asyncio.wait_for(
+            _generate_ai_summaries_impl(text_content, bookmark_id),
+            timeout=60.0
+        )
+    except asyncio.TimeoutError:
+        logger.error(f"AI summary generation timed out for bookmark {bookmark_id}")
+        await db.ai_summaries.update_one(
+            {"bookmark_id": bookmark_id},
+            {"$set": {
+                "processing_status": "failed",
+                "one_sentence": "AI processing timed out",
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }}
+        )
+        return {"processing_status": "failed"}
+    except Exception as e:
+        logger.error(f"Error in AI summary wrapper for bookmark {bookmark_id}: {type(e).__name__}")
+        return {"processing_status": "failed"}
+
+async def _generate_ai_summaries_impl(text_content: str, bookmark_id: str):
+    """Internal implementation of AI summary generation"""
     try:
         if not text_content or len(text_content.strip()) < 50:
             logger.info(f"Insufficient content for AI processing: bookmark {bookmark_id}")
@@ -508,7 +543,7 @@ async def generate_ai_summaries(text_content: str, bookmark_id: str):
         if not gemini_api_key:
             logger.error("GEMINI_API_KEY not configured")
             raise ValueError("GEMINI_API_KEY not found in environment variables")
-        
+
         genai.configure(api_key=gemini_api_key)
         model = genai.GenerativeModel('gemini-2.0-flash-exp')
         
