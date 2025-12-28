@@ -188,6 +188,22 @@ limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+# Custom key function for user-based rate limiting
+def get_user_identifier(request: Request) -> str:
+    """Get user ID from auth token, fallback to IP if not authenticated"""
+    try:
+        auth_header = request.headers.get('Authorization', '')
+        if auth_header.startswith('Bearer '):
+            token = auth_header.split(' ')[1]
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            user_id = payload.get("sub")
+            if user_id:
+                return f"user:{user_id}"
+    except:
+        pass
+    # Fallback to IP-based rate limiting
+    return f"ip:{get_remote_address(request)}"
+
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
 
@@ -968,7 +984,8 @@ async def process_bulk_import(import_job_id: str, bookmark_ids: List[str], user_
         )
 
 @api_router.post("/bookmarks", response_model=Bookmark)
-@limiter.limit("20/minute")  # Limit bookmark creation to prevent abuse
+@limiter.limit("20/minute")  # IP-based rate limiting
+@limiter.limit("100/hour", key_func=get_user_identifier)  # User-based rate limiting
 async def create_bookmark(request: Request, bookmark_data: BookmarkCreate, background_tasks: BackgroundTasks, current_user: dict = Depends(get_current_user)):
     parsed_url = urlparse(bookmark_data.url)
     
@@ -1173,7 +1190,8 @@ async def delete_bookmark(bookmark_id: str, current_user: dict = Depends(get_cur
     return {"message": "Bookmark deleted"}
 
 @api_router.post("/bookmarks/bulk-delete")
-@limiter.limit("10/minute")  # Limit bulk operations
+@limiter.limit("10/minute")  # IP-based rate limiting
+@limiter.limit("50/hour", key_func=get_user_identifier)  # User-based rate limiting
 async def bulk_delete_bookmarks(request: Request, bookmark_ids: List[str], current_user: dict = Depends(get_current_user)):
     result = await db.bookmarks.delete_many({"id": {"$in": bookmark_ids}, "user_id": current_user["id"]})
     await db.ai_summaries.delete_many({"bookmark_id": {"$in": bookmark_ids}})
@@ -1194,7 +1212,8 @@ async def update_read_status(bookmark_id: str, read_status: bool, current_user: 
     return {"message": "Read status updated"}
 
 @api_router.post("/bookmarks/bulk-mark-read")
-@limiter.limit("10/minute")  # Limit bulk operations
+@limiter.limit("10/minute")  # IP-based rate limiting
+@limiter.limit("50/hour", key_func=get_user_identifier)  # User-based rate limiting
 async def bulk_mark_read(request: Request, bookmark_ids: List[str], read_status: bool, current_user: dict = Depends(get_current_user)):
     result = await db.bookmarks.update_many(
         {"id": {"$in": bookmark_ids}, "user_id": current_user["id"]},
@@ -1542,6 +1561,44 @@ async def export_bookmarks(current_user: dict = Depends(get_current_user)):
         }
     )
 
+# Request size limit middleware
+class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
+    def __init__(self, app, max_size: int = 10 * 1024 * 1024):  # 10MB default
+        super().__init__(app)
+        self.max_size = max_size
+
+    async def dispatch(self, request, call_next):
+        # Check Content-Length header if present
+        content_length = request.headers.get('content-length')
+        if content_length:
+            content_length = int(content_length)
+            if content_length > self.max_size:
+                logger.warning(f"Request rejected: size {content_length} exceeds limit {self.max_size}")
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"Request body too large. Maximum size is {self.max_size / (1024 * 1024):.1f}MB"
+                )
+
+        response = await call_next(request)
+        return response
+
+# Request ID tracking middleware
+class RequestIDMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        # Generate unique request ID
+        request_id = str(uuid.uuid4())
+        request.state.request_id = request_id
+
+        # Add to logger context for this request
+        logger.info(f"Request {request_id}: {request.method} {request.url.path}")
+
+        response = await call_next(request)
+
+        # Add request ID to response headers
+        response.headers["X-Request-ID"] = request_id
+
+        return response
+
 # Security headers middleware
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
@@ -1555,8 +1612,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 app.include_router(api_router)
 
-# Add security headers middleware
+# Add middleware (order matters - applied in reverse order)
 app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(RequestIDMiddleware)
+app.add_middleware(RequestSizeLimitMiddleware, max_size=10 * 1024 * 1024)  # 10MB limit
 
 # Validate CORS origins
 cors_origins_env = os.environ.get('CORS_ORIGINS', '*')

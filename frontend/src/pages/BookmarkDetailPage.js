@@ -5,6 +5,7 @@ import { Button } from '../components/ui/button';
 import { toast } from 'sonner';
 import { ArrowLeftIcon, ExternalLinkIcon, SparklesIcon, ListIcon, BookOpenIcon } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
+import DOMPurify from 'dompurify';
 
 const BookmarkDetailPage = ({ onLogout }) => {
   const { id } = useParams();
@@ -199,7 +200,13 @@ const BookmarkDetailPage = ({ onLogout }) => {
           {bookmark.html_content ? (
             <div
               className="reader-content font-reader prose prose-lg max-w-none"
-              dangerouslySetInnerHTML={{ __html: bookmark.html_content }}
+              dangerouslySetInnerHTML={{
+                __html: DOMPurify.sanitize(bookmark.html_content, {
+                  ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'b', 'i', 'u', 'a', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'blockquote', 'code', 'pre', 'img', 'div', 'span', 'hr', 'table', 'thead', 'tbody', 'tr', 'th', 'td'],
+                  ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'class'],
+                  ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto):|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i,
+                })
+              }}
             />
           ) : bookmark.text_content ? (
             <div className="reader-content font-reader prose prose-lg max-w-none whitespace-pre-wrap">
