@@ -29,9 +29,6 @@ const DashboardPage = ({ onLogout }) => {
   const [collectionDialogOpen, setCollectionDialogOpen] = useState(false);
   const [allTags, setAllTags] = useState([]);
   const [allDomains, setAllDomains] = useState([]);
-  const [importDialogOpen, setImportDialogOpen] = useState(false);
-  const [importFile, setImportFile] = useState(null);
-  const [importing, setImporting] = useState(false);
   const [selectedBookmarks, setSelectedBookmarks] = useState([]);
   const [bulkMode, setBulkMode] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(-1);
@@ -199,37 +196,6 @@ const DashboardPage = ({ onLogout }) => {
     }
   };
 
-  const handleImportBookmarks = async (e) => {
-    e.preventDefault();
-    if (!importFile) return;
-
-    setImporting(true);
-    try {
-      const reader = new FileReader();
-      reader.onload = async (event) => {
-        try {
-          const response = await axiosInstance.post(
-            `/bookmarks/import`,
-            event.target.result,
-            { headers: { 'Content-Type': 'text/plain' } }
-          );
-          toast.success(`Imported ${response.data.count} bookmarks! AI processing...`);
-          setImportFile(null);
-          setImportDialogOpen(false);
-          fetchBookmarks();
-        } catch (error) {
-          toast.error('Failed to import bookmarks');
-        } finally {
-          setImporting(false);
-        }
-      };
-      reader.readAsText(importFile);
-    } catch (error) {
-      toast.error('Failed to read file');
-      setImporting(false);
-    }
-  };
-
   const handleExportBookmarks = async () => {
     try {
       const response = await axiosInstance.get(`/bookmarks/export`, {
@@ -349,51 +315,16 @@ const DashboardPage = ({ onLogout }) => {
                   </form>
                 </DialogContent>
               </Dialog>
-              <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button
-                    data-testid="import-btn"
-                    variant="ghost"
-                    size="sm"
-                    className="rounded-full"
-                  >
-                    <UploadIcon className="w-4 h-4 mr-2" />
-                    Import
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="rounded-2xl" aria-describedby="import-description">
-                  <DialogHeader>
-                    <DialogTitle className="font-heading">Import Bookmarks</DialogTitle>
-                    <p id="import-description" className="text-sm text-muted-foreground sr-only">
-                      Import bookmarks from your browser HTML file
-                    </p>
-                  </DialogHeader>
-                  <form onSubmit={handleImportBookmarks} className="space-y-4">
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">Select HTML file</label>
-                      <Input
-                        data-testid="import-file-input"
-                        type="file"
-                        accept=".html"
-                        onChange={(e) => setImportFile(e.target.files[0])}
-                        required
-                        className="rounded-xl"
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        Export bookmarks from Chrome, Firefox, or Safari
-                      </p>
-                    </div>
-                    <Button
-                      data-testid="import-submit-btn"
-                      type="submit"
-                      className="w-full rounded-full"
-                      disabled={importing}
-                    >
-                      {importing ? 'Importing...' : 'Import Bookmarks'}
-                    </Button>
-                  </form>
-                </DialogContent>
-              </Dialog>
+              <Button
+                data-testid="import-btn"
+                variant="ghost"
+                size="sm"
+                className="rounded-full"
+                onClick={() => navigate('/imports')}
+              >
+                <UploadIcon className="w-4 h-4 mr-2" />
+                Imports
+              </Button>
               <Button
                 data-testid="export-btn"
                 variant="ghost"

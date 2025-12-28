@@ -4,6 +4,7 @@ import AuthPage from './pages/AuthPage';
 import DashboardPage from './pages/DashboardPage';
 import BookmarkDetailPage from './pages/BookmarkDetailPage';
 import DuplicatesPage from './pages/DuplicatesPage';
+import ImportsPage from './pages/ImportsPage';
 import { Toaster } from './components/ui/sonner';
 import './App.css';
 
@@ -83,6 +84,16 @@ function App() {
             element={
               isAuthenticated ? (
                 <DuplicatesPage onLogout={handleLogout} />
+              ) : (
+                <Navigate to="/auth" replace />
+              )
+            }
+          />
+          <Route
+            path="/imports"
+            element={
+              isAuthenticated ? (
+                <ImportsPage onLogout={handleLogout} />
               ) : (
                 <Navigate to="/auth" replace />
               )

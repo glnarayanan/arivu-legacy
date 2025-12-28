@@ -28,9 +28,131 @@ import socket
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from collections import deque
+import time
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
+
+# Enhanced Rate limiter for Gemini API with multi-dimensional tracking
+class EnhancedGeminiRateLimiter:
+    def __init__(
+        self,
+        max_rpm=500,              # 50% of 1000 RPM limit (conservative)
+        max_tpm=500000,           # 50% of 1M tokens/minute
+        max_daily=5000            # 50% of 10K requests/day
+    ):
+        # Limits
+        self.max_rpm = max_rpm
+        self.max_tpm = max_tpm
+        self.max_daily = max_daily
+
+        # Current usage tracking (sliding windows)
+        self.rpm_bucket = deque()  # (timestamp, 1)
+        self.tpm_bucket = deque()  # (timestamp, token_count)
+
+        # Daily tracking
+        self.total_requests_today = 0
+        self.total_tokens_today = 0
+        self.current_date = datetime.now(timezone.utc).date().isoformat()
+
+        # Thread safety
+        self.lock = asyncio.Lock()
+
+    async def acquire(self, estimated_tokens=1000):
+        """
+        Acquire permission to make API call with rate limiting
+
+        Args:
+            estimated_tokens: Estimated tokens for this request (default 1000)
+
+        Returns:
+            wait_time: How long we waited (for logging)
+        """
+        async with self.lock:
+            now = time.time()
+            today = datetime.now(timezone.utc).date().isoformat()
+
+            # Reset daily counters if date changed
+            if today != self.current_date:
+                self.total_requests_today = 0
+                self.total_tokens_today = 0
+                self.current_date = today
+                logger.info(f"Daily quota reset: new date {today}")
+
+            # 1. Clean old entries (older than 1 minute)
+            self._cleanup_buckets(now)
+
+            # 2. Check current usage
+            current_rpm = len(self.rpm_bucket)
+            current_tpm = sum(tokens for _, tokens in self.tpm_bucket)
+            current_daily = self.total_requests_today
+
+            # 3. Calculate utilization percentages
+            rpm_utilization = current_rpm / self.max_rpm if self.max_rpm > 0 else 0
+            tpm_utilization = current_tpm / self.max_tpm if self.max_tpm > 0 else 0
+
+            # 4. Determine wait time
+            wait_time = 0
+
+            # Dynamic throttling: slow down at 80% capacity
+            if rpm_utilization >= 0.80 or tpm_utilization >= 0.80:
+                # Wait a bit to smooth out traffic
+                wait_time = 0.5
+                logger.debug(f"Dynamic throttling: RPM={rpm_utilization:.0%}, TPM={tpm_utilization:.0%}")
+
+            # Hard limit: must wait if at capacity
+            if current_rpm >= self.max_rpm:
+                oldest_request = self.rpm_bucket[0][0]
+                wait_time = max(wait_time, 60 - (now - oldest_request) + 0.1)
+
+            if current_tpm + estimated_tokens >= self.max_tpm:
+                oldest_tokens = self.tpm_bucket[0][0]
+                wait_time = max(wait_time, 60 - (now - oldest_tokens) + 0.1)
+
+            # Check daily limit (hard stop)
+            if current_daily >= self.max_daily:
+                logger.error(f"Daily Gemini API quota exceeded: {current_daily}/{self.max_daily}")
+                raise Exception("Daily Gemini API quota exceeded. Please try again tomorrow.")
+
+            # 5. Wait if needed
+            if wait_time > 0:
+                logger.info(f"Rate limiting: waiting {wait_time:.1f}s (RPM: {rpm_utilization:.0%}, TPM: {tpm_utilization:.0%}, Daily: {current_daily}/{self.max_daily})")
+                await asyncio.sleep(wait_time)
+                return await self.acquire(estimated_tokens)  # Retry
+
+            # 6. Record this request
+            self.rpm_bucket.append((now, 1))
+            self.tpm_bucket.append((now, estimated_tokens))
+            self.total_requests_today += 1
+            self.total_tokens_today += estimated_tokens
+
+            return wait_time
+
+    def _cleanup_buckets(self, now):
+        """Remove entries older than 60 seconds"""
+        cutoff = now - 60
+
+        while self.rpm_bucket and self.rpm_bucket[0][0] < cutoff:
+            self.rpm_bucket.popleft()
+
+        while self.tpm_bucket and self.tpm_bucket[0][0] < cutoff:
+            self.tpm_bucket.popleft()
+
+    async def record_actual_tokens(self, actual_tokens):
+        """Update token count with actual usage from API response"""
+        async with self.lock:
+            # Adjust token tracking based on actual response
+            if self.tpm_bucket:
+                last_timestamp, estimated = self.tpm_bucket[-1]
+                self.tpm_bucket[-1] = (last_timestamp, actual_tokens)
+                self.total_tokens_today += (actual_tokens - estimated)
+
+gemini_rate_limiter = EnhancedGeminiRateLimiter(
+    max_rpm=500,        # 50% of 1000 RPM (conservative buffer)
+    max_tpm=500000,     # 50% of 1M tokens/min
+    max_daily=5000      # 50% of 10K requests/day
+)
 
 # Configure structured logging
 logging.basicConfig(
@@ -50,7 +172,6 @@ client = AsyncIOMotorClient(
     connectTimeoutMS=10000,              # 10 second timeout for initial connection
     socketTimeoutMS=30000,               # 30 second timeout for socket operations
     maxPoolSize=50,                      # Limit connection pool size
-    minPoolSize=5,                       # Maintain minimum connections for performance
     maxIdleTimeMS=45000,                 # Close idle connections after 45 seconds
     waitQueueTimeoutMS=10000,            # 10 second timeout waiting for connection from pool
     retryWrites=True,                    # Enable retry for write operations
@@ -242,6 +363,19 @@ class CollectionCreate(BaseModel):
 class AddToCollection(BaseModel):
     bookmark_id: str
 
+class ImportJob(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str
+    total_bookmarks: int
+    content_fetched: int = 0
+    ai_processed: int = 0
+    failed: int = 0
+    status: str = "processing"  # processing, completed, failed
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    estimated_completion_time: Optional[datetime] = None
+
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     """Create JWT access token"""
     to_encode = data.copy()
@@ -422,7 +556,7 @@ async def fetch_webpage_content(url: str):
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
             'Accept-Language': 'en-US,en;q=0.5',
         }
-        response = requests.get(url, headers=headers, timeout=15, allow_redirects=True, max_redirects=5)
+        response = requests.get(url, headers=headers, timeout=15, allow_redirects=True)
         response.raise_for_status()
         
         html_content = response.text
@@ -470,9 +604,10 @@ async def fetch_webpage_content(url: str):
         h.ignore_links = False
         h.ignore_images = True
         h.body_width = 0
-        text_content = h.handle(summary_html).strip()
-        
-        if not text_content or len(text_content.strip()) < 100:
+        text_content = h.handle(summary_html)
+        text_content = text_content.strip() if text_content else ""
+
+        if not text_content or len(text_content) < 100:
             cleaned_soup = BeautifulSoup(summary_html, 'html.parser')
             paragraphs = cleaned_soup.find_all(['p', 'article', 'section'])
             text_parts = []
@@ -481,10 +616,11 @@ async def fetch_webpage_content(url: str):
                 if len(text) > 50:
                     text_parts.append(text)
             if text_parts:
-                text_content = '\\n\\n'.join(text_parts)
-        
-        if len(text_content) < 50:
-            text_content = soup.get_text(separator='\\n', strip=True)
+                text_content = '\n\n'.join(text_parts)
+
+        if not text_content or len(text_content) < 50:
+            text_content = soup.get_text(separator='\n', strip=True)
+            text_content = text_content if text_content else ""
         
         text_content = ' '.join(text_content.split())[:10000]
         
@@ -501,7 +637,7 @@ async def fetch_webpage_content(url: str):
     except Exception as e:
         # Sanitize URL in logs - remove query params and fragments
         safe_url = urlparse(url)._replace(query='', fragment='').geturl()
-        logger.error(f"Error fetching webpage from domain {urlparse(url).netloc}: {type(e).__name__}")
+        logger.error(f"Error fetching webpage from domain {urlparse(url).netloc}: {type(e).__name__}: {str(e)}", exc_info=True)
         return {
             'title': urlparse(url).netloc,
             'domain': urlparse(url).netloc,
@@ -545,25 +681,18 @@ async def _generate_ai_summaries_impl(text_content: str, bookmark_id: str):
             raise ValueError("GEMINI_API_KEY not found in environment variables")
 
         genai.configure(api_key=gemini_api_key)
-        model = genai.GenerativeModel('gemini-2.0-flash-exp')
-        
+        model = genai.GenerativeModel('gemini-2.5-flash')
+
         content_snippet = text_content[:4000].strip()
-        
-        # Generate one-sentence summary
-        one_sentence_prompt = f"""You are a factual summarizer. Create ONE concise sentence (max 20 words) summarizing the main point. Be direct and factual.
+
+        # Define all prompts upfront
+        prompts = {
+            'one_sentence': f"""You are a factual summarizer. Create ONE concise sentence (max 20 words) summarizing the main point. Be direct and factual.
 
 Summarize in ONE sentence:
 
-{content_snippet}"""
-        
-        response = await asyncio.to_thread(
-            model.generate_content,
-            one_sentence_prompt
-        )
-        one_sentence = response.text.strip() if response.text else "Summary unavailable"
-        
-        # Generate bullet points
-        bullets_prompt = f"""Extract exactly 3 key bullet points. Format as:
+{content_snippet}""",
+            'bullets': f"""Extract exactly 3 key bullet points. Format as:
 - Point 1
 - Point 2
 - Point 3
@@ -571,69 +700,84 @@ Be factual and concise.
 
 Extract 3 key points:
 
-{content_snippet}"""
-        
-        response = await asyncio.to_thread(
-            model.generate_content,
-            bullets_prompt
-        )
-        bullet_points = []
-        if response.text:
-            for line in response.text.split('\n'):
-                line = line.strip()
-                if line.startswith('-') or line.startswith('•') or line.startswith('*'):
-                    bullet_points.append(line.lstrip('-•* ').strip())
-            bullet_points = bullet_points[:3]
-            
-            if len(bullet_points) < 3:
-                bullet_points = [b.strip() for b in response.text.split('.') if b.strip()][:3]
-        
-        # Generate long-form summary
-        long_form_prompt = f"""Create a comprehensive summary (150-200 words) with clear sections. Be factual and well-structured.
+{content_snippet}""",
+            'long_form': f"""Create a comprehensive summary (150-200 words) with clear sections. Be factual and well-structured.
 
 Create a detailed summary with Overview, Key Facts, and Main Points:
 
-{content_snippet}"""
-        
-        response = await asyncio.to_thread(
-            model.generate_content,
-            long_form_prompt
-        )
-        long_form = response.text.strip() if response.text else "Detailed summary unavailable"
-        
-        # Extract highlights
-        highlights_prompt = f"""Extract 3-5 important direct quotes or key statements. Return one per line without bullets.
+{content_snippet}""",
+            'highlights': f"""Extract 3-5 important direct quotes or key statements. Return one per line without bullets.
 
 Extract key quotes or statements:
 
-{content_snippet}"""
-        
-        response = await asyncio.to_thread(
-            model.generate_content,
-            highlights_prompt
-        )
-        highlights = []
-        if response.text:
-            for line in response.text.split('\n'):
-                line = line.strip().strip('-•*"').strip('"').strip()
-                if len(line) > 10:
-                    highlights.append(line)
-            highlights = highlights[:5]
-        
-        # Generate tags
-        tags_prompt = f"""Generate 4-6 relevant single-word or two-word tags. Return comma-separated lowercase tags.
+{content_snippet}""",
+            'tags': f"""Generate 4-6 relevant single-word or two-word tags. Return comma-separated lowercase tags.
 
 Generate relevant tags:
 
 {content_snippet[:1500]}"""
-        
-        response = await asyncio.to_thread(
-            model.generate_content,
-            tags_prompt
-        )
+        }
+
+        # Estimated tokens per prompt (avg ~1000 tokens each)
+        estimated_tokens_per_call = 1000
+
+        # Parallel API call function
+        async def call_gemini(prompt_type, prompt_text):
+            await gemini_rate_limiter.acquire(estimated_tokens=estimated_tokens_per_call)
+            response = await asyncio.to_thread(
+                model.generate_content,
+                prompt_text
+            )
+            # Record actual tokens if available
+            if hasattr(response, 'usage_metadata') and hasattr(response.usage_metadata, 'total_token_count'):
+                actual_tokens = response.usage_metadata.total_token_count
+                await gemini_rate_limiter.record_actual_tokens(actual_tokens)
+
+            return prompt_type, response
+
+        # Execute all 5 calls in parallel
+        results = await asyncio.gather(*[
+            call_gemini('one_sentence', prompts['one_sentence']),
+            call_gemini('bullets', prompts['bullets']),
+            call_gemini('long_form', prompts['long_form']),
+            call_gemini('highlights', prompts['highlights']),
+            call_gemini('tags', prompts['tags'])
+        ])
+
+        # Parse results into dictionary
+        results_dict = dict(results)
+
+        # Parse one-sentence summary
+        one_sentence = results_dict['one_sentence'].text.strip() if results_dict['one_sentence'].text else "Summary unavailable"
+
+        # Parse bullet points
+        bullet_points = []
+        if results_dict['bullets'].text:
+            for line in results_dict['bullets'].text.split('\n'):
+                line = line.strip()
+                if line.startswith('-') or line.startswith('•') or line.startswith('*'):
+                    bullet_points.append(line.lstrip('-•* ').strip())
+            bullet_points = bullet_points[:3]
+
+            if len(bullet_points) < 3:
+                bullet_points = [b.strip() for b in results_dict['bullets'].text.split('.') if b.strip()][:3]
+
+        # Parse long-form summary
+        long_form = results_dict['long_form'].text.strip() if results_dict['long_form'].text else "Detailed summary unavailable"
+
+        # Parse highlights
+        highlights = []
+        if results_dict['highlights'].text:
+            for line in results_dict['highlights'].text.split('\n'):
+                line = line.strip().strip('-•*"').strip('"').strip()
+                if len(line) > 10:
+                    highlights.append(line)
+            highlights = highlights[:5]
+
+        # Parse tags
         suggested_tags = []
-        if response.text:
-            for tag in response.text.replace(',', ' ').replace('\n', ' ').split():
+        if results_dict['tags'].text:
+            for tag in results_dict['tags'].text.replace(',', ' ').replace('\n', ' ').split():
                 tag = tag.strip().strip('.,;:').lower()
                 if tag and len(tag) > 2:
                     suggested_tags.append(tag)
@@ -698,6 +842,126 @@ async def process_bookmark_content(bookmark_id: str, url: str, collection_id: Op
         logger.info(f"Successfully processed bookmark: {bookmark_id}")
     except Exception as e:
         logger.error(f"Error processing bookmark {bookmark_id}: {type(e).__name__}")
+
+async def process_bulk_import(import_job_id: str, bookmark_ids: List[str], user_id: str):
+    """Background task to process bulk import in two phases"""
+    try:
+        total = len(bookmark_ids)
+        logger.info(f"Starting bulk import processing for job {import_job_id}: {total} bookmarks")
+
+        # Phase 1: Fast content fetching (no rate limit)
+        content_fetched = 0
+        failed = 0
+
+        for bookmark_id in bookmark_ids:
+            try:
+                bookmark = await db.bookmarks.find_one({"id": bookmark_id})
+                if not bookmark:
+                    continue
+
+                content = await fetch_webpage_content(bookmark['url'])
+                reading_time = calculate_reading_time(content.get('text_content', ''))
+
+                await db.bookmarks.update_one(
+                    {"id": bookmark_id},
+                    {"$set": {
+                        "title": content.get('title'),
+                        "description": content.get('description'),
+                        "favicon": content.get('favicon'),
+                        "thumbnail": content.get('thumbnail'),
+                        "html_content": content.get('html_content'),
+                        "text_content": content.get('text_content'),
+                        "domain": content.get('domain'),
+                        "reading_time": reading_time,
+                        "updated_at": datetime.now(timezone.utc).isoformat()
+                    }}
+                )
+                content_fetched += 1
+
+                # Update progress every 10 bookmarks
+                if content_fetched % 10 == 0:
+                    await db.import_jobs.update_one(
+                        {"id": import_job_id},
+                        {"$set": {
+                            "content_fetched": content_fetched,
+                            "updated_at": datetime.now(timezone.utc).isoformat()
+                        }}
+                    )
+            except Exception as e:
+                failed += 1
+                logger.error(f"Error fetching content for bookmark {bookmark_id}: {type(e).__name__}")
+
+        # Update after Phase 1 completion
+        await db.import_jobs.update_one(
+            {"id": import_job_id},
+            {"$set": {
+                "content_fetched": content_fetched,
+                "failed": failed,
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }}
+        )
+
+        logger.info(f"Phase 1 complete for job {import_job_id}: {content_fetched}/{total} fetched, {failed} failed")
+
+        # Phase 2: Rate-limited AI processing
+        ai_processed = 0
+
+        for bookmark_id in bookmark_ids:
+            try:
+                bookmark = await db.bookmarks.find_one({"id": bookmark_id})
+                if not bookmark or not bookmark.get('text_content'):
+                    continue
+
+                result = await generate_ai_summaries(bookmark['text_content'], bookmark_id)
+                if result.get('processing_status') == 'completed':
+                    ai_processed += 1
+                else:
+                    failed += 1
+
+                # Update progress every 5 AI processes
+                if ai_processed % 5 == 0:
+                    # Calculate ETA
+                    elapsed = (datetime.now(timezone.utc) - datetime.fromisoformat(
+                        (await db.import_jobs.find_one({"id": import_job_id}))['created_at']
+                    )).total_seconds()
+                    remaining = total - ai_processed
+                    eta = datetime.now(timezone.utc) + timedelta(seconds=(elapsed / ai_processed) * remaining if ai_processed > 0 else 0)
+
+                    await db.import_jobs.update_one(
+                        {"id": import_job_id},
+                        {"$set": {
+                            "ai_processed": ai_processed,
+                            "failed": failed,
+                            "estimated_completion_time": eta.isoformat(),
+                            "updated_at": datetime.now(timezone.utc).isoformat()
+                        }}
+                    )
+            except Exception as e:
+                failed += 1
+                logger.error(f"Error processing AI for bookmark {bookmark_id}: {type(e).__name__}")
+
+        # Mark job as completed
+        await db.import_jobs.update_one(
+            {"id": import_job_id},
+            {"$set": {
+                "ai_processed": ai_processed,
+                "failed": failed,
+                "status": "completed",
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }}
+        )
+
+        logger.info(f"Bulk import completed for job {import_job_id}: {ai_processed}/{total} AI processed")
+
+    except Exception as e:
+        logger.error(f"Error in bulk import job {import_job_id}: {type(e).__name__}")
+        await db.import_jobs.update_one(
+            {"id": import_job_id},
+            {"$set": {
+                "status": "failed",
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }}
+        )
 
 @api_router.post("/bookmarks", response_model=Bookmark)
 @limiter.limit("20/minute")  # Limit bookmark creation to prevent abuse
@@ -995,9 +1259,18 @@ async def import_bookmarks(request: Request, background_tasks: BackgroundTasks, 
         if not html_content or len(html_content.strip()) == 0:
             raise HTTPException(status_code=400, detail="File is empty")
 
-        # Detect file format: HTML bookmark file or plain text URL list
+        # Detect file format: HTML bookmark file, CSV, or plain text URL list
         html_lower = html_content.lower()
         is_html_format = '<a' in html_lower or '<A' in html_lower
+
+        # Detect CSV format (looks for comma-separated values)
+        lines = html_content.strip().split('\n')
+        is_csv_format = False
+        if not is_html_format and len(lines) > 0:
+            # Check if first few lines contain commas (likely CSV)
+            first_lines = lines[:5]
+            comma_count = sum(1 for line in first_lines if ',' in line)
+            is_csv_format = comma_count >= len(first_lines) * 0.5  # At least 50% have commas
 
         urls_to_import = []
         MAX_BOOKMARKS_PER_IMPORT = 1000
@@ -1017,9 +1290,33 @@ async def import_bookmarks(request: Request, background_tasks: BackgroundTasks, 
 
                 if url and url.startswith('http'):
                     urls_to_import.append({'url': url, 'title': title or urlparse(url).netloc})
+
+        elif is_csv_format:
+            # Process CSV file (URL in first column, optional title in second column)
+            for line in lines[:MAX_BOOKMARKS_PER_IMPORT]:
+                line = line.strip()
+                if not line:
+                    continue
+
+                # Split by comma
+                parts = [p.strip().strip('"').strip("'") for p in line.split(',')]
+
+                if len(parts) == 0:
+                    continue
+
+                url = parts[0]
+                title = parts[1] if len(parts) > 1 and parts[1] else None
+
+                # Skip header row (common CSV headers)
+                if url.lower() in ['url', 'link', 'website', 'address', 'bookmark']:
+                    continue
+
+                # Only import valid HTTP(S) URLs
+                if url and url.startswith('http'):
+                    urls_to_import.append({'url': url, 'title': title or urlparse(url).netloc})
+
         else:
             # Process plain text URL list (one URL per line)
-            lines = html_content.strip().split('\n')
             for line in lines[:MAX_BOOKMARKS_PER_IMPORT]:
                 url = line.strip()
 
@@ -1034,7 +1331,26 @@ async def import_bookmarks(request: Request, background_tasks: BackgroundTasks, 
             raise HTTPException(status_code=400, detail="No valid URLs found in file")
 
         logger.info(f"User {current_user['id']} importing {len(urls_to_import)} bookmarks")
+
+        # Create import job
+        import_job = {
+            "id": str(uuid.uuid4()),
+            "user_id": current_user["id"],
+            "total_bookmarks": len(urls_to_import),
+            "content_fetched": 0,
+            "ai_processed": 0,
+            "failed": 0,
+            "status": "processing",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "estimated_completion_time": None
+        }
+        await db.import_jobs.insert_one(import_job)
+
+        # Create placeholder bookmarks
+        bookmark_ids = []
         imported_count = 0
+
         for item in urls_to_import:
             url = item['url']
             title = item['title']
@@ -1056,9 +1372,9 @@ async def import_bookmarks(request: Request, background_tasks: BackgroundTasks, 
                     "created_at": datetime.now(timezone.utc).isoformat(),
                     "updated_at": datetime.now(timezone.utc).isoformat()
                 }
-                
+
                 await db.bookmarks.insert_one(bookmark)
-                
+
                 ai_summary = {
                     "id": str(uuid.uuid4()),
                     "bookmark_id": bookmark["id"],
@@ -1066,19 +1382,43 @@ async def import_bookmarks(request: Request, background_tasks: BackgroundTasks, 
                     "created_at": datetime.now(timezone.utc).isoformat()
                 }
                 await db.ai_summaries.insert_one(ai_summary)
-                
-                if background_tasks:
-                    background_tasks.add_task(process_bookmark_content, bookmark["id"], url, None, current_user["id"])
+
+                bookmark_ids.append(bookmark["id"])
                 imported_count += 1
 
+        # Start background bulk processing
+        if background_tasks and bookmark_ids:
+            background_tasks.add_task(process_bulk_import, import_job["id"], bookmark_ids, current_user["id"])
+
         logger.info(f"Successfully imported {imported_count} bookmarks for user {current_user['id']}")
-        return {"message": f"Imported {imported_count} bookmarks", "count": imported_count}
+        return {
+            "message": f"Imported {imported_count} bookmarks",
+            "count": imported_count,
+            "import_job_id": import_job["id"]
+        }
     except HTTPException:
         # Re-raise HTTP exceptions as-is (these are validation errors with proper messages)
         raise
     except Exception as e:
         logger.error(f"Error importing bookmarks for user {current_user['id']}: {type(e).__name__} - {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to import bookmarks: {str(e)}")
+
+@api_router.get("/import-jobs/{job_id}")
+async def get_import_job(job_id: str, current_user: dict = Depends(get_current_user)):
+    """Get import job progress"""
+    job = await db.import_jobs.find_one({"id": job_id, "user_id": current_user["id"]}, {"_id": 0})
+    if not job:
+        raise HTTPException(status_code=404, detail="Import job not found")
+    return job
+
+@api_router.get("/import-jobs")
+async def get_import_jobs(current_user: dict = Depends(get_current_user)):
+    """Get all import jobs for user"""
+    jobs = await db.import_jobs.find(
+        {"user_id": current_user["id"]},
+        {"_id": 0}
+    ).sort("created_at", -1).limit(50).to_list(None)
+    return jobs
 
 @api_router.get("/bookmarks/export")
 async def export_bookmarks(current_user: dict = Depends(get_current_user)):
