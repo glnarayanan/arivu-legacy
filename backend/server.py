@@ -462,6 +462,14 @@ async def health_check():
 @limiter.limit("3/hour")  # Limit signups to prevent abuse
 async def signup(request: Request, user_data: UserSignup):
     """Register a new user with password validation"""
+    # SIGNUPS DISABLED: Only existing users can login
+    # To re-enable signups, remove or comment out the following block
+    logger.info(f"Signup attempt blocked (signups disabled): {user_data.email}")
+    raise HTTPException(
+        status_code=403,
+        detail="Signups are currently disabled. Only existing users can log in."
+    )
+
     # Validate password strength
     is_valid, error_msg = validate_password_strength(user_data.password)
     if not is_valid:

@@ -9,6 +9,9 @@ import { BookmarkIcon } from 'lucide-react';
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
+// SIGNUPS DISABLED: Set to true to re-enable signups
+const SIGNUPS_ENABLED = false;
+
 const AuthPage = ({ onLogin }) => {
   const [isLogin, setIsLogin] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -23,8 +26,10 @@ const AuthPage = ({ onLogin }) => {
     setLoading(true);
 
     try {
-      const endpoint = isLogin ? '/auth/login' : '/auth/signup';
-      const payload = isLogin
+      // Force login mode when signups are disabled
+      const effectiveIsLogin = !SIGNUPS_ENABLED || isLogin;
+      const endpoint = effectiveIsLogin ? '/auth/login' : '/auth/signup';
+      const payload = effectiveIsLogin
         ? { email: formData.email, password: formData.password }
         : formData;
 
@@ -32,7 +37,7 @@ const AuthPage = ({ onLogin }) => {
 
       // Store both access and refresh tokens
       onLogin(response.data.access_token, response.data.refresh_token, response.data.user);
-      toast.success(isLogin ? 'Welcome back!' : 'Account created successfully!');
+      toast.success(effectiveIsLogin ? 'Welcome back!' : 'Account created successfully!');
     } catch (error) {
       const errorMsg = error.response?.data?.detail || 'Authentication failed';
       toast.error(errorMsg);
@@ -57,27 +62,36 @@ const AuthPage = ({ onLogin }) => {
         </div>
 
         <div className="bg-card border border-border rounded-2xl p-8 shadow-sm">
-          <div className="flex gap-2 mb-6">
-            <Button
-              data-testid="login-tab"
-              variant={isLogin ? 'default' : 'ghost'}
-              className="flex-1 rounded-full"
-              onClick={() => setIsLogin(true)}
-            >
-              Log In
-            </Button>
-            <Button
-              data-testid="signup-tab"
-              variant={!isLogin ? 'default' : 'ghost'}
-              className="flex-1 rounded-full"
-              onClick={() => setIsLogin(false)}
-            >
-              Sign Up
-            </Button>
-          </div>
+          {SIGNUPS_ENABLED ? (
+            <div className="flex gap-2 mb-6">
+              <Button
+                data-testid="login-tab"
+                variant={isLogin ? 'default' : 'ghost'}
+                className="flex-1 rounded-full"
+                onClick={() => setIsLogin(true)}
+              >
+                Log In
+              </Button>
+              <Button
+                data-testid="signup-tab"
+                variant={!isLogin ? 'default' : 'ghost'}
+                className="flex-1 rounded-full"
+                onClick={() => setIsLogin(false)}
+              >
+                Sign Up
+              </Button>
+            </div>
+          ) : (
+            <div className="mb-6">
+              <h2 className="text-xl font-semibold text-center mb-2">Log In</h2>
+              <p className="text-sm text-muted-foreground text-center">
+                Signups are currently closed. Only existing users can log in.
+              </p>
+            </div>
+          )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            {!isLogin && (
+            {SIGNUPS_ENABLED && !isLogin && (
               <div className="space-y-2">
                 <Label htmlFor="name">Name</Label>
                 <Input
@@ -127,7 +141,7 @@ const AuthPage = ({ onLogin }) => {
               className="w-full rounded-full"
               disabled={loading}
             >
-              {loading ? 'Processing...' : isLogin ? 'Log In' : 'Create Account'}
+              {loading ? 'Processing...' : (!SIGNUPS_ENABLED || isLogin) ? 'Log In' : 'Create Account'}
             </Button>
           </form>
 
