@@ -6,10 +6,12 @@ import { Input } from '../components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { toast } from 'sonner';
-import { BookmarkIcon, PlusIcon, SearchIcon, FilterIcon, SparklesIcon, FolderIcon, LogOutIcon, CopyIcon, UploadIcon, DownloadIcon, CheckSquare, Square, Trash2, CheckCircle, Circle, Clock, BookOpen, Grid3x3, List, Archive } from 'lucide-react';
+import { BookmarkIcon, PlusIcon, SearchIcon, FilterIcon, SparklesIcon, FolderIcon, LogOutIcon, CopyIcon, UploadIcon, DownloadIcon, CheckSquare, Square, Trash2, CheckCircle, Circle, BookOpen, Grid3x3, List, Archive, Clock } from 'lucide-react';
+import { motion } from 'framer-motion';
 import KeyboardShortcutsModal from '../components/KeyboardShortcutsModal';
 import BookmarkCard from '../components/BookmarkCard';
 import AgedBookmarksBanner from '../components/AgedBookmarksBanner';
+import { StaggerContainer, StaggerItem, HardReveal } from '../components/motion/PageOrchestrator';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -37,7 +39,6 @@ const DashboardPage = ({ onLogout }) => {
   const [readFilter, setReadFilter] = useState('all');
   const [sortBy, setSortBy] = useState('created_at');
   const [viewMode, setViewMode] = useState('list');
-  // Phase 1: Aged bookmarks
   const [agedCount, setAgedCount] = useState(0);
   const [showAgedOnly, setShowAgedOnly] = useState(false);
 
@@ -82,7 +83,6 @@ const DashboardPage = ({ onLogout }) => {
     }
   };
 
-  // Phase 1: Fetch aged bookmarks count
   const fetchAgedCount = async () => {
     try {
       const response = await axiosInstance.get(`/bookmarks/aged?min_days=30&limit=100`);
@@ -95,7 +95,7 @@ const DashboardPage = ({ onLogout }) => {
   useEffect(() => {
     fetchBookmarks();
     fetchCollections();
-    fetchAgedCount();  // Phase 1: Fetch aged count
+    fetchAgedCount();
   }, [searchQuery, filterTag, filterDomain, filterCollection, readFilter, sortBy]);
 
   useEffect(() => {
@@ -115,7 +115,6 @@ const DashboardPage = ({ onLogout }) => {
           e.target.blur();
           setDialogOpen(false);
           setCollectionDialogOpen(false);
-          setImportDialogOpen(false);
           setShortcutsOpen(false);
         }
         return;
@@ -144,7 +143,6 @@ const DashboardPage = ({ onLogout }) => {
       if (e.key === 'Escape') {
         setDialogOpen(false);
         setCollectionDialogOpen(false);
-        setImportDialogOpen(false);
         setShortcutsOpen(false);
         setSelectedIndex(-1);
       }
@@ -279,293 +277,301 @@ const DashboardPage = ({ onLogout }) => {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="sticky top-0 z-40 glassmorphism border-b border-border/50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-primary text-primary-foreground">
-                <BookmarkIcon className="w-5 h-5" />
+      <header className="sticky top-0 z-40 bg-card border-b-2 border-foreground">
+        <HardReveal direction="down">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="flex items-center justify-center w-10 h-10 border-2 border-foreground bg-primary text-primary-foreground shadow-brutal">
+                  <BookmarkIcon className="w-5 h-5" />
+                </div>
+                <h1 className="font-display text-3xl font-bold tracking-wide uppercase">Arivu</h1>
               </div>
-              <h1 className="font-heading text-2xl font-bold tracking-tight">Arivu</h1>
+              <div className="flex items-center gap-2">
+                <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button
+                      data-testid="add-bookmark-header-btn"
+                      size="sm"
+                      className="rounded-none border-2 border-foreground bg-primary text-primary-foreground shadow-brutal hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-all"
+                    >
+                      <PlusIcon className="w-4 h-4 mr-2" />
+                      ADD BOOKMARK
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="rounded-none border-2 border-foreground shadow-brutal" aria-describedby="add-bookmark-header-description">
+                    <DialogHeader>
+                      <DialogTitle className="font-heading font-bold uppercase tracking-wider">Add Bookmark</DialogTitle>
+                      <p id="add-bookmark-header-description" className="text-sm text-muted-foreground sr-only">
+                        Enter a URL to save and get AI-powered summaries
+                      </p>
+                    </DialogHeader>
+                    <form onSubmit={handleAddBookmark} className="space-y-4">
+                      <Input
+                        data-testid="bookmark-url-input-header"
+                        type="url"
+                        placeholder="HTTPS://EXAMPLE.COM/ARTICLE"
+                        value={newBookmarkUrl}
+                        onChange={(e) => setNewBookmarkUrl(e.target.value)}
+                        required
+                        className="rounded-none border-2 border-foreground font-mono"
+                        autoFocus
+                      />
+                      <Button
+                        data-testid="save-bookmark-btn-header"
+                        type="submit"
+                        className="w-full rounded-none border-2 border-foreground bg-primary text-primary-foreground shadow-brutal hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-all"
+                        disabled={addingBookmark}
+                      >
+                        {addingBookmark ? 'SAVING...' : 'SAVE BOOKMARK'}
+                      </Button>
+                    </form>
+                  </DialogContent>
+                </Dialog>
+                <Button
+                  data-testid="import-btn"
+                  variant="ghost"
+                  size="sm"
+                  className="rounded-none border-2 border-transparent hover:border-foreground hover:bg-muted font-mono uppercase text-xs tracking-wider"
+                  onClick={() => navigate('/imports')}
+                >
+                  <UploadIcon className="w-4 h-4 mr-2" />
+                  Imports
+                </Button>
+                <Button
+                  data-testid="export-btn"
+                  variant="ghost"
+                  size="sm"
+                  className="rounded-none border-2 border-transparent hover:border-foreground hover:bg-muted font-mono uppercase text-xs tracking-wider"
+                  onClick={handleExportBookmarks}
+                >
+                  <DownloadIcon className="w-4 h-4 mr-2" />
+                  Export
+                </Button>
+                <Button
+                  data-testid="duplicates-btn"
+                  variant="ghost"
+                  size="sm"
+                  className="rounded-none border-2 border-transparent hover:border-foreground hover:bg-muted font-mono uppercase text-xs tracking-wider"
+                  onClick={() => navigate('/duplicates')}
+                >
+                  <CopyIcon className="w-4 h-4 mr-2" />
+                  Duplicates
+                </Button>
+                <Button
+                  data-testid="logout-btn"
+                  variant="ghost"
+                  size="sm"
+                  className="rounded-none border-2 border-transparent hover:border-foreground hover:bg-muted font-mono uppercase text-xs tracking-wider"
+                  onClick={onLogout}
+                >
+                  <LogOutIcon className="w-4 h-4 mr-2" />
+                  Log Out
+                </Button>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          </div>
+        </HardReveal>
+      </header>
+
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="mb-8 space-y-4">
+          <HardReveal direction="left" delay={0.1}>
+            <div className="relative">
+              <SearchIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-foreground" />
+              <Input
+                data-testid="search-input"
+                type="text"
+                placeholder="SEARCH BOOKMARKS, CONTENT, OR NOTES..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="h-14 rounded-none border-2 border-foreground bg-background px-4 pl-12 text-base shadow-none focus-visible:ring-0 font-mono placeholder:text-muted-foreground"
+              />
+            </div>
+          </HardReveal>
+
+          <HardReveal direction="left" delay={0.2}>
+            <div className="flex flex-wrap gap-3 items-center">
+              <div className="flex gap-1 p-1 bg-background border-2 border-foreground rounded-none">
+                <Button
+                  data-testid="list-view-btn"
+                  variant={viewMode === 'list' ? 'default' : 'ghost'}
+                  size="sm"
+                  className={`h-8 px-3 rounded-none ${viewMode === 'list' ? 'bg-foreground text-background' : 'hover:bg-muted'}`}
+                  onClick={() => setViewMode('list')}
+                >
+                  <List className="w-4 h-4" />
+                </Button>
+                <Button
+                  data-testid="grid-view-btn"
+                  variant={viewMode === 'grid' ? 'default' : 'ghost'}
+                  size="sm"
+                  className={`h-8 px-3 rounded-none ${viewMode === 'grid' ? 'bg-foreground text-background' : 'hover:bg-muted'}`}
+                  onClick={() => setViewMode('grid')}
+                >
+                  <Grid3x3 className="w-4 h-4" />
+                </Button>
+              </div>
+
+              <Button
+                data-testid="bulk-mode-btn"
+                variant={bulkMode ? "default" : "outline"}
+                size="sm"
+                className={`rounded-none border-2 border-foreground ${bulkMode ? 'bg-foreground text-background' : 'bg-background hover:bg-muted'}`}
+                onClick={() => setBulkMode(!bulkMode)}
+              >
+                {bulkMode ? <CheckSquare className="w-4 h-4 mr-2" /> : <Square className="w-4 h-4 mr-2" />}
+                <span className="font-mono uppercase text-xs tracking-wider">Bulk Select</span>
+              </Button>
+
+              <Select value={readFilter} onValueChange={setReadFilter}>
+                <SelectTrigger data-testid="read-filter" className="w-[180px] rounded-none border-2 border-foreground shadow-none font-mono text-xs uppercase tracking-wider bg-background">
+                  <BookOpen className="w-4 h-4 mr-2" />
+                  <SelectValue placeholder="Reading status" />
+                </SelectTrigger>
+                <SelectContent className="rounded-none border-2 border-foreground shadow-brutal">
+                  <SelectItem value="all">All articles</SelectItem>
+                  <SelectItem value="unread">Unread only</SelectItem>
+                  <SelectItem value="read">Read only</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Select value={sortBy} onValueChange={setSortBy}>
+                <SelectTrigger data-testid="sort-filter" className="w-[180px] rounded-none border-2 border-foreground shadow-none font-mono text-xs uppercase tracking-wider bg-background">
+                  <Clock className="w-4 h-4 mr-2" />
+                  <SelectValue placeholder="Sort by" />
+                </SelectTrigger>
+                <SelectContent className="rounded-none border-2 border-foreground shadow-brutal">
+                  <SelectItem value="created_at">Date added</SelectItem>
+                  <SelectItem value="reading_time">Reading time</SelectItem>
+                  <SelectItem value="title">Title</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Select value={filterTag} onValueChange={setFilterTag}>
+                <SelectTrigger data-testid="tag-filter" className="w-[180px] rounded-none border-2 border-foreground shadow-none font-mono text-xs uppercase tracking-wider bg-background">
+                  <FilterIcon className="w-4 h-4 mr-2" />
+                  <SelectValue placeholder="Filter by tag" />
+                </SelectTrigger>
+                <SelectContent className="rounded-none border-2 border-foreground shadow-brutal">
+                  <SelectItem value="_clear">All tags</SelectItem>
+                  {allTags.map(tag => (
+                    <SelectItem key={tag} value={tag}>{tag}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Select value={filterDomain} onValueChange={setFilterDomain}>
+                <SelectTrigger data-testid="domain-filter" className="w-[180px] rounded-none border-2 border-foreground shadow-none font-mono text-xs uppercase tracking-wider bg-background">
+                  <SelectValue placeholder="Filter by domain" />
+                </SelectTrigger>
+                <SelectContent className="rounded-none border-2 border-foreground shadow-brutal">
+                  <SelectItem value="_clear">All domains</SelectItem>
+                  {allDomains.map(domain => (
+                    <SelectItem key={domain} value={domain}>{domain}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Select value={filterCollection} onValueChange={setFilterCollection}>
+                <SelectTrigger data-testid="collection-filter" className="w-[200px] rounded-none border-2 border-foreground shadow-none font-mono text-xs uppercase tracking-wider bg-background">
+                  <FolderIcon className="w-4 h-4 mr-2" />
+                  <SelectValue placeholder="Filter by collection" />
+                </SelectTrigger>
+                <SelectContent className="rounded-none border-2 border-foreground shadow-brutal">
+                  <SelectItem value="_clear">All collections</SelectItem>
+                  {collections.map(col => (
+                    <SelectItem key={col.id} value={col.id}>{col.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Dialog open={collectionDialogOpen} onOpenChange={setCollectionDialogOpen}>
                 <DialogTrigger asChild>
-                  <Button
-                    data-testid="add-bookmark-header-btn"
-                    size="sm"
-                    className="rounded-full"
-                  >
-                    <PlusIcon className="w-4 h-4 mr-2" />
-                    Add Bookmark
+                  <Button data-testid="new-collection-btn" variant="outline" size="sm" className="rounded-none border-2 border-foreground shadow-none hover:bg-muted font-mono uppercase text-xs tracking-wider">
+                    <FolderIcon className="w-4 h-4 mr-2" />
+                    New Collection
                   </Button>
                 </DialogTrigger>
-                <DialogContent className="rounded-2xl" aria-describedby="add-bookmark-header-description">
+                <DialogContent className="rounded-none border-2 border-foreground shadow-brutal" aria-describedby="create-collection-description">
                   <DialogHeader>
-                    <DialogTitle className="font-heading">Add Bookmark</DialogTitle>
-                    <p id="add-bookmark-header-description" className="text-sm text-muted-foreground sr-only">
-                      Enter a URL to save and get AI-powered summaries
+                    <DialogTitle className="font-heading font-bold uppercase">Create Collection</DialogTitle>
+                    <p id="create-collection-description" className="text-sm text-muted-foreground sr-only">
+                      Create a new collection to organize your bookmarks
                     </p>
                   </DialogHeader>
-                  <form onSubmit={handleAddBookmark} className="space-y-4">
+                  <form onSubmit={handleCreateCollection} className="space-y-4">
                     <Input
-                      data-testid="bookmark-url-input-header"
-                      type="url"
-                      placeholder="https://example.com/article"
-                      value={newBookmarkUrl}
-                      onChange={(e) => setNewBookmarkUrl(e.target.value)}
-                      required
-                      className="rounded-xl"
+                      data-testid="collection-name-input"
+                      placeholder="COLLECTION NAME"
+                      value={newCollectionName}
+                      onChange={(e) => setNewCollectionName(e.target.value)}
+                      className="rounded-none border-2 border-foreground font-mono"
                       autoFocus
                     />
-                    <Button
-                      data-testid="save-bookmark-btn-header"
-                      type="submit"
-                      className="w-full rounded-full"
-                      disabled={addingBookmark}
-                    >
-                      {addingBookmark ? 'Saving...' : 'Save Bookmark'}
+                    <Button data-testid="create-collection-btn" type="submit" className="w-full rounded-none border-2 border-foreground bg-primary text-primary-foreground shadow-brutal hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-all">
+                      CREATE
                     </Button>
                   </form>
                 </DialogContent>
               </Dialog>
-              <Button
-                data-testid="import-btn"
-                variant="ghost"
-                size="sm"
-                className="rounded-full"
-                onClick={() => navigate('/imports')}
-              >
-                <UploadIcon className="w-4 h-4 mr-2" />
-                Imports
-              </Button>
-              <Button
-                data-testid="export-btn"
-                variant="ghost"
-                size="sm"
-                className="rounded-full"
-                onClick={handleExportBookmarks}
-              >
-                <DownloadIcon className="w-4 h-4 mr-2" />
-                Export
-              </Button>
-              <Button
-                data-testid="duplicates-btn"
-                variant="ghost"
-                size="sm"
-                className="rounded-full"
-                onClick={() => navigate('/duplicates')}
-              >
-                <CopyIcon className="w-4 h-4 mr-2" />
-                Duplicates
-              </Button>
-              <Button
-                data-testid="logout-btn"
-                variant="ghost"
-                size="sm"
-                className="rounded-full"
-                onClick={onLogout}
-              >
-                <LogOutIcon className="w-4 h-4 mr-2" />
-                Log Out
-              </Button>
-            </div>
-          </div>
-        </div>
-      </header>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Search and Filters */}
-        <div className="mb-8 space-y-4">
-          <div className="relative">
-            <SearchIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-            <Input
-              data-testid="search-input"
-              type="text"
-              placeholder="Search bookmarks, content, or notes..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="h-14 rounded-2xl border-none bg-muted/50 px-4 pl-12 text-base shadow-none focus-visible:ring-0 focus-visible:bg-muted"
-            />
-          </div>
-
-          <div className="flex flex-wrap gap-3 items-center">
-            {/* View Mode Toggle */}
-            <div className="flex gap-1 p-1 bg-muted rounded-xl">
-              <Button
-                data-testid="list-view-btn"
-                variant={viewMode === 'list' ? 'default' : 'ghost'}
-                size="sm"
-                className="h-8 px-3"
-                onClick={() => setViewMode('list')}
-              >
-                <List className="w-4 h-4" />
-              </Button>
-              <Button
-                data-testid="grid-view-btn"
-                variant={viewMode === 'grid' ? 'default' : 'ghost'}
-                size="sm"
-                className="h-8 px-3"
-                onClick={() => setViewMode('grid')}
-              >
-                <Grid3x3 className="w-4 h-4" />
-              </Button>
-            </div>
-
-            <Button
-              data-testid="bulk-mode-btn"
-              variant={bulkMode ? "default" : "outline"}
-              size="sm"
-              className="rounded-xl"
-              onClick={() => setBulkMode(!bulkMode)}
-            >
-              {bulkMode ? <CheckSquare className="w-4 h-4 mr-2" /> : <Square className="w-4 h-4 mr-2" />}
-              Bulk Select
-            </Button>
-
-            <Select value={readFilter} onValueChange={setReadFilter}>
-              <SelectTrigger data-testid="read-filter" className="w-[180px] rounded-xl">
-                <BookOpen className="w-4 h-4 mr-2" />
-                <SelectValue placeholder="Reading status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All articles</SelectItem>
-                <SelectItem value="unread">Unread only</SelectItem>
-                <SelectItem value="read">Read only</SelectItem>
-              </SelectContent>
-            </Select>
-
-            <Select value={sortBy} onValueChange={setSortBy}>
-              <SelectTrigger data-testid="sort-filter" className="w-[180px] rounded-xl">
-                <Clock className="w-4 h-4 mr-2" />
-                <SelectValue placeholder="Sort by" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="created_at">Date added</SelectItem>
-                <SelectItem value="reading_time">Reading time</SelectItem>
-                <SelectItem value="title">Title</SelectItem>
-              </SelectContent>
-            </Select>
-
-            <Select value={filterTag} onValueChange={setFilterTag}>
-              <SelectTrigger data-testid="tag-filter" className="w-[180px] rounded-xl">
-                <FilterIcon className="w-4 h-4 mr-2" />
-                <SelectValue placeholder="Filter by tag" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="_clear">All tags</SelectItem>
-                {allTags.map(tag => (
-                  <SelectItem key={tag} value={tag}>{tag}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <Select value={filterDomain} onValueChange={setFilterDomain}>
-              <SelectTrigger data-testid="domain-filter" className="w-[180px] rounded-xl">
-                <SelectValue placeholder="Filter by domain" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="_clear">All domains</SelectItem>
-                {allDomains.map(domain => (
-                  <SelectItem key={domain} value={domain}>{domain}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <Select value={filterCollection} onValueChange={setFilterCollection}>
-              <SelectTrigger data-testid="collection-filter" className="w-[200px] rounded-xl">
-                <FolderIcon className="w-4 h-4 mr-2" />
-                <SelectValue placeholder="Filter by collection" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="_clear">All collections</SelectItem>
-                {collections.map(col => (
-                  <SelectItem key={col.id} value={col.id}>{col.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <Dialog open={collectionDialogOpen} onOpenChange={setCollectionDialogOpen}>
-              <DialogTrigger asChild>
-                <Button data-testid="new-collection-btn" variant="outline" size="sm" className="rounded-xl">
-                  <FolderIcon className="w-4 h-4 mr-2" />
-                  New Collection
+              {(filterTag || filterDomain || filterCollection || readFilter !== 'all' || sortBy !== 'created_at') && (
+                <Button
+                  data-testid="clear-filters-btn"
+                  variant="ghost"
+                  size="sm"
+                  className="rounded-none border-2 border-transparent hover:border-red-500 hover:text-red-500 font-mono uppercase text-xs tracking-wider"
+                  onClick={() => {
+                    setFilterTag('');
+                    setFilterDomain('');
+                    setFilterCollection('');
+                    setReadFilter('all');
+                    setSortBy('created_at');
+                  }}
+                >
+                  Clear filters
                 </Button>
-              </DialogTrigger>
-              <DialogContent className="rounded-2xl" aria-describedby="create-collection-description">
-                <DialogHeader>
-                  <DialogTitle className="font-heading">Create Collection</DialogTitle>
-                  <p id="create-collection-description" className="text-sm text-muted-foreground sr-only">
-                    Create a new collection to organize your bookmarks
-                  </p>
-                </DialogHeader>
-                <form onSubmit={handleCreateCollection} className="space-y-4">
-                  <Input
-                    data-testid="collection-name-input"
-                    placeholder="Collection name"
-                    value={newCollectionName}
-                    onChange={(e) => setNewCollectionName(e.target.value)}
-                    className="rounded-xl"
-                    autoFocus
-                  />
-                  <Button data-testid="create-collection-btn" type="submit" className="w-full rounded-full">
-                    Create
-                  </Button>
-                </form>
-              </DialogContent>
-            </Dialog>
-
-            {(filterTag || filterDomain || filterCollection || readFilter !== 'all' || sortBy !== 'created_at') && (
-              <Button
-                data-testid="clear-filters-btn"
-                variant="ghost"
-                size="sm"
-                className="rounded-xl"
-                onClick={() => {
-                  setFilterTag('');
-                  setFilterDomain('');
-                  setFilterCollection('');
-                  setReadFilter('all');
-                  setSortBy('created_at');
-                }}
-              >
-                Clear filters
-              </Button>
-            )}
-          </div>
+              )}
+            </div>
+          </HardReveal>
         </div>
 
-        {/* Phase 1: Aged Bookmarks Banner */}
         <AgedBookmarksBanner
           agedCount={agedCount}
           onViewAged={() => setShowAgedOnly(true)}
         />
 
-        {/* Aged Bookmarks Filter Toggle */}
         {showAgedOnly && (
-          <div className="mb-4 p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg flex items-center justify-between">
-            <div className="flex items-center gap-2 text-sm text-amber-900 dark:text-amber-100">
+          <motion.div 
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-4 p-3 bg-card border-2 border-foreground flex items-center justify-between"
+          >
+            <div className="flex items-center gap-2 text-sm font-mono text-amber-700">
               <Archive className="w-4 h-4" />
-              <span>Showing stale bookmarks only (not accessed in 30+ days)</span>
+              <span className="uppercase tracking-wider">Showing stale bookmarks (30+ days inactive)</span>
             </div>
             <Button
               variant="ghost"
               size="sm"
               onClick={() => setShowAgedOnly(false)}
-              className="text-amber-700 hover:text-amber-900 dark:text-amber-300 dark:hover:text-amber-100"
+              className="rounded-none border-2 border-transparent hover:border-amber-700 text-amber-700 font-mono uppercase text-xs"
             >
               Clear Filter
             </Button>
-          </div>
+          </motion.div>
         )}
 
-        {/* Bulk Operations Toolbar */}
         {bulkMode && (
-          <div className="mb-6 p-4 bg-muted/50 rounded-xl border">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.98 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="mb-6 p-4 bg-card border-2 border-foreground"
+          >
             <div className="flex items-center justify-between flex-wrap gap-4">
               <div className="flex items-center gap-4">
-                <span className="text-sm font-medium">
+                <span className="text-sm font-mono uppercase tracking-wider font-medium">
                   {selectedBookmarks.length} selected
                 </span>
                 <div className="flex gap-2">
@@ -573,6 +579,7 @@ const DashboardPage = ({ onLogout }) => {
                     data-testid="select-all-btn"
                     variant="outline"
                     size="sm"
+                    className="rounded-none border-2 border-foreground hover:bg-muted font-mono uppercase text-xs"
                     onClick={selectAllBookmarks}
                     disabled={selectedBookmarks.length === bookmarks.length}
                   >
@@ -582,6 +589,7 @@ const DashboardPage = ({ onLogout }) => {
                     data-testid="deselect-all-btn"
                     variant="outline"
                     size="sm"
+                    className="rounded-none border-2 border-foreground hover:bg-muted font-mono uppercase text-xs"
                     onClick={deselectAllBookmarks}
                     disabled={selectedBookmarks.length === 0}
                   >
@@ -594,6 +602,7 @@ const DashboardPage = ({ onLogout }) => {
                   data-testid="bulk-mark-read-btn"
                   variant="outline"
                   size="sm"
+                  className="rounded-none border-2 border-foreground hover:bg-muted font-mono uppercase text-xs"
                   onClick={() => handleBulkMarkRead(true)}
                   disabled={selectedBookmarks.length === 0}
                 >
@@ -604,6 +613,7 @@ const DashboardPage = ({ onLogout }) => {
                   data-testid="bulk-mark-unread-btn"
                   variant="outline"
                   size="sm"
+                  className="rounded-none border-2 border-foreground hover:bg-muted font-mono uppercase text-xs"
                   onClick={() => handleBulkMarkRead(false)}
                   disabled={selectedBookmarks.length === 0}
                 >
@@ -614,6 +624,7 @@ const DashboardPage = ({ onLogout }) => {
                   data-testid="bulk-delete-btn"
                   variant="destructive"
                   size="sm"
+                  className="rounded-none border-2 border-foreground bg-destructive text-destructive-foreground hover:bg-destructive/90 font-mono uppercase text-xs"
                   onClick={handleBulkDelete}
                   disabled={selectedBookmarks.length === 0}
                 >
@@ -622,28 +633,28 @@ const DashboardPage = ({ onLogout }) => {
                 </Button>
               </div>
             </div>
-          </div>
+          </motion.div>
         )}
-        {/* Bookmarks Grid */}
+
         {loading ? (
           <div className="flex items-center justify-center py-20">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+            <div className="animate-spin h-12 w-12 border-4 border-muted border-t-primary rounded-none"></div>
           </div>
         ) : bookmarks.length === 0 ? (
-          <div className="text-center py-20">
+          <div className="text-center py-20 border-2 border-dashed border-muted-foreground/20 p-8">
             <SparklesIcon className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
-            <h2 className="font-heading text-2xl font-semibold mb-2">No bookmarks yet</h2>
-            <p className="text-muted-foreground mb-6">Start saving web pages and let AI organize them for you</p>
+            <h2 className="font-display text-2xl font-semibold mb-2 uppercase tracking-wide">No bookmarks yet</h2>
+            <p className="text-muted-foreground mb-6 font-mono text-sm">Start saving web pages and let AI organize them for you</p>
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
               <DialogTrigger asChild>
-                <Button data-testid="add-first-bookmark-btn" size="lg" className="rounded-full">
+                <Button data-testid="add-first-bookmark-btn" size="lg" className="rounded-none border-2 border-foreground bg-primary text-primary-foreground shadow-brutal hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-all">
                   <PlusIcon className="w-5 h-5 mr-2" />
-                  Add Your First Bookmark
+                  ADD YOUR FIRST BOOKMARK
                 </Button>
               </DialogTrigger>
-              <DialogContent className="rounded-2xl" aria-describedby="add-bookmark-description">
+              <DialogContent className="rounded-none border-2 border-foreground shadow-brutal" aria-describedby="add-bookmark-description">
                 <DialogHeader>
-                  <DialogTitle className="font-heading">Add Bookmark</DialogTitle>
+                  <DialogTitle className="font-heading font-bold uppercase">Add Bookmark</DialogTitle>
                   <p id="add-bookmark-description" className="text-sm text-muted-foreground sr-only">
                     Enter a URL to save and get AI-powered summaries
                   </p>
@@ -652,31 +663,32 @@ const DashboardPage = ({ onLogout }) => {
                   <Input
                     data-testid="bookmark-url-input"
                     type="url"
-                    placeholder="https://example.com/article"
+                    placeholder="HTTPS://EXAMPLE.COM/ARTICLE"
                     value={newBookmarkUrl}
                     onChange={(e) => setNewBookmarkUrl(e.target.value)}
                     required
-                    className="rounded-xl"
+                    className="rounded-none border-2 border-foreground font-mono"
                     autoFocus
                   />
                   <Button
                     data-testid="save-bookmark-btn"
                     type="submit"
-                    className="w-full rounded-full"
+                    className="w-full rounded-none border-2 border-foreground bg-primary text-primary-foreground shadow-brutal hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-all"
                     disabled={addingBookmark}
                   >
-                    {addingBookmark ? 'Saving...' : 'Save Bookmark'}
+                    {addingBookmark ? 'SAVING...' : 'SAVE BOOKMARK'}
                   </Button>
                 </form>
               </DialogContent>
             </Dialog>
           </div>
         ) : (
-          <div className={viewMode === 'grid'
-            ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
-            : "space-y-3"
-          }>
-            {/* Phase 1: Client-side aging filter */}
+          <StaggerContainer 
+            className={viewMode === 'grid'
+              ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
+              : "space-y-3"
+            }
+          >
             {bookmarks
               .filter(bookmark => {
                 if (!showAgedOnly) return true;
@@ -685,36 +697,36 @@ const DashboardPage = ({ onLogout }) => {
                 return lastAccessed < thirtyDaysAgo;
               })
               .map((bookmark, index) => (
-              <BookmarkCard
-                key={bookmark.id}
-                bookmark={bookmark}
-                onDelete={handleDeleteBookmark}
-                onClick={() => navigate(`/bookmark/${bookmark.id}`)}
-                bulkMode={bulkMode}
-                isSelected={selectedBookmarks.includes(bookmark.id)}
-                onToggleSelect={() => toggleBookmarkSelection(bookmark.id)}
-                isHighlighted={selectedIndex === index}
-                viewMode={viewMode}
-              />
+              <StaggerItem key={bookmark.id}>
+                <BookmarkCard
+                  bookmark={bookmark}
+                  onDelete={handleDeleteBookmark}
+                  onClick={() => navigate(`/bookmark/${bookmark.id}`)}
+                  bulkMode={bulkMode}
+                  isSelected={selectedBookmarks.includes(bookmark.id)}
+                  onToggleSelect={() => toggleBookmarkSelection(bookmark.id)}
+                  isHighlighted={selectedIndex === index}
+                  viewMode={viewMode}
+                />
+              </StaggerItem>
             ))}
-          </div>
+          </StaggerContainer>
         )}
       </div>
 
-      {/* Floating Action Button - Positioned to avoid overlays */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogTrigger asChild>
           <Button
             data-testid="add-bookmark-fab"
             size="lg"
-            className="fixed bottom-6 right-20 md:right-6 rounded-full w-14 h-14 shadow-xl hover:shadow-2xl z-40"
+            className="fixed bottom-6 right-6 md:right-6 rounded-none w-14 h-14 bg-primary text-primary-foreground border-2 border-foreground shadow-brutal hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-all z-40 p-0"
           >
             <PlusIcon className="w-6 h-6" />
           </Button>
         </DialogTrigger>
-        <DialogContent className="rounded-2xl" aria-describedby="add-bookmark-description-fab">
+        <DialogContent className="rounded-none border-2 border-foreground shadow-brutal" aria-describedby="add-bookmark-description-fab">
           <DialogHeader>
-            <DialogTitle className="font-heading">Add Bookmark</DialogTitle>
+            <DialogTitle className="font-heading font-bold uppercase">Add Bookmark</DialogTitle>
             <p id="add-bookmark-description-fab" className="text-sm text-muted-foreground sr-only">
               Enter a URL to save and get AI-powered summaries
             </p>
@@ -723,26 +735,25 @@ const DashboardPage = ({ onLogout }) => {
             <Input
               data-testid="bookmark-url-input-fab"
               type="url"
-              placeholder="https://example.com/article"
+              placeholder="HTTPS://EXAMPLE.COM/ARTICLE"
               value={newBookmarkUrl}
               onChange={(e) => setNewBookmarkUrl(e.target.value)}
               required
-              className="rounded-xl"
+              className="rounded-none border-2 border-foreground font-mono"
               autoFocus
             />
             <Button
               data-testid="save-bookmark-btn-fab"
               type="submit"
-              className="w-full rounded-full"
+              className="w-full rounded-none border-2 border-foreground bg-primary text-primary-foreground shadow-brutal hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-all"
               disabled={addingBookmark}
             >
-              {addingBookmark ? 'Saving...' : 'Save Bookmark'}
+              {addingBookmark ? 'SAVING...' : 'SAVE BOOKMARK'}
             </Button>
           </form>
         </DialogContent>
       </Dialog>
 
-      {/* Keyboard Shortcuts Modal */}
       <KeyboardShortcutsModal open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
     </div>
   );

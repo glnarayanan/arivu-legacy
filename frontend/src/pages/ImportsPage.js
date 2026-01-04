@@ -15,6 +15,8 @@ import {
 } from 'lucide-react';
 import { Input } from '../components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
+import { motion } from 'framer-motion';
+import { HardReveal, StaggerContainer, StaggerItem } from '../components/motion/PageOrchestrator';
 
 const ImportsPage = () => {
   const navigate = useNavigate();
@@ -39,7 +41,6 @@ const ImportsPage = () => {
   useEffect(() => {
     fetchImportJobs();
 
-    // Poll for updates every 5 seconds if there are active jobs
     const pollInterval = setInterval(() => {
       const hasActiveJobs = importJobs.some(job => job.status === 'processing');
       if (hasActiveJobs) {
@@ -68,7 +69,7 @@ const ImportsPage = () => {
           toast.success(`Import started! Processing ${response.data.count} bookmarks...`);
           setImportFile(null);
           setImportDialogOpen(false);
-          fetchImportJobs(); // Refresh the list
+          fetchImportJobs();
         } catch (error) {
           toast.error('Failed to import bookmarks');
         } finally {
@@ -116,9 +117,9 @@ const ImportsPage = () => {
   const getStatusIcon = (status) => {
     switch (status) {
       case 'completed':
-        return <CheckCircle className="h-5 w-5 text-green-500" />;
+        return <CheckCircle className="h-5 w-5 text-green-600" />;
       case 'failed':
-        return <XCircle className="h-5 w-5 text-red-500" />;
+        return <XCircle className="h-5 w-5 text-destructive" />;
       case 'processing':
         return <Loader2 className="h-5 w-5 animate-spin text-primary" />;
       default:
@@ -147,194 +148,193 @@ const ImportsPage = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
-      <div className="border-b bg-card">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => navigate('/dashboard')}
-              >
-                <ArrowLeft className="h-5 w-5" />
-              </Button>
-              <div>
-                <h1 className="text-2xl font-bold">Import History</h1>
-                <p className="text-sm text-muted-foreground">
-                  Track your bookmark imports and their progress
-                </p>
+      <header className="sticky top-0 z-40 bg-card border-b-2 border-foreground">
+        <HardReveal direction="down">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => navigate('/dashboard')}
+                >
+                  <ArrowLeft className="h-5 w-5" />
+                </Button>
+                <div>
+                  <h1 className="font-display text-2xl tracking-wide uppercase">Import History</h1>
+                  <p className="font-mono text-xs text-muted-foreground uppercase tracking-wider">
+                    Track your bookmark imports and their progress
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={fetchImportJobs}
+                >
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  REFRESH
+                </Button>
+                <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button>
+                      <Upload className="h-4 w-4 mr-2" />
+                      NEW IMPORT
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle className="font-display text-xl uppercase tracking-wide">Import Bookmarks</DialogTitle>
+                    </DialogHeader>
+                    <form onSubmit={handleImportBookmarks} className="space-y-4">
+                      <div>
+                        <label className="block font-mono text-xs uppercase tracking-wider mb-2">
+                          Select file to import
+                        </label>
+                        <Input
+                          type="file"
+                          accept=".html,.txt,.csv"
+                          onChange={(e) => setImportFile(e.target.files[0])}
+                          required
+                        />
+                        <p className="font-mono text-xs text-muted-foreground mt-2 uppercase tracking-wider">
+                          Supported formats:
+                        </p>
+                        <ul className="font-mono text-xs text-muted-foreground mt-1 ml-4 list-disc space-y-1">
+                          <li><strong>HTML:</strong> Browser bookmark exports (Chrome/Firefox/Safari)</li>
+                          <li><strong>TXT:</strong> Plain text file with one URL per line</li>
+                          <li><strong>CSV:</strong> Comma-separated file with URL column</li>
+                        </ul>
+                      </div>
+                      <Button type="submit" disabled={importing || !importFile} className="w-full">
+                        {importing ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            STARTING IMPORT...
+                          </>
+                        ) : (
+                          'START IMPORT'
+                        )}
+                      </Button>
+                    </form>
+                  </DialogContent>
+                </Dialog>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={fetchImportJobs}
-              >
-                <RefreshCw className="h-4 w-4 mr-2" />
-                Refresh
-              </Button>
-              <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button>
-                    <Upload className="h-4 w-4 mr-2" />
-                    New Import
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Import Bookmarks</DialogTitle>
-                  </DialogHeader>
-                  <form onSubmit={handleImportBookmarks} className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium mb-2">
-                        Select file to import
-                      </label>
-                      <Input
-                        type="file"
-                        accept=".html,.txt,.csv"
-                        onChange={(e) => setImportFile(e.target.files[0])}
-                        required
-                      />
-                      <p className="text-xs text-muted-foreground mt-2">
-                        Supported formats:
-                      </p>
-                      <ul className="text-xs text-muted-foreground mt-1 ml-4 list-disc space-y-1">
-                        <li><strong>HTML:</strong> Browser bookmark exports (Chrome/Firefox/Safari)</li>
-                        <li><strong>TXT:</strong> Plain text file with one URL per line</li>
-                        <li><strong>CSV:</strong> Comma-separated file with URL column (optional title column)</li>
-                      </ul>
-                    </div>
-                    <Button type="submit" disabled={importing || !importFile} className="w-full">
-                      {importing ? (
-                        <>
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          Starting Import...
-                        </>
-                      ) : (
-                        'Start Import'
-                      )}
-                    </Button>
-                  </form>
-                </DialogContent>
-              </Dialog>
-            </div>
           </div>
-        </div>
-      </div>
+        </HardReveal>
+      </header>
 
-      {/* Import Jobs List */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {importJobs.length === 0 ? (
-          <div className="text-center py-12">
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="text-center py-12 border-2 border-dashed border-muted-foreground/30"
+          >
             <Upload className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-            <h3 className="text-lg font-semibold mb-2">No imports yet</h3>
-            <p className="text-muted-foreground mb-4">
+            <h3 className="font-display text-xl uppercase tracking-wide mb-2">No imports yet</h3>
+            <p className="text-muted-foreground font-mono text-sm mb-4">
               Start importing your bookmarks from other browsers
             </p>
             <Button onClick={() => setImportDialogOpen(true)}>
               <Upload className="h-4 w-4 mr-2" />
-              Import Bookmarks
+              IMPORT BOOKMARKS
             </Button>
-          </div>
+          </motion.div>
         ) : (
-          <div className="space-y-4">
+          <StaggerContainer className="space-y-4">
             {importJobs.map((job) => {
               const contentProgress = Math.round((job.content_fetched / job.total_bookmarks) * 100);
               const aiProgress = Math.round((job.ai_processed / job.total_bookmarks) * 100);
               const isPhase1Complete = job.content_fetched === job.total_bookmarks;
 
               return (
-                <div
-                  key={job.id}
-                  className="bg-card border rounded-lg p-6 hover:shadow-md transition-shadow"
-                >
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex items-center gap-3">
-                      {getStatusIcon(job.status)}
-                      <div>
-                        <h3 className="font-semibold">
-                          {job.total_bookmarks} bookmark{job.total_bookmarks !== 1 ? 's' : ''}
-                        </h3>
-                        <p className="text-sm text-muted-foreground">
-                          {formatDate(job.created_at)} • {getStatusText(job)}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      {job.status === 'processing' && job.estimated_completion_time && (
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                          <Clock className="h-4 w-4" />
-                          <span>ETA: {formatETA(job.estimated_completion_time)}</span>
-                        </div>
-                      )}
-                      {job.status === 'completed' && (
-                        <div className="text-sm text-green-600 dark:text-green-400 font-medium">
-                          ✓ Import Complete
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Progress Bars */}
-                  <div className="space-y-4">
-                    {/* Phase 1: Content Fetching */}
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="font-medium text-muted-foreground">
-                          Phase 1: Content Fetching
-                          {isPhase1Complete && (
-                            <CheckCircle className="inline ml-2 h-4 w-4 text-green-500" />
-                          )}
-                        </span>
-                        <span className="text-muted-foreground">
-                          {job.content_fetched} / {job.total_bookmarks}
-                        </span>
-                      </div>
-                      <Progress value={contentProgress} className="h-2" />
-                    </div>
-
-                    {/* Phase 2: AI Processing */}
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="font-medium text-muted-foreground">
-                          Phase 2: AI Processing
-                          {job.status === 'completed' && (
-                            <CheckCircle className="inline ml-2 h-4 w-4 text-green-500" />
-                          )}
-                        </span>
-                        <span className="text-muted-foreground">
-                          {job.ai_processed} / {job.total_bookmarks}
-                        </span>
-                      </div>
-                      <Progress value={aiProgress} className="h-2" />
-                    </div>
-                  </div>
-
-                  {/* Stats Footer */}
-                  {(job.failed > 0 || job.status === 'completed') && (
-                    <div className="mt-4 pt-4 border-t flex items-center justify-between text-sm">
-                      <div className="flex items-center gap-4">
+                <StaggerItem key={job.id}>
+                  <div className="bg-card border-2 border-foreground p-6 shadow-brutal-sm hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-all">
+                    <div className="flex items-start justify-between mb-4">
+                      <div className="flex items-center gap-3">
+                        {getStatusIcon(job.status)}
                         <div>
-                          <span className="text-muted-foreground">Successful: </span>
-                          <span className="font-medium">
-                            {job.total_bookmarks - job.failed}
-                          </span>
+                          <h3 className="font-heading font-bold">
+                            {job.total_bookmarks} bookmark{job.total_bookmarks !== 1 ? 's' : ''}
+                          </h3>
+                          <p className="font-mono text-xs text-muted-foreground uppercase tracking-wider">
+                            {formatDate(job.created_at)} • {getStatusText(job)}
+                          </p>
                         </div>
-                        {job.failed > 0 && (
-                          <div>
-                            <span className="text-muted-foreground">Failed: </span>
-                            <span className="font-medium text-red-500">{job.failed}</span>
+                      </div>
+                      <div className="text-right">
+                        {job.status === 'processing' && job.estimated_completion_time && (
+                          <div className="flex items-center gap-2 font-mono text-xs text-muted-foreground uppercase tracking-wider">
+                            <Clock className="h-4 w-4" />
+                            <span>ETA: {formatETA(job.estimated_completion_time)}</span>
+                          </div>
+                        )}
+                        {job.status === 'completed' && (
+                          <div className="font-mono text-xs text-green-600 font-medium uppercase tracking-wider">
+                            IMPORT COMPLETE
                           </div>
                         )}
                       </div>
                     </div>
-                  )}
-                </div>
+
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between font-mono text-xs uppercase tracking-wider">
+                          <span className="text-muted-foreground">
+                            Phase 1: Content Fetching
+                            {isPhase1Complete && (
+                              <CheckCircle className="inline ml-2 h-4 w-4 text-green-600" />
+                            )}
+                          </span>
+                          <span className="text-muted-foreground">
+                            {job.content_fetched} / {job.total_bookmarks}
+                          </span>
+                        </div>
+                        <Progress value={contentProgress} className="h-2" />
+                      </div>
+
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between font-mono text-xs uppercase tracking-wider">
+                          <span className="text-muted-foreground">
+                            Phase 2: AI Processing
+                            {job.status === 'completed' && (
+                              <CheckCircle className="inline ml-2 h-4 w-4 text-green-600" />
+                            )}
+                          </span>
+                          <span className="text-muted-foreground">
+                            {job.ai_processed} / {job.total_bookmarks}
+                          </span>
+                        </div>
+                        <Progress value={aiProgress} className="h-2" />
+                      </div>
+                    </div>
+
+                    {(job.failed > 0 || job.status === 'completed') && (
+                      <div className="mt-4 pt-4 border-t-2 border-foreground flex items-center justify-between font-mono text-xs uppercase tracking-wider">
+                        <div className="flex items-center gap-4">
+                          <div>
+                            <span className="text-muted-foreground">Successful: </span>
+                            <span className="font-medium">
+                              {job.total_bookmarks - job.failed}
+                            </span>
+                          </div>
+                          {job.failed > 0 && (
+                            <div>
+                              <span className="text-muted-foreground">Failed: </span>
+                              <span className="font-medium text-destructive">{job.failed}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </StaggerItem>
               );
             })}
-          </div>
+          </StaggerContainer>
         )}
       </div>
     </div>

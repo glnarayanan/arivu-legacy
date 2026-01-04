@@ -10,29 +10,6 @@
   font-size: calc(10px + 2vmin);
 }
 
-.App-link {
-  color: #61dafb;
-}
-
-.animate-in {
-  animation: animateIn 0.3s ease-in-out;
-}
-
-@keyframes animateIn {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.bookmark-card:hover {
-  transform: translateY(-2px);
-}
-
 .reader-content {
   max-width: 65ch;
   line-height: 1.8;
@@ -47,18 +24,8 @@
 .reader-content h3 {
   margin-top: 2rem;
   margin-bottom: 1rem;
-  font-family: 'Newsreader', serif;
-  font-weight: 500;
-}
-
-.glassmorphism {
-  background: rgba(255, 255, 255, 0.8);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-}
-
-.dark .glassmorphism {
-  background: rgba(0, 0, 0, 0.6);
+  font-family: 'DM Sans', sans-serif;
+  font-weight: 700;
 }
 
 .scrollbar-hide::-webkit-scrollbar {

@@ -23,7 +23,6 @@ const ImportProgressModal = ({ importJobId, isOpen, onClose }) => {
         setJobData(response.data);
         setError(null);
 
-        // Stop polling if job is completed or failed
         if (response.data.status === 'completed' || response.data.status === 'failed') {
           clearInterval(pollInterval);
         }
@@ -33,10 +32,8 @@ const ImportProgressModal = ({ importJobId, isOpen, onClose }) => {
       }
     };
 
-    // Initial fetch
     fetchProgress();
 
-    // Poll every 5 seconds
     const pollInterval = setInterval(fetchProgress, 5000);
 
     return () => clearInterval(pollInterval);
@@ -47,8 +44,8 @@ const ImportProgressModal = ({ importJobId, isOpen, onClose }) => {
       <Dialog open={isOpen} onOpenChange={onClose}>
         <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
-            <DialogTitle>Import Progress</DialogTitle>
-            <DialogDescription>Loading import status...</DialogDescription>
+            <DialogTitle className="font-display text-xl uppercase tracking-wide">Import Progress</DialogTitle>
+            <DialogDescription className="font-mono text-xs uppercase tracking-wider">Loading import status...</DialogDescription>
           </DialogHeader>
           <div className="flex justify-center py-8">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -79,10 +76,10 @@ const ImportProgressModal = ({ importJobId, isOpen, onClose }) => {
 
   const getStatusIcon = () => {
     if (jobData.status === 'completed') {
-      return <CheckCircle className="h-6 w-6 text-green-500" />;
+      return <CheckCircle className="h-6 w-6 text-green-600" />;
     }
     if (jobData.status === 'failed') {
-      return <XCircle className="h-6 w-6 text-red-500" />;
+      return <XCircle className="h-6 w-6 text-destructive" />;
     }
     return <Loader2 className="h-6 w-6 animate-spin text-primary" />;
   };
@@ -104,79 +101,74 @@ const ImportProgressModal = ({ importJobId, isOpen, onClose }) => {
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+          <DialogTitle className="flex items-center gap-2 font-display text-xl uppercase tracking-wide">
             {getStatusIcon()}
             Import Progress
           </DialogTitle>
-          <DialogDescription>{getStatusText()}</DialogDescription>
+          <DialogDescription className="font-mono text-xs uppercase tracking-wider">{getStatusText()}</DialogDescription>
         </DialogHeader>
 
         {error && (
-          <div className="rounded-md bg-red-50 dark:bg-red-900/20 p-3 text-sm text-red-800 dark:text-red-200">
+          <div className="border-2 border-destructive bg-red-50 p-3 font-mono text-sm text-destructive">
             {error}
           </div>
         )}
 
         <div className="space-y-6 py-4">
-          {/* Phase 1: Content Fetching */}
           <div className="space-y-2">
-            <div className="flex items-center justify-between text-sm">
+            <div className="flex items-center justify-between font-mono text-xs uppercase tracking-wider">
               <span className="font-medium">
                 Phase 1: Content Fetching
-                {isPhase1Complete && <CheckCircle className="inline ml-2 h-4 w-4 text-green-500" />}
+                {isPhase1Complete && <CheckCircle className="inline ml-2 h-4 w-4 text-green-600" />}
               </span>
               <span className="text-muted-foreground">
                 {jobData.content_fetched} / {jobData.total_bookmarks}
               </span>
             </div>
             <Progress value={contentProgress} className="h-2" />
-            <div className="text-xs text-muted-foreground text-right">
+            <div className="font-mono text-xs text-muted-foreground text-right uppercase tracking-wider">
               {contentProgress}% complete
             </div>
           </div>
 
-          {/* Phase 2: AI Processing */}
           <div className="space-y-2">
-            <div className="flex items-center justify-between text-sm">
+            <div className="flex items-center justify-between font-mono text-xs uppercase tracking-wider">
               <span className="font-medium">
                 Phase 2: AI Processing
-                {jobData.status === 'completed' && <CheckCircle className="inline ml-2 h-4 w-4 text-green-500" />}
+                {jobData.status === 'completed' && <CheckCircle className="inline ml-2 h-4 w-4 text-green-600" />}
               </span>
               <span className="text-muted-foreground">
                 {jobData.ai_processed} / {jobData.total_bookmarks}
               </span>
             </div>
             <Progress value={aiProgress} className="h-2" />
-            <div className="text-xs text-muted-foreground text-right">
+            <div className="font-mono text-xs text-muted-foreground text-right uppercase tracking-wider">
               {aiProgress}% complete
             </div>
           </div>
 
-          {/* Stats */}
-          <div className="grid grid-cols-2 gap-4 pt-2 border-t">
+          <div className="grid grid-cols-2 gap-4 pt-2 border-t-2 border-foreground">
             <div className="space-y-1">
-              <div className="text-xs text-muted-foreground">Total Bookmarks</div>
-              <div className="text-2xl font-semibold">{jobData.total_bookmarks}</div>
+              <div className="font-mono text-xs text-muted-foreground uppercase tracking-wider">Total Bookmarks</div>
+              <div className="font-display text-2xl">{jobData.total_bookmarks}</div>
             </div>
             {jobData.failed > 0 && (
               <div className="space-y-1">
-                <div className="text-xs text-muted-foreground">Failed</div>
-                <div className="text-2xl font-semibold text-red-500">{jobData.failed}</div>
+                <div className="font-mono text-xs text-muted-foreground uppercase tracking-wider">Failed</div>
+                <div className="font-display text-2xl text-destructive">{jobData.failed}</div>
               </div>
             )}
           </div>
 
-          {/* ETA */}
           {jobData.status === 'processing' && jobData.estimated_completion_time && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground pt-2 border-t">
+            <div className="flex items-center gap-2 font-mono text-xs text-muted-foreground pt-2 border-t-2 border-foreground uppercase tracking-wider">
               <Clock className="h-4 w-4" />
               <span>Estimated completion: {formatETA(jobData.estimated_completion_time)}</span>
             </div>
           )}
 
-          {/* Completion message */}
           {jobData.status === 'completed' && (
-            <div className="rounded-md bg-green-50 dark:bg-green-900/20 p-3 text-sm text-green-800 dark:text-green-200">
+            <div className="border-2 border-green-600 bg-green-50 p-3 font-mono text-sm text-green-700">
               Successfully imported {jobData.total_bookmarks - jobData.failed} bookmark{jobData.total_bookmarks - jobData.failed !== 1 ? 's' : ''}!
               {jobData.failed > 0 && ` (${jobData.failed} failed)`}
             </div>
