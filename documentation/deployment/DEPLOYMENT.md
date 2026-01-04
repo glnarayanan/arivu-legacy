@@ -1,8 +1,8 @@
 # Arivu Deployment Guide
 ## Complete Setup for Local Development & Production
 
-**Version:** 2.0 (Consolidated & Updated)
-**Last Updated:** December 29, 2025
+**Version:** 2.1 (Updated with Marketing Site Integration)
+**Last Updated:** January 5, 2026
 **Platforms:** Local (Docker), Coolify (Production), Cloudflare (CDN)
 
 ---
@@ -46,26 +46,37 @@
 │  │         Docker Network (arivu-network)          │   │
 │  │                                                  │   │
 │  │  ┌──────────┐  ┌──────────┐  ┌──────────┐     │   │
-│  │  │Frontend  │  │ Backend  │  │ MongoDB  │     │   │
-│  │  │nginx:80  │  │  :8001   │  │ :27017   │     │   │
+│  │  │Marketing │  │ Frontend │  │ Backend  │     │   │
+│  │  │nginx:80  │  │ nginx:80 │  │  :8001   │     │   │
 │  │  └────┬─────┘  └──────────┘  └──────────┘     │   │
 │  │       │                                         │   │
-│  │       │ Proxies /api/* → backend:8001          │   │
-│  │       │ Serves React app for / paths            │   │
+│  │       │ Routes:                                 │   │
+│  │       │  /           → Hugo static (landing)   │   │
+│  │       │  /auth       → Frontend React app      │   │
+│  │       │  /dashboard  → Frontend React app      │   │
+│  │       │  /bookmark/* → Frontend React app      │   │
+│  │       │  /api/*      → Backend FastAPI         │   │
+│  │       │                                         │   │
+│  │  ┌──────────┐                                   │   │
+│  │  │ MongoDB  │                                   │   │
+│  │  │ :27017   │                                   │   │
+│  │  └──────────┘                                   │   │
 │  └─────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────┘
 ```
 
 ### Deployment Options
 
-| Environment | Frontend Port | Backend Port | MongoDB | Use Case |
-|-------------|---------------|--------------|---------|----------|
-| **Local (Docker)** | 80 | 8001 | Container | Full local testing |
-| **Local (Manual)** | 3000 | 8001 | Local/Cloud | Development |
-| **Production** | 80 (internal) | 8001 (internal) | Container | Live deployment |
+| Environment | Entry Point | Frontend | Backend | MongoDB | Use Case |
+|-------------|-------------|----------|---------|---------|----------|
+| **Local (Docker)** | Marketing:80 | Container | Container | Container | Full local testing |
+| **Local (Manual)** | Frontend:3000 | 3000 | 8001 | Local/Cloud | Development |
+| **Production** | Marketing:80 | Internal | Internal | Container | Live deployment |
 
 ### Key Features
-- ✅ **Single-domain architecture** - No CORS issues
+- ✅ **Single-domain architecture** - Marketing + App on same domain
+- ✅ **Hugo landing page** - Fast static marketing site
+- ✅ **Seamless auth flow** - /auth proxied to React app
 - ✅ **Fully containerized** - All services in Docker
 - ✅ **Self-contained** - No external dependencies
 - ✅ **Auto-scaling ready** - Resource limits configured
@@ -101,7 +112,7 @@ nano .env  # or use your preferred editor
 # GEMINI_API_KEY=AIzaSy_YOUR_KEY_HERE
 # SECRET_KEY=<generate with: openssl rand -hex 32>
 
-# 4. Start all services
+# 4. Start all services (marketing + frontend + backend + mongodb)
 docker-compose up -d
 
 # 5. Check container status
@@ -111,14 +122,17 @@ docker-compose ps
 # arivu-mongodb    Up (healthy)
 # arivu-backend    Up (healthy)
 # arivu-frontend   Up (healthy)
+# arivu-marketing  Up (healthy)
 
 # 6. View logs
 docker-compose logs -f
 
 # 7. Access application
-# Frontend: http://localhost
-# Backend API: http://localhost:8001/api
-# API Docs: http://localhost:8001/docs
+# Landing page: http://localhost (Hugo marketing site)
+# Auth page: http://localhost/auth (React app)
+# Dashboard: http://localhost/dashboard (React app)
+# Backend API: http://localhost/api (proxied through marketing nginx)
+# API Docs: http://localhost:8001/docs (direct backend access)
 ```
 
 **Environment Variables for Local Docker:**
