@@ -345,8 +345,8 @@ SECRET_KEY=<generate-32-char-hex-key>
 # ===================================
 # IMPORTANT: Set to your actual domain for security
 # Development: * (allow all - NOT recommended for production)
-# Production: https://app.arivu.app (your domain)
-CORS_ORIGINS=https://app.arivu.app
+# Production: https://arivu.app (your domain)
+CORS_ORIGINS=https://arivu.app
 
 # ===================================
 # AI Configuration
@@ -358,8 +358,8 @@ GEMINI_API_KEY=AIzaSy_YOUR_GEMINI_API_KEY_HERE
 # Frontend Configuration
 # ===================================
 # CRITICAL: Must match your frontend domain (nginx proxies /api to backend)
-# Example: https://app.arivu.app or https://arivu.coolify.app
-REACT_APP_BACKEND_URL=https://app.arivu.app
+# Example: https://arivu.app or https://arivu.coolify.app
+REACT_APP_BACKEND_URL=https://arivu.app
 
 # ===================================
 # Optional Configuration
@@ -393,8 +393,8 @@ openssl rand -base64 24
 
 1. **In Coolify UI:**
    - Go to your application → "Domains"
-   - Add domain: `app.arivu.app` (or your domain)
-   - Format: `app.arivu.app:80` (with port) or just `app.arivu.app`
+   - Add domain: `arivu.app` (or your domain)
+   - Format: `arivu.app:80` (with port) or just `arivu.app`
    - Enable HTTPS: ❌ **DISABLED** (Cloudflare handles SSL)
 
 2. **Port Configuration:**
@@ -464,7 +464,7 @@ Since Traefik is disabled, configure port mapping in Coolify UI:
 
 1. **Add A Record:**
    - Type: `A`
-   - Name: `app` (for app.arivu.app) or `@` (for arivu.app)
+   - Name: `app` (for arivu.app) or `@` (for arivu.app)
    - Content: Your VPS IP address
    - Proxy status: **Proxied** (orange cloud icon ☁️)
    - TTL: Auto
@@ -472,7 +472,7 @@ Since Traefik is disabled, configure port mapping in Coolify UI:
 2. **Verify DNS Propagation:**
 ```bash
 # Check DNS resolution
-dig app.arivu.app
+dig arivu.app
 
 # Or use online tool:
 # https://dnschecker.org
@@ -503,12 +503,12 @@ dig app.arivu.app
 ### Page Rules (Optional but Recommended)
 
 1. **Create Rule for API Caching:**
-   - URL: `app.arivu.app/api/*`
+   - URL: `arivu.app/api/*`
    - Setting: **Cache Level** → Bypass
    - Reason: API responses should not be cached
 
 2. **Create Rule for Static Assets:**
-   - URL: `app.arivu.app/static/*`
+   - URL: `arivu.app/static/*`
    - Setting: **Cache Level** → Standard
    - Reason: Cache JS/CSS files for faster load times
 
@@ -557,8 +557,8 @@ Docker: arivu-mongodb (Port 27017)
 | **MONGO_ROOT_PASSWORD** | ✅ Yes | - | MongoDB root password | `<secure-password>` |
 | **SECRET_KEY** | ✅ Yes | - | JWT signing key (32+ chars) | `<32-hex-chars>` |
 | **GEMINI_API_KEY** | ✅ Yes | - | Google AI API key | `AIzaSy...` |
-| **REACT_APP_BACKEND_URL** | ✅ Yes | - | Frontend → Backend URL | `https://app.arivu.app` |
-| **CORS_ORIGINS** | ✅ Yes | `*` | Allowed CORS origins | `https://app.arivu.app` |
+| **REACT_APP_BACKEND_URL** | ✅ Yes | - | Frontend → Backend URL | `https://arivu.app` |
+| **CORS_ORIGINS** | ✅ Yes | `*` | Allowed CORS origins | `https://arivu.app` |
 | **LOG_LEVEL** | ❌ No | `info` | Logging verbosity | `debug`, `info`, `warning`, `error` |
 
 ### Environment-Specific Configurations
@@ -582,8 +582,8 @@ LOG_LEVEL=debug
 **Production:**
 ```bash
 MONGO_URL=mongodb://admin:<secure-pass>@mongodb:27017/arivu_db?authSource=admin
-REACT_APP_BACKEND_URL=https://app.arivu.app
-CORS_ORIGINS=https://app.arivu.app
+REACT_APP_BACKEND_URL=https://arivu.app
+CORS_ORIGINS=https://arivu.app
 LOG_LEVEL=info
 ```
 
@@ -603,8 +603,8 @@ LOG_LEVEL=info
 
 3. **CORS_ORIGINS:**
    - Development: `*` (allow all - convenient but less secure)
-   - Production: Specific domain (e.g., `https://app.arivu.app`)
-   - Multiple domains: Comma-separated (e.g., `https://app.arivu.app,https://www.arivu.app`)
+   - Production: Specific domain (e.g., `https://arivu.app`)
+   - Multiple domains: Comma-separated (e.g., `https://arivu.app,https://www.arivu.app`)
 
 ---
 
@@ -615,7 +615,7 @@ LOG_LEVEL=info
 **Backend Health:**
 ```bash
 # Test via curl
-curl https://app.arivu.app/api/health
+curl https://arivu.app/api/health
 
 # Expected response:
 {
@@ -626,19 +626,19 @@ curl https://app.arivu.app/api/health
 }
 
 # Or via browser:
-https://app.arivu.app/api/health
+https://arivu.app/api/health
 ```
 
 **Frontend Health:**
 ```bash
 # Test nginx health endpoint
-curl https://app.arivu.app/health
+curl https://arivu.app/health
 
 # Expected response:
 healthy
 
 # Test React app loads
-curl https://app.arivu.app
+curl https://arivu.app
 
 # Should return HTML with React root div
 ```
@@ -646,7 +646,7 @@ curl https://app.arivu.app
 ### Step 2: Functional Testing
 
 **Create Test Account:**
-1. Open https://app.arivu.app
+1. Open https://arivu.app
 2. Click "Sign Up"
 3. Enter email and password
 4. Verify successful account creation
@@ -675,7 +675,7 @@ curl https://app.arivu.app
 **Response Time Testing:**
 ```bash
 # Test API response time
-curl -w "\nTime: %{time_total}s\n" https://app.arivu.app/api/health
+curl -w "\nTime: %{time_total}s\n" https://arivu.app/api/health
 
 # Expected: < 200ms for health check
 # Expected: < 1s for bookmark creation
@@ -685,7 +685,7 @@ curl -w "\nTime: %{time_total}s\n" https://app.arivu.app/api/health
 **Load Testing (Optional):**
 ```bash
 # Using Apache Bench
-ab -n 100 -c 10 https://app.arivu.app/api/health
+ab -n 100 -c 10 https://arivu.app/api/health
 
 # Expected:
 # - 100% success rate
@@ -789,7 +789,7 @@ while true; do
   START_TIME=$(date +%s.%N)
   STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
     --max-time 10 \
-    https://app.arivu.app/api/health 2>/dev/null)
+    https://arivu.app/api/health 2>/dev/null)
   END_TIME=$(date +%s.%N)
   DURATION=$(echo "$END_TIME - $START_TIME" | bc)
 
@@ -1000,7 +1000,7 @@ sudo ufw status
 1. **Navigate to:** Security → WAF → Rate Limiting Rules
 2. **Create Rule:**
    - Name: "API Rate Limit"
-   - If: Hostname equals `app.arivu.app` AND Path starts with `/api/`
+   - If: Hostname equals `arivu.app` AND Path starts with `/api/`
    - Then: Block when rate exceeds 100 requests per minute
    - Duration: 1 hour
 
@@ -1037,7 +1037,7 @@ add_header Referrer-Policy "strict-origin-when-cross-origin" always;
 add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
 
 # CSP (Content Security Policy)
-add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://app.arivu.app;" always;
+add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://arivu.app;" always;
 ```
 
 ### Regular Security Maintenance
