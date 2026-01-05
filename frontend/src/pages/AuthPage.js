@@ -7,8 +7,7 @@ import { toast } from 'sonner';
 import { BookmarkIcon } from 'lucide-react';
 import { motion } from 'framer-motion';
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
+const API = '/api';
 
 const SIGNUPS_ENABLED = false;
 

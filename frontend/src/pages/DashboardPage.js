@@ -13,8 +13,7 @@ import BookmarkCard from '../components/BookmarkCard';
 import AgedBookmarksBanner from '../components/AgedBookmarksBanner';
 import { StaggerContainer, StaggerItem, HardReveal } from '../components/motion/PageOrchestrator';
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
+const API = '/api';
 
 const DashboardPage = ({ onLogout }) => {
   const navigate = useNavigate();
