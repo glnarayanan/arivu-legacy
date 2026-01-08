@@ -6,7 +6,7 @@ import { Input } from '../components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { toast } from 'sonner';
-import { BookmarkIcon, PlusIcon, SearchIcon, FilterIcon, SparklesIcon, FolderIcon, LogOutIcon, CopyIcon, UploadIcon, DownloadIcon, CheckSquare, Square, Trash2, CheckCircle, Circle, BookOpen, Grid3x3, List, Archive, Clock } from 'lucide-react';
+import { BookmarkIcon, PlusIcon, SearchIcon, FilterIcon, SparklesIcon, FolderIcon, LogOutIcon, CopyIcon, UploadIcon, DownloadIcon, CheckSquare, Square, Trash2, CheckCircle, Circle, BookOpen, Grid3x3, List, Archive, Clock, NetworkIcon } from 'lucide-react';
 import { motion } from 'framer-motion';
 import KeyboardShortcutsModal from '../components/KeyboardShortcutsModal';
 import BookmarkCard from '../components/BookmarkCard';
@@ -356,6 +356,16 @@ const DashboardPage = ({ onLogout }) => {
                 >
                   <CopyIcon className="w-4 h-4 mr-2" />
                   Duplicates
+                </Button>
+                <Button
+                  data-testid="knowledge-graph-btn"
+                  variant="ghost"
+                  size="sm"
+                  className="rounded-none border-2 border-transparent hover:border-foreground hover:bg-muted font-mono uppercase text-xs tracking-wider"
+                  onClick={() => navigate('/knowledge-graph')}
+                >
+                  <NetworkIcon className="w-4 h-4 mr-2" />
+                  Knowledge Graph
                 </Button>
                 <Button
                   data-testid="logout-btn"
