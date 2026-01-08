@@ -346,6 +346,11 @@ class Bookmark(BaseModel):
     last_accessed: Optional[datetime] = None
     view_count: Optional[int] = 0
     access_history: Optional[List[Dict[str, str]]] = []
+    # Semantic Knowledge Graph: Embedding vector for semantic search
+    embedding: Optional[List[float]] = None
+    embedding_model: Optional[str] = None
+    entities: Optional[List[str]] = []  # Named entities extracted from content
+    concepts: Optional[List[str]] = []  # Key concepts/topics
 
 class AISummary(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -844,8 +849,100 @@ def calculate_reading_time(text_content: str) -> int:
     word_count = len(text_content.split())
     return max(1, round(word_count / 200))
 
+async def generate_embedding(text_content: str, title: str = "", description: str = "") -> Optional[List[float]]:
+    """
+    Generate embedding vector for semantic search using Google's embedding model
+
+    Args:
+        text_content: Main text content of the bookmark
+        title: Bookmark title (optional)
+        description: Bookmark description (optional)
+
+    Returns:
+        List of floats representing the embedding vector, or None if generation fails
+    """
+    try:
+        if not text_content or len(text_content.strip()) < 50:
+            logger.info("Insufficient content for embedding generation")
+            return None
+
+        gemini_api_key = os.environ.get('GEMINI_API_KEY')
+        if not gemini_api_key:
+            logger.error("GEMINI_API_KEY not configured")
+            return None
+
+        # Combine title, description, and content for richer embeddings
+        combined_text = ""
+        if title:
+            combined_text += f"Title: {title}\n\n"
+        if description:
+            combined_text += f"Description: {description}\n\n"
+
+        # Use first 10,000 characters of content to avoid token limits
+        combined_text += text_content[:10000].strip()
+
+        # Use Google's embedding model
+        await gemini_rate_limiter.acquire(estimated_tokens=500)
+        result = await asyncio.to_thread(
+            genai.embed_content,
+            model="models/text-embedding-004",
+            content=combined_text,
+            task_type="retrieval_document"
+        )
+
+        embedding = result['embedding']
+        logger.info(f"Generated embedding vector with {len(embedding)} dimensions")
+        return embedding
+
+    except Exception as e:
+        logger.error(f"Error generating embedding: {type(e).__name__}: {str(e)}")
+        return None
+
+async def extract_entities_and_concepts(text_content: str, summary_data: dict) -> tuple[List[str], List[str]]:
+    """
+    Extract named entities and key concepts from content
+
+    Args:
+        text_content: Main text content
+        summary_data: AI summary data containing tags and other metadata
+
+    Returns:
+        Tuple of (entities list, concepts list)
+    """
+    try:
+        entities = []
+        concepts = []
+
+        # Use suggested tags from AI summary as initial concepts
+        if summary_data and 'suggested_tags' in summary_data:
+            concepts = summary_data['suggested_tags'][:10]
+
+        # Simple entity extraction using regex patterns (proper nouns, organizations)
+        # In a production system, you'd use spaCy or similar NER library
+        if text_content:
+            # Extract capitalized words/phrases (simple entity detection)
+            import re
+            # Match sequences of capitalized words
+            entity_pattern = r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b'
+            found_entities = re.findall(entity_pattern, text_content[:5000])
+
+            # Filter and deduplicate
+            entity_counts = {}
+            for entity in found_entities:
+                if len(entity) > 2 and entity not in ['The', 'This', 'That', 'These', 'Those']:
+                    entity_counts[entity] = entity_counts.get(entity, 0) + 1
+
+            # Keep entities that appear at least twice
+            entities = [e for e, count in sorted(entity_counts.items(), key=lambda x: x[1], reverse=True) if count >= 2][:15]
+
+        return entities, concepts
+
+    except Exception as e:
+        logger.error(f"Error extracting entities and concepts: {type(e).__name__}")
+        return [], []
+
 async def process_bookmark_content(bookmark_id: str, url: str, collection_id: Optional[str] = None, user_id: str = None):
-    """Background task to fetch content and generate AI summaries"""
+    """Background task to fetch content, generate AI summaries, and create embeddings for semantic search"""
     try:
         logger.info(f"Processing bookmark content: {bookmark_id}")
         content = await fetch_webpage_content(url)
@@ -866,7 +963,42 @@ async def process_bookmark_content(bookmark_id: str, url: str, collection_id: Op
             }}
         )
 
+        # Generate AI summaries
         await generate_ai_summaries(content.get('text_content', ''), bookmark_id)
+
+        # Generate embedding for semantic search (Phase 1: Semantic Knowledge Graph)
+        text_content = content.get('text_content', '')
+        title = content.get('title', '')
+        description = content.get('description', '')
+
+        if text_content and len(text_content.strip()) >= 50:
+            embedding = await generate_embedding(text_content, title, description)
+
+            # Get AI summary data for entity/concept extraction
+            ai_summary = await db.ai_summaries.find_one({"bookmark_id": bookmark_id}, {"_id": 0})
+            entities, concepts = await extract_entities_and_concepts(text_content, ai_summary)
+
+            # Update bookmark with embedding and semantic data
+            update_data = {
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }
+
+            if embedding:
+                update_data["embedding"] = embedding
+                update_data["embedding_model"] = "text-embedding-004"
+
+            if entities:
+                update_data["entities"] = entities
+
+            if concepts:
+                update_data["concepts"] = concepts
+
+            await db.bookmarks.update_one(
+                {"id": bookmark_id},
+                {"$set": update_data}
+            )
+            logger.info(f"Generated embedding and semantic data for bookmark {bookmark_id}")
+
         logger.info(f"Successfully processed bookmark: {bookmark_id}")
     except Exception as e:
         logger.error(f"Error processing bookmark {bookmark_id}: {type(e).__name__}")
@@ -1182,6 +1314,221 @@ async def get_bookmark(bookmark_id: str, current_user: dict = Depends(get_curren
     await track_bookmark_access(bookmark_id, "detail", current_user)
 
     return result
+
+@api_router.get("/bookmarks/{bookmark_id}/related")
+async def get_related_bookmarks(
+    bookmark_id: str,
+    limit: int = 5,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get semantically related bookmarks using embedding similarity
+    Part of Semantic Knowledge Graph feature (Phase 1)
+    """
+    # Get the source bookmark with its embedding
+    source_bookmark = await db.bookmarks.find_one(
+        {"id": bookmark_id, "user_id": current_user["id"]},
+        {"_id": 0, "embedding": 1, "title": 1}
+    )
+
+    if not source_bookmark:
+        raise HTTPException(status_code=404, detail="Bookmark not found")
+
+    if not source_bookmark.get("embedding"):
+        # No embedding available yet - return empty result
+        return {"related": [], "message": "Semantic analysis not yet available for this bookmark"}
+
+    source_embedding = source_bookmark["embedding"]
+
+    # Get all user's bookmarks that have embeddings (excluding the source bookmark)
+    all_bookmarks = await db.bookmarks.find(
+        {
+            "user_id": current_user["id"],
+            "id": {"$ne": bookmark_id},
+            "embedding": {"$exists": True, "$ne": None}
+        },
+        {
+            "_id": 0,
+            "id": 1,
+            "title": 1,
+            "description": 1,
+            "url": 1,
+            "favicon": 1,
+            "domain": 1,
+            "thumbnail": 1,
+            "created_at": 1,
+            "embedding": 1,
+            "entities": 1,
+            "concepts": 1
+        }
+    ).to_list(None)
+
+    if not all_bookmarks:
+        return {"related": [], "message": "No other bookmarks with semantic data available"}
+
+    # Calculate cosine similarity for each bookmark
+    import numpy as np
+
+    def cosine_similarity_score(vec1, vec2):
+        """Calculate cosine similarity between two vectors"""
+        vec1 = np.array(vec1)
+        vec2 = np.array(vec2)
+        return np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2))
+
+    # Calculate similarity scores
+    similarities = []
+    for bookmark in all_bookmarks:
+        if bookmark.get("embedding"):
+            similarity = cosine_similarity_score(source_embedding, bookmark["embedding"])
+            # Remove embedding from result to reduce payload size
+            bookmark.pop("embedding", None)
+            bookmark["similarity_score"] = float(similarity)
+            similarities.append(bookmark)
+
+    # Sort by similarity score and take top N
+    similarities.sort(key=lambda x: x["similarity_score"], reverse=True)
+    top_related = similarities[:limit]
+
+    return {"related": top_related}
+
+@api_router.get("/knowledge-graph/explore")
+async def explore_knowledge_graph(
+    limit: int = 50,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Explore the user's knowledge graph - get all bookmarks with semantic data
+    Part of Semantic Knowledge Graph feature (Phase 1)
+    """
+    # Get all bookmarks with embeddings
+    bookmarks = await db.bookmarks.find(
+        {
+            "user_id": current_user["id"],
+            "embedding": {"$exists": True, "$ne": None}
+        },
+        {
+            "_id": 0,
+            "id": 1,
+            "title": 1,
+            "description": 1,
+            "url": 1,
+            "domain": 1,
+            "favicon": 1,
+            "thumbnail": 1,
+            "created_at": 1,
+            "entities": 1,
+            "concepts": 1,
+            "embedding": 1  # Include for clustering
+        }
+    ).limit(limit).to_list(None)
+
+    # Extract all unique entities and concepts
+    all_entities = set()
+    all_concepts = set()
+
+    for bookmark in bookmarks:
+        if bookmark.get("entities"):
+            all_entities.update(bookmark["entities"])
+        if bookmark.get("concepts"):
+            all_concepts.update(bookmark["concepts"])
+
+    # Build concept/entity connections (which bookmarks share which concepts)
+    concept_connections = {}
+    entity_connections = {}
+
+    for bookmark in bookmarks:
+        bookmark_id = bookmark["id"]
+
+        for concept in bookmark.get("concepts", []):
+            if concept not in concept_connections:
+                concept_connections[concept] = []
+            concept_connections[concept].append(bookmark_id)
+
+        for entity in bookmark.get("entities", []):
+            if entity not in entity_connections:
+                entity_connections[entity] = []
+            entity_connections[entity].append(bookmark_id)
+
+    # Remove embeddings from response to reduce payload
+    for bookmark in bookmarks:
+        bookmark.pop("embedding", None)
+
+    return {
+        "bookmarks": bookmarks,
+        "entities": list(all_entities),
+        "concepts": list(all_concepts),
+        "concept_connections": concept_connections,
+        "entity_connections": entity_connections,
+        "total_bookmarks": len(bookmarks),
+        "total_entities": len(all_entities),
+        "total_concepts": len(all_concepts)
+    }
+
+@api_router.get("/knowledge-graph/search")
+async def semantic_search(
+    query: str,
+    limit: int = 10,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Semantic search across all bookmarks using query embedding
+    Part of Semantic Knowledge Graph feature (Phase 1)
+    """
+    if not query or len(query.strip()) < 3:
+        raise HTTPException(status_code=400, detail="Query must be at least 3 characters")
+
+    # Generate embedding for the search query
+    query_embedding = await generate_embedding(query)
+
+    if not query_embedding:
+        raise HTTPException(status_code=500, detail="Failed to generate query embedding")
+
+    # Get all user's bookmarks with embeddings
+    all_bookmarks = await db.bookmarks.find(
+        {
+            "user_id": current_user["id"],
+            "embedding": {"$exists": True, "$ne": None}
+        },
+        {
+            "_id": 0,
+            "id": 1,
+            "title": 1,
+            "description": 1,
+            "url": 1,
+            "favicon": 1,
+            "domain": 1,
+            "thumbnail": 1,
+            "created_at": 1,
+            "embedding": 1,
+            "entities": 1,
+            "concepts": 1
+        }
+    ).to_list(None)
+
+    if not all_bookmarks:
+        return {"results": [], "message": "No bookmarks with semantic data available"}
+
+    # Calculate similarity scores
+    import numpy as np
+
+    def cosine_similarity_score(vec1, vec2):
+        vec1 = np.array(vec1)
+        vec2 = np.array(vec2)
+        return np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2))
+
+    results = []
+    for bookmark in all_bookmarks:
+        if bookmark.get("embedding"):
+            similarity = cosine_similarity_score(query_embedding, bookmark["embedding"])
+            bookmark.pop("embedding", None)
+            bookmark["similarity_score"] = float(similarity)
+            results.append(bookmark)
+
+    # Sort by similarity and return top results
+    results.sort(key=lambda x: x["similarity_score"], reverse=True)
+    top_results = results[:limit]
+
+    return {"results": top_results, "query": query}
 
 @api_router.delete("/bookmarks/{bookmark_id}")
 async def delete_bookmark(bookmark_id: str, current_user: dict = Depends(get_current_user)):

@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import axiosInstance from '../utils/axiosConfig';
 import { Button } from '../components/ui/button';
 import { toast } from 'sonner';
-import { ArrowLeftIcon, ExternalLinkIcon, SparklesIcon, ListIcon, BookOpenIcon } from 'lucide-react';
+import { ArrowLeftIcon, ExternalLinkIcon, SparklesIcon, ListIcon, BookOpenIcon, NetworkIcon } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { motion } from 'framer-motion';
 import DOMPurify from 'dompurify';
@@ -14,6 +14,8 @@ const BookmarkDetailPage = ({ onLogout }) => {
   const navigate = useNavigate();
   const [bookmark, setBookmark] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [relatedBookmarks, setRelatedBookmarks] = useState([]);
+  const [loadingRelated, setLoadingRelated] = useState(false);
 
   useEffect(() => {
     const fetchBookmark = async () => {
@@ -30,6 +32,26 @@ const BookmarkDetailPage = ({ onLogout }) => {
 
     fetchBookmark();
   }, [id, navigate]);
+
+  useEffect(() => {
+    const fetchRelatedBookmarks = async () => {
+      if (!bookmark) return;
+
+      setLoadingRelated(true);
+      try {
+        const response = await axiosInstance.get(`/bookmarks/${id}/related?limit=5`);
+        if (response.data.related) {
+          setRelatedBookmarks(response.data.related);
+        }
+      } catch (error) {
+        console.error('Failed to load related bookmarks:', error);
+      } finally {
+        setLoadingRelated(false);
+      }
+    };
+
+    fetchRelatedBookmarks();
+  }, [id, bookmark]);
 
   if (loading) {
     return (
@@ -192,6 +214,103 @@ const BookmarkDetailPage = ({ onLogout }) => {
               <div className="mb-8 p-6 border-2 border-foreground bg-muted flex items-center gap-3">
                 <SparklesIcon className="w-5 h-5 animate-pulse text-accent" />
                 <span className="text-muted-foreground font-mono text-sm uppercase tracking-wider">AI is processing summaries and insights...</span>
+              </div>
+            </StaggerItem>
+          )}
+
+          {/* Semantic Knowledge Graph: Related Bookmarks */}
+          {relatedBookmarks.length > 0 && (
+            <StaggerItem>
+              <div className="mb-8">
+                <div className="border-2 border-foreground bg-card p-6 shadow-brutal">
+                  <div className="flex items-center gap-2 mb-6 pb-4 border-b-2 border-foreground">
+                    <NetworkIcon className="w-5 h-5 text-foreground" />
+                    <h2 className="font-display text-xl uppercase tracking-wide">Related Bookmarks</h2>
+                    <span className="ml-auto font-mono text-xs uppercase tracking-wider text-muted-foreground">
+                      Semantic Connections
+                    </span>
+                  </div>
+
+                  <div className="space-y-4">
+                    {relatedBookmarks.map((related) => (
+                      <motion.div
+                        key={related.id}
+                        initial={{ opacity: 0, x: -20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+                        className="border-2 border-foreground bg-background p-4 hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none shadow-brutal-sm transition-all duration-150 cursor-pointer"
+                        onClick={() => navigate(`/bookmark/${related.id}`)}
+                      >
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-2">
+                              {related.favicon && (
+                                <img
+                                  src={related.favicon}
+                                  alt=""
+                                  className="w-4 h-4 border border-foreground flex-shrink-0"
+                                  onError={(e) => (e.target.style.display = 'none')}
+                                />
+                              )}
+                              <h3 className="font-semibold text-sm truncate">{related.title || 'Untitled'}</h3>
+                            </div>
+                            {related.description && (
+                              <p className="text-xs text-muted-foreground line-clamp-2 mb-2">
+                                {related.description}
+                              </p>
+                            )}
+                            <div className="flex items-center gap-3 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                              <span>{related.domain}</span>
+                              {related.concepts && related.concepts.length > 0 && (
+                                <>
+                                  <span>•</span>
+                                  <div className="flex gap-1 flex-wrap">
+                                    {related.concepts.slice(0, 3).map((concept, idx) => (
+                                      <span
+                                        key={idx}
+                                        className="px-1 py-0.5 border border-foreground bg-muted text-[9px]"
+                                      >
+                                        {concept}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex-shrink-0">
+                            <div className="font-mono text-xs text-accent border border-accent px-2 py-1 bg-accent/10">
+                              {Math.round(related.similarity_score * 100)}%
+                            </div>
+                          </div>
+                        </div>
+                      </motion.div>
+                    ))}
+                  </div>
+
+                  {relatedBookmarks.length >= 5 && (
+                    <div className="mt-6 pt-4 border-t-2 border-foreground">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => navigate('/knowledge-graph')}
+                        className="w-full font-mono uppercase tracking-wider"
+                      >
+                        <NetworkIcon className="w-4 h-4 mr-2" />
+                        Explore Knowledge Graph
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </StaggerItem>
+          )}
+
+          {loadingRelated && !relatedBookmarks.length && (
+            <StaggerItem>
+              <div className="mb-8 p-6 border-2 border-foreground bg-muted flex items-center gap-3">
+                <NetworkIcon className="w-5 h-5 animate-pulse text-foreground" />
+                <span className="text-muted-foreground font-mono text-sm uppercase tracking-wider">Finding related bookmarks...</span>
               </div>
             </StaggerItem>
           )}
