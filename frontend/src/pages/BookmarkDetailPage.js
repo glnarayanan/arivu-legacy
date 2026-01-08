@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import axiosInstance from '../utils/axiosConfig';
 import { Button } from '../components/ui/button';
 import { toast } from 'sonner';
-import { ArrowLeftIcon, ExternalLinkIcon, SparklesIcon, ListIcon, BookOpenIcon, NetworkIcon } from 'lucide-react';
+import { ArrowLeftIcon, ExternalLinkIcon, SparklesIcon, ListIcon, BookOpenIcon, NetworkIcon, Shield, CheckCircle2, AlertTriangle, Clock } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { motion } from 'framer-motion';
 import DOMPurify from 'dompurify';
@@ -16,6 +16,7 @@ const BookmarkDetailPage = ({ onLogout }) => {
   const [loading, setLoading] = useState(true);
   const [relatedBookmarks, setRelatedBookmarks] = useState([]);
   const [loadingRelated, setLoadingRelated] = useState(false);
+  const [contentQuality, setContentQuality] = useState(null);
 
   useEffect(() => {
     const fetchBookmark = async () => {
@@ -52,6 +53,29 @@ const BookmarkDetailPage = ({ onLogout }) => {
 
     fetchRelatedBookmarks();
   }, [id, bookmark]);
+
+  // Fetch content quality score
+  useEffect(() => {
+    const fetchContentQuality = async () => {
+      if (!bookmark?.url || !bookmark?.text_content) return;
+
+      try {
+        const response = await axiosInstance.post('/content/evaluate', {
+          url: bookmark.url,
+          content: bookmark.text_content,
+          metadata: {
+            author: bookmark.author,
+            publication_date: bookmark.publication_date
+          }
+        });
+        setContentQuality(response.data);
+      } catch (error) {
+        console.error('Failed to evaluate content quality:', error);
+      }
+    };
+
+    fetchContentQuality();
+  }, [bookmark]);
 
   if (loading) {
     return (
@@ -114,6 +138,36 @@ const BookmarkDetailPage = ({ onLogout }) => {
               </div>
             </div>
           </StaggerItem>
+
+          {/* Content Quality Score */}
+          {contentQuality && (
+            <StaggerItem>
+              <div className="mb-6 flex flex-wrap items-center gap-3">
+                <div className={`flex items-center gap-2 px-3 py-1.5 border-2 ${contentQuality.score >= 70 ? 'border-green-600 bg-green-50 text-green-700' :
+                    contentQuality.score >= 50 ? 'border-amber-500 bg-amber-50 text-amber-700' :
+                      'border-red-500 bg-red-50 text-red-700'
+                  }`}>
+                  <Shield className="w-4 h-4" />
+                  <span className="font-mono text-xs uppercase tracking-wider">
+                    {contentQuality.label}: {contentQuality.score}/100
+                  </span>
+                </div>
+                {contentQuality.badges?.map((badge, idx) => (
+                  <span
+                    key={idx}
+                    className={`px-2 py-1 text-xs font-mono uppercase tracking-wider border ${badge.type === 'positive' ? 'border-green-500 bg-green-50 text-green-700' :
+                        badge.type === 'negative' ? 'border-red-400 bg-red-50 text-red-600' :
+                          'border-gray-400 bg-gray-50 text-gray-600'
+                      }`}
+                  >
+                    {badge.type === 'positive' && <CheckCircle2 className="w-3 h-3 inline mr-1" />}
+                    {badge.type === 'negative' && <AlertTriangle className="w-3 h-3 inline mr-1" />}
+                    {badge.text}
+                  </span>
+                ))}
+              </div>
+            </StaggerItem>
+          )}
 
           {bookmark.ai_summary && bookmark.ai_summary.processing_status === 'completed' && (
             <StaggerItem>

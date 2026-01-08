@@ -6,11 +6,12 @@ import { Input } from '../components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { toast } from 'sonner';
-import { BookmarkIcon, PlusIcon, SearchIcon, FilterIcon, SparklesIcon, FolderIcon, LogOutIcon, CopyIcon, UploadIcon, DownloadIcon, CheckSquare, Square, Trash2, CheckCircle, Circle, BookOpen, Grid3x3, List, Archive, Clock, NetworkIcon } from 'lucide-react';
+import { BookmarkIcon, PlusIcon, SearchIcon, FilterIcon, SparklesIcon, FolderIcon, LogOutIcon, CopyIcon, UploadIcon, DownloadIcon, CheckSquare, Square, Trash2, CheckCircle, Circle, BookOpen, Grid3x3, List, Archive, Clock, NetworkIcon, BarChart3, Shield, AlertTriangle, CheckCircle2, XCircle } from 'lucide-react';
 import { motion } from 'framer-motion';
 import KeyboardShortcutsModal from '../components/KeyboardShortcutsModal';
 import BookmarkCard from '../components/BookmarkCard';
 import AgedBookmarksBanner from '../components/AgedBookmarksBanner';
+import { ResurfacingSection } from '../components/ResurfacingCard';
 import { StaggerContainer, StaggerItem, HardReveal } from '../components/motion/PageOrchestrator';
 
 const API = '/api';
@@ -40,6 +41,8 @@ const DashboardPage = ({ onLogout }) => {
   const [viewMode, setViewMode] = useState('list');
   const [agedCount, setAgedCount] = useState(0);
   const [showAgedOnly, setShowAgedOnly] = useState(false);
+  const [resurfacingSuggestions, setResurfacingSuggestions] = useState([]);
+  const [resurfacingLoading, setResurfacingLoading] = useState(false);
 
   const user = JSON.parse(localStorage.getItem('user') || '{}');
 
@@ -91,10 +94,57 @@ const DashboardPage = ({ onLogout }) => {
     }
   };
 
+  const fetchResurfacing = async () => {
+    try {
+      setResurfacingLoading(true);
+      const response = await axiosInstance.get(`/resurfacing?limit=3`);
+      setResurfacingSuggestions(response.data.suggestions || []);
+    } catch (error) {
+      console.error('Failed to fetch resurfacing suggestions:', error);
+    } finally {
+      setResurfacingLoading(false);
+    }
+  };
+
+  const handleResurfacingSnooze = async (bookmarkId, days = 7) => {
+    try {
+      await axiosInstance.post(`/resurfacing/${bookmarkId}/snooze`, { days });
+      toast.success(`Snoozed for ${days} days`);
+      // Remove from suggestions immediately
+      setResurfacingSuggestions(prev => prev.filter(s => s.id !== bookmarkId));
+    } catch (error) {
+      toast.error('Failed to snooze bookmark');
+    }
+  };
+
+  const handleResurfacingArchive = async (bookmarkId) => {
+    try {
+      await axiosInstance.post(`/resurfacing/${bookmarkId}/archive`);
+      toast.success('Removed from resurfacing');
+      // Remove from suggestions immediately
+      setResurfacingSuggestions(prev => prev.filter(s => s.id !== bookmarkId));
+    } catch (error) {
+      toast.error('Failed to archive bookmark');
+    }
+  };
+
+  const handleResurfacingReadAgain = async (bookmarkId) => {
+    try {
+      // Track access to update last_accessed
+      await axiosInstance.post(`/bookmarks/${bookmarkId}/accessed`, {}, { params: { source: 'resurfacing' } });
+      // Remove from suggestions since it's now accessed
+      setResurfacingSuggestions(prev => prev.filter(s => s.id !== bookmarkId));
+    } catch (error) {
+      // Non-critical, don't show error
+      console.error('Failed to track access:', error);
+    }
+  };
+
   useEffect(() => {
     fetchBookmarks();
     fetchCollections();
     fetchAgedCount();
+    fetchResurfacing();
   }, [searchQuery, filterTag, filterDomain, filterCollection, readFilter, sortBy]);
 
   useEffect(() => {
@@ -259,8 +309,8 @@ const DashboardPage = ({ onLogout }) => {
   };
 
   const toggleBookmarkSelection = (bookmarkId) => {
-    setSelectedBookmarks(prev => 
-      prev.includes(bookmarkId) 
+    setSelectedBookmarks(prev =>
+      prev.includes(bookmarkId)
         ? prev.filter(id => id !== bookmarkId)
         : [...prev, bookmarkId]
     );
@@ -366,6 +416,16 @@ const DashboardPage = ({ onLogout }) => {
                 >
                   <NetworkIcon className="w-4 h-4 mr-2" />
                   Knowledge Graph
+                </Button>
+                <Button
+                  data-testid="analytics-btn"
+                  variant="ghost"
+                  size="sm"
+                  className="rounded-none border-2 border-transparent hover:border-foreground hover:bg-muted font-mono uppercase text-xs tracking-wider"
+                  onClick={() => navigate('/analytics')}
+                >
+                  <BarChart3 className="w-4 h-4 mr-2" />
+                  Analytics
                 </Button>
                 <Button
                   data-testid="logout-btn"
@@ -551,8 +611,17 @@ const DashboardPage = ({ onLogout }) => {
           onViewAged={() => setShowAgedOnly(true)}
         />
 
+        <ResurfacingSection
+          suggestions={resurfacingSuggestions}
+          onReadAgain={handleResurfacingReadAgain}
+          onSnooze={handleResurfacingSnooze}
+          onArchive={handleResurfacingArchive}
+          isLoading={resurfacingLoading}
+          onRefresh={fetchResurfacing}
+        />
+
         {showAgedOnly && (
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             className="mb-4 p-3 bg-card border-2 border-foreground flex items-center justify-between"
@@ -573,7 +642,7 @@ const DashboardPage = ({ onLogout }) => {
         )}
 
         {bulkMode && (
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0, scale: 0.98 }}
             animate={{ opacity: 1, scale: 1 }}
             className="mb-6 p-4 bg-card border-2 border-foreground"
@@ -692,7 +761,7 @@ const DashboardPage = ({ onLogout }) => {
             </Dialog>
           </div>
         ) : (
-          <StaggerContainer 
+          <StaggerContainer
             className={viewMode === 'grid'
               ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
               : "space-y-3"
@@ -706,19 +775,19 @@ const DashboardPage = ({ onLogout }) => {
                 return lastAccessed < thirtyDaysAgo;
               })
               .map((bookmark, index) => (
-              <StaggerItem key={bookmark.id}>
-                <BookmarkCard
-                  bookmark={bookmark}
-                  onDelete={handleDeleteBookmark}
-                  onClick={() => navigate(`/bookmark/${bookmark.id}`)}
-                  bulkMode={bulkMode}
-                  isSelected={selectedBookmarks.includes(bookmark.id)}
-                  onToggleSelect={() => toggleBookmarkSelection(bookmark.id)}
-                  isHighlighted={selectedIndex === index}
-                  viewMode={viewMode}
-                />
-              </StaggerItem>
-            ))}
+                <StaggerItem key={bookmark.id}>
+                  <BookmarkCard
+                    bookmark={bookmark}
+                    onDelete={handleDeleteBookmark}
+                    onClick={() => navigate(`/bookmark/${bookmark.id}`)}
+                    bulkMode={bulkMode}
+                    isSelected={selectedBookmarks.includes(bookmark.id)}
+                    onToggleSelect={() => toggleBookmarkSelection(bookmark.id)}
+                    isHighlighted={selectedIndex === index}
+                    viewMode={viewMode}
+                  />
+                </StaggerItem>
+              ))}
           </StaggerContainer>
         )}
       </div>

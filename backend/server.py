@@ -30,6 +30,9 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from collections import deque
 import time
+from resurfacing import calculate_resurfacing_score, get_resurfacing_reason, should_resurface
+from content_intelligence import calculate_credibility_score, get_quality_label, get_quality_badges, check_duplicate_url
+from analytics import calculate_reading_stats, get_topic_breakdown, get_reading_patterns, get_learning_insights
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -849,7 +852,7 @@ def calculate_reading_time(text_content: str) -> int:
     word_count = len(text_content.split())
     return max(1, round(word_count / 200))
 
-async def generate_embedding(text_content: str, title: str = "", description: str = "") -> Optional[List[float]]:
+async def generate_embedding(text_content: str, title: str = "", description: str = "", min_length: int = 50) -> Optional[List[float]]:
     """
     Generate embedding vector for semantic search using Google's embedding model
 
@@ -857,13 +860,14 @@ async def generate_embedding(text_content: str, title: str = "", description: st
         text_content: Main text content of the bookmark
         title: Bookmark title (optional)
         description: Bookmark description (optional)
+        min_length: Minimum character length required (default 50 for content, use 3 for queries)
 
     Returns:
         List of floats representing the embedding vector, or None if generation fails
     """
     try:
-        if not text_content or len(text_content.strip()) < 50:
-            logger.info("Insufficient content for embedding generation")
+        if not text_content or len(text_content.strip()) < min_length:
+            logger.info(f"Insufficient content for embedding generation (need {min_length}+ chars, got {len(text_content.strip()) if text_content else 0})")
             return None
 
         gemini_api_key = os.environ.get('GEMINI_API_KEY')
@@ -1298,6 +1302,193 @@ async def get_aged_bookmarks(
         "bookmarks": bookmarks
     }
 
+# ============================================
+# Intelligent Resurfacing Engine (Phase 1)
+# ============================================
+
+@api_router.get("/resurfacing")
+async def get_resurfacing_suggestions(
+    limit: int = 5,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get top resurfacing suggestions for the user.
+    Returns bookmarks scored by age, engagement, content quality, and spaced repetition.
+    """
+    # Get all user bookmarks with necessary fields
+    projection = {
+        "_id": 0,
+        "id": 1,
+        "title": 1,
+        "url": 1,
+        "domain": 1,
+        "thumbnail": 1,
+        "favicon": 1,
+        "description": 1,
+        "reading_time": 1,
+        "created_at": 1,
+        "last_accessed": 1,
+        "view_count": 1,
+        "resurfacing_snoozed_until": 1,
+        "resurfacing_archived": 1
+    }
+
+    bookmarks = await db.bookmarks.find(
+        {"user_id": current_user["id"]},
+        projection
+    ).to_list(500)  # Cap at 500 for performance
+
+    # Get AI summaries for all bookmarks
+    bookmark_ids = [b["id"] for b in bookmarks]
+    summaries = await db.ai_summaries.find(
+        {"bookmark_id": {"$in": bookmark_ids}},
+        {"_id": 0}
+    ).to_list(None)
+    summary_map = {s["bookmark_id"]: s for s in summaries}
+
+    # Score each bookmark
+    scored_bookmarks = []
+    current_time = datetime.now(timezone.utc)
+
+    for bookmark in bookmarks:
+        if not should_resurface(bookmark):
+            continue
+
+        ai_summary = summary_map.get(bookmark["id"])
+        score, breakdown = calculate_resurfacing_score(bookmark, ai_summary, current_time)
+
+        # Calculate days since access for reason generation
+        last_accessed = bookmark.get("last_accessed")
+        if isinstance(last_accessed, str):
+            try:
+                last_accessed = datetime.fromisoformat(last_accessed.replace('Z', '+00:00'))
+            except (ValueError, TypeError):
+                last_accessed = None
+
+        if last_accessed:
+            if last_accessed.tzinfo is None:
+                last_accessed = last_accessed.replace(tzinfo=timezone.utc)
+            days_since = (current_time - last_accessed).days
+        else:
+            days_since = 30  # Default
+
+        reason = get_resurfacing_reason(bookmark, breakdown, days_since)
+
+        # Build response object
+        scored_bookmarks.append({
+            **bookmark,
+            "resurfacing_score": score,
+            "resurfacing_reason": reason,
+            "days_since_access": days_since,
+            "ai_summary": ai_summary
+        })
+
+    # Sort by score descending and take top N
+    scored_bookmarks.sort(key=lambda x: x["resurfacing_score"], reverse=True)
+    top_suggestions = scored_bookmarks[:limit]
+
+    # Remove internal fields before returning
+    for bm in top_suggestions:
+        bm.pop("resurfacing_snoozed_until", None)
+        bm.pop("resurfacing_archived", None)
+
+    return {
+        "suggestions": top_suggestions,
+        "total_candidates": len(scored_bookmarks)
+    }
+
+
+class SnoozeRequest(BaseModel):
+    days: int = Field(default=7, ge=1, le=90, description="Number of days to snooze")
+
+
+@api_router.post("/resurfacing/{bookmark_id}/snooze")
+async def snooze_resurfacing(
+    bookmark_id: str,
+    snooze_data: SnoozeRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Snooze a bookmark from resurfacing suggestions for N days.
+    """
+    # Verify ownership
+    bookmark = await db.bookmarks.find_one({
+        "id": bookmark_id,
+        "user_id": current_user["id"]
+    })
+    if not bookmark:
+        raise HTTPException(status_code=404, detail="Bookmark not found")
+
+    snooze_until = datetime.now(timezone.utc) + timedelta(days=snooze_data.days)
+
+    await db.bookmarks.update_one(
+        {"id": bookmark_id},
+        {"$set": {
+            "resurfacing_snoozed_until": snooze_until.isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+
+    return {
+        "message": f"Bookmark snoozed for {snooze_data.days} days",
+        "snoozed_until": snooze_until.isoformat()
+    }
+
+
+@api_router.post("/resurfacing/{bookmark_id}/archive")
+async def archive_from_resurfacing(
+    bookmark_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Archive a bookmark from resurfacing suggestions (never show again).
+    """
+    # Verify ownership
+    bookmark = await db.bookmarks.find_one({
+        "id": bookmark_id,
+        "user_id": current_user["id"]
+    })
+    if not bookmark:
+        raise HTTPException(status_code=404, detail="Bookmark not found")
+
+    await db.bookmarks.update_one(
+        {"id": bookmark_id},
+        {"$set": {
+            "resurfacing_archived": True,
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+
+    return {"message": "Bookmark archived from resurfacing"}
+
+
+@api_router.post("/resurfacing/{bookmark_id}/unarchive")
+async def unarchive_from_resurfacing(
+    bookmark_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Unarchive a bookmark to allow it back in resurfacing suggestions.
+    """
+    # Verify ownership
+    bookmark = await db.bookmarks.find_one({
+        "id": bookmark_id,
+        "user_id": current_user["id"]
+    })
+    if not bookmark:
+        raise HTTPException(status_code=404, detail="Bookmark not found")
+
+    await db.bookmarks.update_one(
+        {"id": bookmark_id},
+        {"$set": {
+            "resurfacing_archived": False,
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+
+    return {"message": "Bookmark unarchived from resurfacing"}
+
+
 @api_router.get("/bookmarks/{bookmark_id}")
 async def get_bookmark(bookmark_id: str, current_user: dict = Depends(get_current_user)):
     bookmark = await db.bookmarks.find_one({"id": bookmark_id, "user_id": current_user["id"]}, {"_id": 0})
@@ -1477,8 +1668,8 @@ async def semantic_search(
     if not query or len(query.strip()) < 3:
         raise HTTPException(status_code=400, detail="Query must be at least 3 characters")
 
-    # Generate embedding for the search query
-    query_embedding = await generate_embedding(query)
+    # Generate embedding for the search query (allow short queries with min_length=3)
+    query_embedding = await generate_embedding(query, min_length=3)
 
     if not query_embedding:
         raise HTTPException(status_code=500, detail="Failed to generate query embedding")
@@ -1529,6 +1720,98 @@ async def semantic_search(
     top_results = results[:limit]
 
     return {"results": top_results, "query": query}
+
+@api_router.post("/knowledge-graph/regenerate-embeddings")
+async def regenerate_embeddings(
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Regenerate embeddings for all bookmarks that don't have them yet.
+    This is a background task that processes bookmarks asynchronously.
+    """
+    # Count bookmarks that need embeddings
+    needs_embedding_count = await db.bookmarks.count_documents({
+        "user_id": current_user["id"],
+        "text_content": {"$exists": True, "$ne": None},
+        "$or": [
+            {"embedding": {"$exists": False}},
+            {"embedding": None}
+        ]
+    })
+
+    if needs_embedding_count == 0:
+        return {
+            "message": "All bookmarks already have embeddings",
+            "processed": 0,
+            "status": "completed"
+        }
+
+    # Start background processing
+    async def process_embeddings():
+        bookmarks = await db.bookmarks.find(
+            {
+                "user_id": current_user["id"],
+                "text_content": {"$exists": True, "$ne": None},
+                "$or": [
+                    {"embedding": {"$exists": False}},
+                    {"embedding": None}
+                ]
+            },
+            {"_id": 0, "id": 1, "text_content": 1, "title": 1, "description": 1}
+        ).to_list(None)
+
+        processed = 0
+        for bookmark in bookmarks:
+            try:
+                text_content = bookmark.get("text_content", "")
+                if text_content and len(text_content.strip()) >= 50:
+                    embedding = await generate_embedding(
+                        text_content,
+                        bookmark.get("title", ""),
+                        bookmark.get("description", "")
+                    )
+
+                    if embedding:
+                        # Get AI summary for entity/concept extraction
+                        ai_summary = await db.ai_summaries.find_one(
+                            {"bookmark_id": bookmark["id"]},
+                            {"_id": 0}
+                        )
+                        entities, concepts = await extract_entities_and_concepts(
+                            text_content, ai_summary
+                        )
+
+                        update_data = {
+                            "embedding": embedding,
+                            "embedding_model": "text-embedding-004",
+                            "updated_at": datetime.now(timezone.utc).isoformat()
+                        }
+
+                        if entities:
+                            update_data["entities"] = entities
+                        if concepts:
+                            update_data["concepts"] = concepts
+
+                        await db.bookmarks.update_one(
+                            {"id": bookmark["id"]},
+                            {"$set": update_data}
+                        )
+                        processed += 1
+                        logger.info(f"Generated embedding for bookmark {bookmark['id']} ({processed}/{len(bookmarks)})")
+
+            except Exception as e:
+                logger.error(f"Error generating embedding for bookmark {bookmark.get('id')}: {e}")
+
+        logger.info(f"Completed embedding regeneration: {processed}/{len(bookmarks)} processed")
+
+    background_tasks.add_task(process_embeddings)
+
+    return {
+        "message": f"Started regenerating embeddings for {needs_embedding_count} bookmarks",
+        "queued": needs_embedding_count,
+        "status": "processing"
+    }
 
 @api_router.delete("/bookmarks/{bookmark_id}")
 async def delete_bookmark(bookmark_id: str, current_user: dict = Depends(get_current_user)):
@@ -1915,6 +2198,137 @@ async def export_bookmarks(current_user: dict = Depends(get_current_user)):
             'Content-Disposition': f'attachment; filename="arivu_bookmarks_{datetime.now().strftime("%Y%m%d")}.html"'
         }
     )
+
+# ============================================
+# Content Intelligence APIs (Roadmap 11)
+# ============================================
+
+class ContentEvaluateRequest(BaseModel):
+    url: str
+    content: Optional[str] = None
+    metadata: Optional[Dict] = None
+
+
+@api_router.post("/content/evaluate")
+async def evaluate_content(
+    request_data: ContentEvaluateRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Evaluate content quality before saving.
+    Returns credibility score, quality label, and badges.
+    """
+    score, breakdown = calculate_credibility_score(
+        request_data.url,
+        request_data.content,
+        request_data.metadata
+    )
+    
+    label, severity = get_quality_label(score)
+    badges = get_quality_badges(breakdown)
+    
+    return {
+        "score": score,
+        "label": label,
+        "severity": severity,
+        "badges": badges,
+        "breakdown": breakdown
+    }
+
+
+class DuplicateCheckRequest(BaseModel):
+    url: str
+
+
+@api_router.post("/content/check-duplicate")
+async def check_duplicate(
+    request_data: DuplicateCheckRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Check if URL already exists for this user before saving.
+    Returns duplicate status and existing bookmark if found.
+    """
+    result = await check_duplicate_url(
+        request_data.url,
+        current_user["id"],
+        db
+    )
+    
+    return result
+
+
+# ============================================
+# Learning Analytics APIs (Roadmap 12)
+# ============================================
+
+@api_router.get("/analytics/reading-stats")
+async def get_analytics_reading_stats(
+    days: int = 30,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get reading statistics for the user.
+    """
+    stats = await calculate_reading_stats(current_user["id"], days, db)
+    return stats
+
+
+@api_router.get("/analytics/topics")
+async def get_analytics_topics(
+    days: int = 30,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get topic breakdown based on AI-suggested tags.
+    """
+    topics = await get_topic_breakdown(current_user["id"], days, db)
+    return {"topics": topics}
+
+
+@api_router.get("/analytics/patterns")
+async def get_analytics_patterns(
+    days: int = 30,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get reading patterns (time of day, day of week).
+    """
+    patterns = await get_reading_patterns(current_user["id"], days, db)
+    return patterns
+
+
+@api_router.get("/analytics/insights")
+async def get_analytics_insights(
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get behavioral insights and recommendations.
+    """
+    insights = await get_learning_insights(current_user["id"], db)
+    return {"insights": insights}
+
+
+@api_router.get("/analytics/summary")
+async def get_analytics_summary(
+    days: int = 30,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get complete analytics summary (stats + topics + patterns + insights).
+    """
+    stats = await calculate_reading_stats(current_user["id"], days, db)
+    topics = await get_topic_breakdown(current_user["id"], days, db)
+    patterns = await get_reading_patterns(current_user["id"], days, db)
+    insights = await get_learning_insights(current_user["id"], db)
+    
+    return {
+        "stats": stats,
+        "topics": topics,
+        "patterns": patterns,
+        "insights": insights
+    }
+
 
 # Request size limit middleware
 class RequestSizeLimitMiddleware(BaseHTTPMiddleware):

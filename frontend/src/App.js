@@ -6,6 +6,7 @@ import BookmarkDetailPage from './pages/BookmarkDetailPage';
 import DuplicatesPage from './pages/DuplicatesPage';
 import ImportsPage from './pages/ImportsPage';
 import KnowledgeGraphPage from './pages/KnowledgeGraphPage';
+import AnalyticsPage from './pages/AnalyticsPage';
 import { Toaster } from './components/ui/sonner';
 import './App.css';
 
@@ -105,6 +106,16 @@ function App() {
             element={
               isAuthenticated ? (
                 <KnowledgeGraphPage onLogout={handleLogout} />
+              ) : (
+                <Navigate to="/auth" replace />
+              )
+            }
+          />
+          <Route
+            path="/analytics"
+            element={
+              isAuthenticated ? (
+                <AnalyticsPage onLogout={handleLogout} />
               ) : (
                 <Navigate to="/auth" replace />
               )
