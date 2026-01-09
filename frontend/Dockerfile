@@ -1,4 +1,4 @@
-# Frontend Dockerfile for Arivu Application
+# Frontend Dockerfile for Arivu Application - Vite Build
 # Multi-stage build: Build stage + Nginx production stage
 
 FROM node:lts-alpine as builder
@@ -16,10 +16,10 @@ RUN yarn install --frozen-lockfile --production=false
 COPY . .
 
 # Build argument for backend URL
-ARG REACT_APP_BACKEND_URL
-ENV REACT_APP_BACKEND_URL=${REACT_APP_BACKEND_URL}
+ARG VITE_API_URL
+ENV VITE_API_URL=${VITE_API_URL}
 
-# Build the React application
+# Build React application
 RUN yarn build
 
 # Production stage with Nginx
@@ -29,7 +29,7 @@ FROM nginx:1.25-alpine
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 # Copy built assets from builder stage
-COPY --from=builder /app/build /usr/share/nginx/html
+COPY --from=builder /app/dist /usr/share/nginx/html
 
 # Create nginx cache directories
 RUN mkdir -p /var/cache/nginx/client_temp && \

@@ -8,6 +8,7 @@ import ImportsPage from './pages/ImportsPage';
 import KnowledgeGraphPage from './pages/KnowledgeGraphPage';
 import AnalyticsPage from './pages/AnalyticsPage';
 import { Toaster } from './components/ui/sonner';
+import axiosInstance from './utils/axiosConfig';
 import './App.css';
 
 function App() {
@@ -15,27 +16,38 @@ function App() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const accessToken = localStorage.getItem('accessToken');
-    const refreshToken = localStorage.getItem('refreshToken');
-    if (accessToken && refreshToken) {
-      setIsAuthenticated(true);
-    }
-    setLoading(false);
+    // Check authentication via API call (cookies are sent automatically)
+    const checkAuth = async () => {
+      try {
+        const response = await axiosInstance.get('/auth/me');
+        if (response.data) {
+          setIsAuthenticated(true);
+        }
+      } catch (error) {
+        setIsAuthenticated(false);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    checkAuth();
   }, []);
 
-  const handleLogin = (accessToken, refreshToken, user) => {
-    localStorage.setItem('accessToken', accessToken);
-    localStorage.setItem('refreshToken', refreshToken);
-    localStorage.setItem('user', JSON.stringify(user));
+  const handleLogin = (user) => {
+    // Tokens are set as HTTP-only cookies by backend
+    // No need to store them in localStorage
     setIsAuthenticated(true);
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
-    localStorage.removeItem('token'); // Remove old token if exists
-    localStorage.removeItem('user');
-    setIsAuthenticated(false);
+  const handleLogout = async () => {
+    try {
+      // Call logout endpoint to clear cookies and revoke tokens
+      await axiosInstance.post('/auth/logout');
+      setIsAuthenticated(false);
+    } catch (error) {
+      // Even if logout fails, clear local state
+      setIsAuthenticated(false);
+    }
   };
 
   if (loading) {

@@ -64,7 +64,10 @@ const BookmarkCard = ({ bookmark, onDelete, onClick, bulkMode, isSelected, onTog
               className="w-full h-full object-cover"
               onError={(e) => {
                 e.target.style.display = 'none';
-                e.target.parentElement.innerHTML = `<div class="w-full h-full flex items-center justify-center text-xl font-heading font-bold text-muted-foreground opacity-50">${bookmark.domain?.charAt(0).toUpperCase()}</div>`;
+                const fallbackDiv = document.createElement('div');
+                fallbackDiv.className = 'w-full h-full flex items-center justify-center text-xl font-heading font-bold text-muted-foreground opacity-50';
+                fallbackDiv.textContent = bookmark.domain?.charAt(0).toUpperCase() || '';
+                e.target.parentElement.appendChild(fallbackDiv);
               }}
             />
           ) : (
