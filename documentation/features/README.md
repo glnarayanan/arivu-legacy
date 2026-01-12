@@ -95,11 +95,11 @@ For detailed documentation on advanced features, see individual feature pages:
 
 - **[Knowledge Graph](knowledge-graph.md)** - Visualize connections between your bookmarks
 - **[Intelligent Resurfacing](resurfacing-engine.md)** - Rediscover content at optimal times
-- **[Learning Analytics](analytics.md)** - Understand your reading patterns
-- **[Content Intelligence](content-intelligence.md)** - Evaluate content quality
-- **[Duplicates Management](duplicates-detection.md)** - Keep your library clean
-- **[Import/Export](import-export.md)** - Migrate from other services
-- **[Collections](collections.md)** - Organize with custom collections
+- **[Learning Analytics](analytics.md)** - Reading stats, topic analysis, and AI insights
+- **[Content Intelligence](content-intelligence.md)** - Quality scoring and content evaluation
+- **[Duplicates Detection](duplicates-detection.md)** - Smart duplicate detection and merging
+- **[Import/Export](import-export.md)** - Seamless migration from Pocket, Raindrop.io, browsers
+- **[Collections](collections.md)** - Organize bookmarks into custom groups
 
 ---
 
