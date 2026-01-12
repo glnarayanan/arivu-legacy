@@ -20,6 +20,7 @@ Feature guides and implementation documentation.
 Production deployment, infrastructure, and operations documentation.
 - `DEPLOYMENT.md` - Complete production deployment guide
 - `RESTORATION.md` - Backup restoration and disaster recovery procedures
+- `ENVIRONMENT_VARIABLES.md` - Comprehensive environment variables reference
 
 ### `/development/`
 Development patterns, architecture details, and security guidelines.
@@ -37,8 +38,9 @@ Future features, planning, and product vision.
 Historical documentation and verbose guides.
 - `CLAUDE-verbose.md` - Complete architecture and patterns guide
 - `README-verbose.md` - Original comprehensive README
-- `troubleshooting.md` - Common issues and solutions
-- `SECURITY_ROADMAP.md` - Historical security planning
+
+### Other Documentation
+- `seo-claude.md` - SEO strategy and marketing analysis for arivu.app
 
 ---
 
@@ -49,6 +51,7 @@ Historical documentation and verbose guides.
 | **API endpoints** | `api/README.md` |
 | **Feature guides** | `features/` (Knowledge Graph, Resurfacing, Analytics) |
 | **How to deploy** | `deployment/DEPLOYMENT.md` |
+| **Environment vars** | `deployment/ENVIRONMENT_VARIABLES.md` |
 | **Backup/Recovery** | `deployment/RESTORATION.md` |
 | **Architecture details** | `archive/CLAUDE-verbose.md` |
 | **Design system** | `design/BRUTALIST_DESIGN_SYSTEM.md` |
