@@ -462,6 +462,49 @@ Unarchive a bookmark.
 
 ---
 
+### GET /api/memory-jogger
+Get a single featured bookmark for today's memory jogger.
+Uses scoring algorithm to surface forgotten but relevant bookmarks.
+
+**Authentication:** Required
+
+**Response:** `200 OK`
+```json
+{
+  "bookmark": {
+    "id": "bookmark_xyz",
+    "title": "Forgotten Gem",
+    "url": "https://example.com",
+    "ai_summary": { "one_sentence": "..." }
+  },
+  "context": {
+    "days_since_saved": 45,
+    "connection_count": 3,
+    "connected_topics": ["ai", "react"],
+    "reason": "You haven't visited this in 45 days"
+  },
+  "has_memory": true
+}
+```
+
+---
+
+### POST /api/memory-jogger/dismiss
+Dismiss today's memory jogger.
+
+**Authentication:** Required
+
+**Request Body:**
+```json
+{
+  "bookmark_id": "bookmark_xyz"
+}
+```
+
+**Response:** `200 OK`
+
+---
+
 ## Analytics Endpoints
 
 ### GET /api/analytics/reading-stats

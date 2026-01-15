@@ -36,6 +36,12 @@ The Intelligent Resurfacing Engine uses spaced repetition algorithms to help you
 - Still accessible via search and filters
 - Can be unarchived anytime
 
+### 5. **Memory Jogger (Daily Rediscovery)**
+- Surfaces a single "Forgotten Gem" every day
+- Prominent placement on the dashboard
+- Contextual reasons for rediscovery (similarity to recent saves, time since saved)
+- High-impact micro-intervention for knowledge retention
+
 ---
 
 ## How It Works
