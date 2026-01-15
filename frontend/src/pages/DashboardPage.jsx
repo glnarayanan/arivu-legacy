@@ -6,15 +6,14 @@ import { Input } from '../components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { toast } from 'sonner';
-import { BookmarkIcon, PlusIcon, SearchIcon, SparklesIcon, CheckSquare, Square, Trash2, CheckCircle, Circle, BookOpen, Grid3x3, List, Archive, Clock } from 'lucide-react';
+import { BookmarkIcon, PlusIcon, SearchIcon, SparklesIcon, CheckSquare, Square, Trash2, CheckCircle, Circle, BookOpen, Grid3x3, List, Clock } from 'lucide-react';
 import { motion } from 'framer-motion';
 import KeyboardShortcutsModal from '../components/KeyboardShortcutsModal';
 import BookmarkCard from '../components/BookmarkCard';
-import AgedBookmarksBanner from '../components/AgedBookmarksBanner';
-import { ResurfacingSection } from '../components/ResurfacingCard';
 import { StaggerContainer, StaggerItem, HardReveal } from '../components/motion/PageOrchestrator';
 import UserMenu from '../components/UserMenu';
 import Sidebar from '../components/Sidebar';
+import MemoryJogger from '../components/MemoryJogger';
 
 const DashboardPage = ({ onLogout }) => {
   const navigate = useNavigate();
@@ -40,7 +39,8 @@ const DashboardPage = ({ onLogout }) => {
   const [agedCount, setAgedCount] = useState(0);
   const [showAgedOnly, setShowAgedOnly] = useState(false);
   const [resurfacingSuggestions, setResurfacingSuggestions] = useState([]);
-  const [resurfacingLoading, setResurfacingLoading] = useState(false);
+  const [memoryJogger, setMemoryJogger] = useState(null);
+  const [memoryJoggerDismissed, setMemoryJoggerDismissed] = useState(false);
 
   const fetchBookmarks = async () => {
     try {
@@ -92,13 +92,45 @@ const DashboardPage = ({ onLogout }) => {
 
   const fetchResurfacing = async () => {
     try {
-      setResurfacingLoading(true);
       const response = await axiosInstance.get(`/resurfacing?limit=3`);
       setResurfacingSuggestions(response.data.suggestions || []);
     } catch (error) {
       console.error('Failed to fetch resurfacing suggestions:', error);
-    } finally {
-      setResurfacingLoading(false);
+    }
+  };
+
+  const fetchMemoryJogger = async () => {
+    const dismissed = localStorage.getItem('memoryJoggerDismissed');
+    if (dismissed === new Date().toDateString()) {
+      setMemoryJoggerDismissed(true);
+      return;
+    }
+    try {
+      const response = await axiosInstance.get('/memory-jogger');
+      if (response.data.has_memory) {
+        setMemoryJogger(response.data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch memory jogger:', error);
+    }
+  };
+
+  const handleMemoryRevisit = async (bookmarkId) => {
+    try {
+      await axiosInstance.post(`/bookmarks/${bookmarkId}/accessed`, {}, { params: { source: 'memory_jogger' } });
+    } catch (error) {
+      console.error('Failed to track memory jogger access:', error);
+    }
+  };
+
+  const handleMemoryDismiss = async (bookmarkId) => {
+    try {
+      await axiosInstance.post('/memory-jogger/dismiss', { bookmark_id: bookmarkId });
+      localStorage.setItem('memoryJoggerDismissed', new Date().toDateString());
+      setMemoryJoggerDismissed(true);
+      setMemoryJogger(null);
+    } catch (error) {
+      console.error('Failed to dismiss memory jogger:', error);
     }
   };
 
@@ -136,6 +168,7 @@ const DashboardPage = ({ onLogout }) => {
     fetchCollections();
     fetchAgedCount();
     fetchResurfacing();
+    fetchMemoryJogger();
   }, [searchQuery, filterTag, filterDomain, filterCollection, readFilter, sortBy]);
 
   useEffect(() => {
@@ -210,10 +243,20 @@ const DashboardPage = ({ onLogout }) => {
 
     setAddingBookmark(true);
     try {
-      await axiosInstance.post(`/bookmarks`, { url: newBookmarkUrl });
-      toast.success('Bookmark saved! AI is processing summaries...');
+      const response = await axiosInstance.post(`/bookmarks`, { url: newBookmarkUrl });
       setNewBookmarkUrl('');
       setDialogOpen(false);
+      
+      const savedBookmark = response.data.bookmark;
+      
+      toast.success('Bookmark saved!', {
+        action: {
+          label: 'View',
+          onClick: () => navigate(`/bookmark/${savedBookmark.id}`)
+        }
+      });
+      
+      // Refresh bookmarks list after a delay for AI to start processing
       setTimeout(() => fetchBookmarks(), 2000);
     } catch (error) {
       toast.error('Failed to save bookmark');
@@ -356,6 +399,12 @@ const DashboardPage = ({ onLogout }) => {
           filterCollection={filterCollection}
           setFilterCollection={setFilterCollection}
           onCreateCollection={fetchCollections}
+          resurfacingSuggestions={resurfacingSuggestions}
+          onResurfacingReadAgain={handleResurfacingReadAgain}
+          onResurfacingSnooze={handleResurfacingSnooze}
+          onResurfacingArchive={handleResurfacingArchive}
+          agedCount={agedCount}
+          onViewAged={() => setShowAgedOnly(true)}
         />
 
         {/* Main Content */}
@@ -464,28 +513,23 @@ const DashboardPage = ({ onLogout }) => {
             </div>
           )}
 
-          <AgedBookmarksBanner
-            agedCount={agedCount}
-            onViewAged={() => setShowAgedOnly(true)}
-          />
+          {/* Memory Jogger - prominent single bookmark reminder */}
+          {memoryJogger && !memoryJoggerDismissed && (
+            <MemoryJogger
+              data={memoryJogger}
+              onRevisit={handleMemoryRevisit}
+              onDismiss={handleMemoryDismiss}
+            />
+          )}
 
-          <ResurfacingSection
-            suggestions={resurfacingSuggestions}
-            onReadAgain={handleResurfacingReadAgain}
-            onSnooze={handleResurfacingSnooze}
-            onArchive={handleResurfacingArchive}
-            isLoading={resurfacingLoading}
-            onRefresh={fetchResurfacing}
-          />
-
+          {/* Aged bookmarks filter active indicator */}
           {showAgedOnly && (
             <motion.div
               initial={{ opacity: 0, y: -20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="mb-4 p-3 bg-card border-2 border-foreground flex items-center justify-between"
+              className="mb-4 p-3 bg-amber-50 border-2 border-foreground flex items-center justify-between"
             >
               <div className="flex items-center gap-2 text-sm font-mono text-amber-700">
-                <Archive className="w-4 h-4" />
                 <span className="uppercase tracking-wider">Showing stale bookmarks (30+ days inactive)</span>
               </div>
               <Button

@@ -22,6 +22,11 @@ import {
   Upload,
   Download,
   Copy,
+  RefreshCw,
+  Archive,
+  ExternalLink,
+  AlarmClockOff,
+  Clock,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { ScrollArea } from './ui/scroll-area';
@@ -51,12 +56,21 @@ const Sidebar = ({
   // Settings page props
   settingsSection = '',
   onSettingsSectionChange = () => { },
+  // Resurfacing props
+  resurfacingSuggestions = [],
+  onResurfacingReadAgain,
+  onResurfacingSnooze,
+  onResurfacingArchive,
+  // Aged bookmarks props
+  agedCount = 0,
+  onViewAged,
 }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const [collectionsOpen, setCollectionsOpen] = useState(true);
   const [tagsOpen, setTagsOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [resurfacingOpen, setResurfacingOpen] = useState(true);
   const [newCollectionName, setNewCollectionName] = useState('');
   const [collectionDialogOpen, setCollectionDialogOpen] = useState(false);
 
@@ -178,6 +192,93 @@ const Sidebar = ({
           {/* Show Collections/Filters/Tags when NOT on Settings Page */}
           {!isSettingsPage && (
             <>
+              {/* Aged Bookmarks Indicator */}
+              {agedCount > 0 && (
+                <div className="mx-3 mb-3 p-2 bg-amber-50 border-2 border-foreground">
+                  <button
+                    onClick={onViewAged}
+                    className="w-full flex items-center gap-2 text-left"
+                  >
+                    <div className="p-1 bg-amber-100 border border-foreground flex-shrink-0">
+                      <Archive className="w-3 h-3 text-amber-700" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-mono text-[10px] uppercase tracking-wider text-amber-900 font-bold">
+                        {agedCount} collecting dust
+                      </p>
+                      <p className="font-mono text-[9px] uppercase tracking-wider text-amber-700 flex items-center gap-1">
+                        <Clock className="w-2.5 h-2.5" />
+                        30+ days inactive
+                      </p>
+                    </div>
+                  </button>
+                </div>
+              )}
+
+              {/* Resurfacing Section */}
+              {resurfacingSuggestions.length > 0 && (
+                <div className="mb-2">
+                  <SectionHeader
+                    label={`Worth Revisiting (${resurfacingSuggestions.length})`}
+                    isOpen={resurfacingOpen}
+                    onToggle={() => setResurfacingOpen(!resurfacingOpen)}
+                  />
+                  {resurfacingOpen && (
+                    <div className="py-1 space-y-1 px-2">
+                      {resurfacingSuggestions.slice(0, 3).map((bookmark) => (
+                        <div
+                          key={bookmark.id}
+                          className="p-2 bg-background border border-foreground text-xs"
+                        >
+                          <p className="font-heading font-bold text-[11px] uppercase leading-tight line-clamp-1 mb-1">
+                            {bookmark.title || 'Untitled'}
+                          </p>
+                          <p className="font-mono text-[9px] uppercase tracking-wider text-muted-foreground mb-1">
+                            {bookmark.domain}
+                          </p>
+                          <p className="font-mono text-[9px] text-primary flex items-center gap-1">
+                            <RefreshCw className="w-2.5 h-2.5" />
+                            {bookmark.resurfacing_reason}
+                          </p>
+                          <div className="flex gap-1 mt-2">
+                            <Button
+                              variant="default"
+                              size="sm"
+                              onClick={() => {
+                                window.open(bookmark.url, '_blank');
+                                onResurfacingReadAgain?.(bookmark.id);
+                              }}
+                              className="flex-1 h-6 text-[9px] px-1"
+                            >
+                              <ExternalLink className="w-2.5 h-2.5 mr-1" />
+                              READ
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => onResurfacingSnooze?.(bookmark.id, 7)}
+                              className="h-6 w-6 p-0"
+                              title="Snooze 1 week"
+                            >
+                              <AlarmClockOff className="w-2.5 h-2.5" />
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => onResurfacingArchive?.(bookmark.id)}
+                              className="h-6 w-6 p-0"
+                              title="Don't show again"
+                            >
+                              <Archive className="w-2.5 h-2.5" />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Collections Section */}
               <div className="mb-2">
                 <SectionHeader
