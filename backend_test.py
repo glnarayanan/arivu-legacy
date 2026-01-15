@@ -290,6 +290,102 @@ class ArivuAPITester:
         print(f"⏰ AI processing timeout after {max_wait} seconds")
         return False
 
+    def test_get_profile(self):
+        """Test getting user profile"""
+        result = self.run_test(
+            "Profile - Get",
+            "GET",
+            "user/profile",
+            200
+        )
+        return result is not None and 'email' in result
+
+    def test_update_profile(self):
+        """Test updating user profile"""
+        update_data = {
+            "name": f"Updated Name {int(time.time())}"
+        }
+        result = self.run_test(
+            "Profile - Update",
+            "PUT",
+            "user/profile",
+            200,
+            data=update_data
+        )
+        return result is not None
+
+    def test_change_password(self):
+        """Test changing password (will fail without valid current password)"""
+        change_data = {
+            "current_password": "TestPass123!",
+            "new_password": "NewTestPass456!"
+        }
+        # This test is expected to fail in most cases
+        result = self.run_test(
+            "Password - Change",
+            "POST",
+            "auth/change-password",
+            200,
+            data=change_data
+        )
+        # For test cleanup, if it succeeded, change back
+        if result:
+            self.run_test(
+                "Password - Reset back",
+                "POST",
+                "auth/change-password",
+                200,
+                data={"current_password": "NewTestPass456!", "new_password": "TestPass123!"}
+            )
+        return True  # Test is informational
+
+    def test_forgot_password(self):
+        """Test forgot password endpoint (should always return success)"""
+        forgot_data = {
+            "email": "test@example.com"
+        }
+        # This should always succeed (to prevent email enumeration)
+        result = self.run_test(
+            "Password - Forgot",
+            "POST",
+            "auth/forgot-password",
+            200,
+            data=forgot_data
+        )
+        return result is not None
+
+    def test_backup_json(self):
+        """Test backup endpoint with JSON format"""
+        backup_data = {
+            "format": "json",
+            "include_notes": True,
+            "include_ai_summaries": True
+        }
+        result = self.run_test(
+            "Backup - JSON",
+            "POST",
+            "bookmarks/backup",
+            200,
+            data=backup_data
+        )
+        return result is not None
+
+    def test_backup_csv(self):
+        """Test backup endpoint with CSV format"""
+        backup_data = {
+            "format": "csv",
+            "include_notes": True,
+            "include_ai_summaries": False
+        }
+        result = self.run_test(
+            "Backup - CSV",
+            "POST",
+            "bookmarks/backup",
+            200,
+            data=backup_data
+        )
+        return result is not None
+
 def main():
     print("🚀 Starting Arivu API Testing...")
     print("=" * 50)

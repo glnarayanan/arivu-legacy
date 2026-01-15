@@ -56,6 +56,8 @@ from analytics import (
     get_reading_patterns,
     get_learning_insights,
 )
+import resend
+import secrets
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -252,6 +254,18 @@ if not SECRET_KEY or len(SECRET_KEY) < 32:
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60  # 1 hour for access tokens
 REFRESH_TOKEN_EXPIRE_DAYS = 30  # 30 days for refresh tokens
+PASSWORD_RESET_TOKEN_EXPIRE_HOURS = 1  # 1 hour for password reset tokens
+
+# Resend email configuration
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
+RESEND_FROM_EMAIL = os.environ.get("RESEND_FROM_EMAIL", "noreply@arivu.app")
+APP_URL = os.environ.get("APP_URL", "https://arivu.app")
+
+if RESEND_API_KEY:
+    resend.api_key = RESEND_API_KEY
+    logger.info("Resend email configured successfully")
+else:
+    logger.warning("RESEND_API_KEY not set - password reset emails will not work")
 
 
 # Security validation functions
@@ -354,6 +368,49 @@ class TokenResponse(BaseModel):
 
 class RefreshTokenRequest(BaseModel):
     refresh_token: str
+
+
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+
+class PasswordResetConfirm(BaseModel):
+    token: str
+    new_password: str
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+class ProfileUpdate(BaseModel):
+    name: Optional[str] = None
+    email: Optional[EmailStr] = None
+
+    @validator("name")
+    def validate_name(cls, v):
+        if v is not None:
+            if len(v.strip()) == 0:
+                raise ValueError("Name cannot be empty")
+            if len(v) > 100:
+                raise ValueError("Name too long (max 100 characters)")
+            if not re.match(r"^[\w\s\-\.]+$", v):
+                raise ValueError("Name contains invalid characters")
+            return v.strip()
+        return v
+
+
+class AvatarUpload(BaseModel):
+    avatar_data: str  # Base64 encoded image data
+
+
+class BackupRequest(BaseModel):
+    format: str = "html"  # "html" | "json" | "csv"
+    include_notes: bool = True
+    include_ai_summaries: bool = True
+    date_from: Optional[datetime] = None
+    date_to: Optional[datetime] = None
 
 
 class BookmarkCreate(BaseModel):
@@ -643,6 +700,262 @@ async def refresh_token_endpoint(request: Request):
     # This endpoint is kept for backwards compatibility
     # The actual refresh logic is handled by client-side axios interceptor
     pass
+
+
+# ============================================
+# Password Reset Endpoints
+# ============================================
+
+
+async def send_password_reset_email(email: str, reset_token: str):
+    """Send password reset email via Resend"""
+    if not RESEND_API_KEY:
+        logger.error("Cannot send password reset email - RESEND_API_KEY not configured")
+        return False
+
+    reset_url = f"{APP_URL}/reset-password?token={reset_token}"
+
+    # Minimal brutalist email template
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <style>
+            body {{ font-family: 'DM Sans', Arial, sans-serif; background: #F7F7F7; padding: 40px 20px; }}
+            .container {{ max-width: 500px; margin: 0 auto; background: #fff; border: 2px solid #0F0F0F; padding: 40px; }}
+            h1 {{ font-family: 'Bebas Neue', Arial, sans-serif; font-size: 28px; letter-spacing: 2px; text-transform: uppercase; margin: 0 0 20px 0; }}
+            p {{ color: #333; line-height: 1.6; margin: 0 0 20px 0; }}
+            .button {{ display: inline-block; background: #F97316; color: #fff; text-decoration: none; padding: 14px 28px; border: 2px solid #0F0F0F; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; }}
+            .footer {{ margin-top: 30px; padding-top: 20px; border-top: 2px solid #0F0F0F; font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 1px; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>RESET YOUR PASSWORD</h1>
+            <p>You requested a password reset for your Arivu account. Click the button below to set a new password.</p>
+            <p><a href="{reset_url}" class="button">RESET PASSWORD</a></p>
+            <p>This link will expire in 1 hour.</p>
+            <p>If you didn't request this, you can safely ignore this email.</p>
+            <div class="footer">ARIVU — YOUR AI-POWERED SECOND BRAIN</div>
+        </div>
+    </body>
+    </html>
+    """
+
+    try:
+        params = {
+            "from": RESEND_FROM_EMAIL,
+            "to": [email],
+            "subject": "Reset Your Arivu Password",
+            "html": html_content,
+        }
+        resend.Emails.send(params)
+        logger.info(f"Password reset email sent to {email}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to send password reset email: {type(e).__name__}: {str(e)}")
+        return False
+
+
+@api_router.post("/auth/forgot-password")
+@limiter.limit("3/hour")
+async def forgot_password(request: Request, reset_request: PasswordResetRequest):
+    """Request a password reset email"""
+    email = reset_request.email.lower()
+
+    # Always return success to prevent email enumeration attacks
+    user = await db.users.find_one({"email": email})
+    if not user:
+        logger.info(f"Password reset requested for non-existent email: {email}")
+        return {"message": "If an account exists with this email, you will receive a reset link."}
+
+    # Generate secure reset token
+    reset_token = secrets.token_urlsafe(32)
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=PASSWORD_RESET_TOKEN_EXPIRE_HOURS)
+
+    # Store token in database
+    await db.password_reset_tokens.delete_many({"user_id": user["id"]})  # Remove old tokens
+    await db.password_reset_tokens.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": user["id"],
+        "token": reset_token,
+        "expires_at": expires_at.isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+    # Send email
+    await send_password_reset_email(email, reset_token)
+
+    logger.info(f"Password reset token generated for user: {user['id']}")
+    return {"message": "If an account exists with this email, you will receive a reset link."}
+
+
+@api_router.post("/auth/reset-password")
+@limiter.limit("5/hour")
+async def reset_password(request: Request, reset_confirm: PasswordResetConfirm):
+    """Reset password using token from email"""
+    # Find valid token
+    token_doc = await db.password_reset_tokens.find_one({"token": reset_confirm.token})
+    if not token_doc:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+
+    # Check expiry
+    expires_at = datetime.fromisoformat(token_doc["expires_at"])
+    if datetime.now(timezone.utc) > expires_at:
+        await db.password_reset_tokens.delete_one({"token": reset_confirm.token})
+        raise HTTPException(status_code=400, detail="Reset token has expired")
+
+    # Validate new password strength
+    is_valid, error_msg = validate_password_strength(reset_confirm.new_password)
+    if not is_valid:
+        raise HTTPException(status_code=400, detail=error_msg)
+
+    # Update password
+    new_hash = pwd_context.hash(reset_confirm.new_password)
+    await db.users.update_one(
+        {"id": token_doc["user_id"]},
+        {"$set": {"password_hash": new_hash, "updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+
+    # Delete used token
+    await db.password_reset_tokens.delete_one({"token": reset_confirm.token})
+
+    logger.info(f"Password reset completed for user: {token_doc['user_id']}")
+    return {"message": "Password reset successfully. You can now log in with your new password."}
+
+
+@api_router.post("/auth/change-password")
+async def change_password(
+    change_request: ChangePasswordRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Change password while logged in (requires current password)"""
+    # Verify current password
+    user = await db.users.find_one({"id": current_user["id"]})
+    if not user or not pwd_context.verify(change_request.current_password, user["password_hash"]):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+
+    # Validate new password strength
+    is_valid, error_msg = validate_password_strength(change_request.new_password)
+    if not is_valid:
+        raise HTTPException(status_code=400, detail=error_msg)
+
+    # Update password
+    new_hash = pwd_context.hash(change_request.new_password)
+    await db.users.update_one(
+        {"id": current_user["id"]},
+        {"$set": {"password_hash": new_hash, "updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+
+    logger.info(f"Password changed for user: {current_user['id']}")
+    return {"message": "Password changed successfully"}
+
+
+# ============================================
+# User Profile Endpoints
+# ============================================
+
+
+@api_router.get("/user/profile")
+async def get_profile(current_user: dict = Depends(get_current_user)):
+    """Get current user profile"""
+    user = await db.users.find_one(
+        {"id": current_user["id"]},
+        {"_id": 0, "password_hash": 0}
+    )
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
+
+
+@api_router.put("/user/profile")
+async def update_profile(
+    profile_update: ProfileUpdate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update user profile (name, email)"""
+    update_data = {}
+
+    if profile_update.name is not None:
+        update_data["name"] = profile_update.name
+
+    if profile_update.email is not None:
+        # Check if email is already taken by another user
+        new_email = profile_update.email.lower()
+        existing = await db.users.find_one({"email": new_email, "id": {"$ne": current_user["id"]}})
+        if existing:
+            raise HTTPException(status_code=400, detail="Email already in use")
+        update_data["email"] = new_email
+
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+    await db.users.update_one(
+        {"id": current_user["id"]},
+        {"$set": update_data}
+    )
+
+    logger.info(f"Profile updated for user: {current_user['id']}")
+
+    # Return updated user
+    user = await db.users.find_one(
+        {"id": current_user["id"]},
+        {"_id": 0, "password_hash": 0}
+    )
+    return user
+
+
+@api_router.post("/user/avatar")
+async def upload_avatar(
+    avatar_upload: AvatarUpload,
+    current_user: dict = Depends(get_current_user)
+):
+    """Upload user avatar (base64 encoded, max 1.5MB)"""
+    import base64
+
+    avatar_data = avatar_upload.avatar_data
+
+    # Remove data URL prefix if present
+    if avatar_data.startswith("data:"):
+        # Extract base64 part after the comma
+        if "," in avatar_data:
+            avatar_data = avatar_data.split(",", 1)[1]
+
+    # Validate size (1.5MB limit after base64 encoding ~= 2MB base64 string)
+    try:
+        decoded = base64.b64decode(avatar_data)
+        if len(decoded) > 1.5 * 1024 * 1024:  # 1.5MB
+            raise HTTPException(status_code=400, detail="Avatar image too large (max 1.5MB)")
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise
+        raise HTTPException(status_code=400, detail="Invalid image data")
+
+    # Store as data URL
+    await db.users.update_one(
+        {"id": current_user["id"]},
+        {"$set": {
+            "avatar_url": avatar_upload.avatar_data,  # Store original with data URL prefix
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+
+    logger.info(f"Avatar uploaded for user: {current_user['id']}")
+    return {"message": "Avatar uploaded successfully"}
+
+
+@api_router.delete("/user/avatar")
+async def delete_avatar(current_user: dict = Depends(get_current_user)):
+    """Remove user avatar"""
+    await db.users.update_one(
+        {"id": current_user["id"]},
+        {"$unset": {"avatar_url": ""}, "$set": {"updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+
+    logger.info(f"Avatar removed for user: {current_user['id']}")
+    return {"message": "Avatar removed successfully"}
 
 
 async def fetch_webpage_content(url: str):
@@ -2528,6 +2841,166 @@ async def export_bookmarks(current_user: dict = Depends(get_current_user_info)):
             "Content-Disposition": f'attachment; filename="arivu_bookmarks_{datetime.now().strftime("%Y%m%d")}.html"'
         },
     )
+
+
+@api_router.post("/bookmarks/backup")
+async def backup_bookmarks(
+    backup_request: BackupRequest,
+    current_user: dict = Depends(get_current_user_info)
+):
+    """
+    Generate a comprehensive backup of bookmarks with options.
+    
+    Formats:
+    - html: Browser-compatible bookmark file
+    - json: Full data export with nested AI summaries and notes
+    - csv: Spreadsheet-friendly format
+    """
+    from fastapi.responses import Response
+    import json
+    import csv
+    import io
+
+    # Build query with date filtering
+    query = {"user_id": current_user["id"]}
+    if backup_request.date_from:
+        query["created_at"] = {"$gte": backup_request.date_from.isoformat()}
+    if backup_request.date_to:
+        if "created_at" in query:
+            query["created_at"]["$lte"] = backup_request.date_to.isoformat()
+        else:
+            query["created_at"] = {"$lte": backup_request.date_to.isoformat()}
+
+    # Fetch bookmarks
+    bookmarks = (
+        await db.bookmarks.find(query, {"_id": 0, "embedding": 0, "html_content": 0})
+        .sort("created_at", -1)
+        .limit(10000)
+        .to_list(None)
+    )
+
+    # Optionally fetch AI summaries
+    if backup_request.include_ai_summaries and bookmarks:
+        bookmark_ids = [b["id"] for b in bookmarks]
+        summaries = await db.ai_summaries.find(
+            {"bookmark_id": {"$in": bookmark_ids}},
+            {"_id": 0}
+        ).to_list(None)
+        summaries_map = {s["bookmark_id"]: s for s in summaries}
+        
+        for bookmark in bookmarks:
+            if bookmark["id"] in summaries_map:
+                bookmark["ai_summary"] = summaries_map[bookmark["id"]]
+
+    # Optionally fetch notes
+    if backup_request.include_notes and bookmarks:
+        bookmark_ids = [b["id"] for b in bookmarks]
+        notes = await db.notes.find(
+            {"bookmark_id": {"$in": bookmark_ids}, "user_id": current_user["id"]},
+            {"_id": 0}
+        ).to_list(None)
+        notes_map = {}
+        for note in notes:
+            bid = note["bookmark_id"]
+            if bid not in notes_map:
+                notes_map[bid] = []
+            notes_map[bid].append(note)
+        
+        for bookmark in bookmarks:
+            if bookmark["id"] in notes_map:
+                bookmark["notes"] = notes_map[bookmark["id"]]
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    # Generate output based on format
+    if backup_request.format == "json":
+        content = json.dumps({
+            "exported_at": datetime.now(timezone.utc).isoformat(),
+            "total_bookmarks": len(bookmarks),
+            "include_notes": backup_request.include_notes,
+            "include_ai_summaries": backup_request.include_ai_summaries,
+            "bookmarks": bookmarks
+        }, indent=2, default=str)
+        
+        return Response(
+            content=content,
+            media_type="application/json",
+            headers={
+                "Content-Disposition": f'attachment; filename="arivu_backup_{timestamp}.json"'
+            }
+        )
+
+    elif backup_request.format == "csv":
+        output = io.StringIO()
+        writer = csv.writer(output)
+        
+        # Header row
+        headers = ["url", "title", "domain", "created_at", "read_status", "reading_time"]
+        if backup_request.include_ai_summaries:
+            headers.extend(["summary", "tags"])
+        if backup_request.include_notes:
+            headers.append("notes")
+        writer.writerow(headers)
+        
+        # Data rows
+        for b in bookmarks:
+            row = [
+                b.get("url", ""),
+                b.get("title", ""),
+                b.get("domain", ""),
+                b.get("created_at", ""),
+                b.get("read_status", False),
+                b.get("reading_time", ""),
+            ]
+            if backup_request.include_ai_summaries:
+                ai = b.get("ai_summary", {})
+                row.append(ai.get("one_sentence", ""))
+                row.append(", ".join(ai.get("suggested_tags", [])))
+            if backup_request.include_notes:
+                notes = b.get("notes", [])
+                row.append(" | ".join([n.get("content", "") for n in notes]))
+            writer.writerow(row)
+        
+        return Response(
+            content=output.getvalue(),
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": f'attachment; filename="arivu_backup_{timestamp}.csv"'
+            }
+        )
+
+    else:  # HTML format (default)
+        html_parts = [
+            "<!DOCTYPE NETSCAPE-Bookmark-file-1>",
+            '<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">',
+            "<TITLE>Arivu Bookmarks Backup</TITLE>",
+            "<H1>Arivu Bookmarks Backup</H1>",
+            f"<!-- Exported: {datetime.now(timezone.utc).isoformat()} -->",
+            f"<!-- Total: {len(bookmarks)} bookmarks -->",
+            "<DL><p>",
+        ]
+
+        for bookmark in bookmarks:
+            add_date = int(datetime.fromisoformat(bookmark["created_at"]).timestamp())
+            title = bookmark.get("title", bookmark.get("url", "Untitled"))
+            url = bookmark.get("url", "")
+            tags = ""
+            if backup_request.include_ai_summaries:
+                ai = bookmark.get("ai_summary", {})
+                tag_list = ai.get("suggested_tags", [])
+                if tag_list:
+                    tags = f' TAGS="{",".join(tag_list)}"'
+            html_parts.append(f'    <DT><A HREF="{url}" ADD_DATE="{add_date}"{tags}>{title}</A>')
+
+        html_parts.append("</DL><p>")
+
+        return Response(
+            content="\n".join(html_parts),
+            media_type="text/html",
+            headers={
+                "Content-Disposition": f'attachment; filename="arivu_backup_{timestamp}.html"'
+            }
+        )
 
 
 # ============================================

@@ -39,7 +39,8 @@ grpcio==1.67.1
 grpcio-status==1.67.1
 h11==0.16.0
 hf-xet==1.2.0
-html2text==2025.4.15
+html2text>=2024.2.26
+resend>=2.0.015
 httpcore==1.0.9
 httplib2==0.31.0
 httpx==0.28.1
