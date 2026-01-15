@@ -1,15 +1,15 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import axiosInstance from '../utils/axiosConfig';
 import { Button } from '../components/ui/button';
 import {
-  BarChart3, BookOpen, Clock, TrendingUp, ArrowLeft,
+  BarChart3, BookOpen, Clock, TrendingUp,
   BookmarkPlus, CheckCircle2, AlertCircle, Info, RefreshCw
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { StaggerContainer, StaggerItem } from '../components/motion/PageOrchestrator';
+import AppLayout from '../components/AppLayout';
 
-const AnalyticsPage = () => {
-  const navigate = useNavigate();
+const AnalyticsPage = ({ onLogout }) => {
   const [loading, setLoading] = useState(true);
   const [days, setDays] = useState(30);
   const [data, setData] = useState(null);
@@ -31,11 +31,11 @@ const AnalyticsPage = () => {
     fetchAnalytics();
   }, [days]);
 
-  const StatCard = ({ icon: Icon, label, value, sublabel, color = 'primary' }) => (
-    <div className="bg-card border-2 border-foreground p-4 shadow-brutal">
-      <div className="flex items-center gap-3 mb-2">
-        <div className={`p-2 border-2 border-foreground bg-${color}/10`}>
-          <Icon className={`w-5 h-5 text-${color}`} />
+  const StatCard = ({ icon: Icon, label, value, sublabel }) => (
+    <div className="bg-card border-2 border-foreground p-5 shadow-brutal">
+      <div className="flex items-center gap-3 mb-3">
+        <div className="p-2 border-2 border-foreground bg-primary/10">
+          <Icon className="w-5 h-5 text-primary" />
         </div>
         <span className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
           {label}
@@ -43,7 +43,7 @@ const AnalyticsPage = () => {
       </div>
       <div className="font-display text-3xl font-bold">{value}</div>
       {sublabel && (
-        <div className="text-xs text-muted-foreground mt-1 font-mono uppercase">
+        <div className="text-xs text-muted-foreground mt-1 font-mono uppercase tracking-wider">
           {sublabel}
         </div>
       )}
@@ -53,16 +53,16 @@ const AnalyticsPage = () => {
   const TopicBar = ({ topic, count, maxCount, readingTime }) => {
     const width = maxCount > 0 ? (count / maxCount) * 100 : 0;
     return (
-      <div className="mb-3">
-        <div className="flex justify-between items-center mb-1">
-          <span className="font-mono text-sm uppercase truncate max-w-[200px]">
+      <div className="py-3 border-b border-foreground/10 last:border-b-0">
+        <div className="flex justify-between items-center mb-2">
+          <span className="font-mono text-sm uppercase tracking-wider truncate max-w-[200px]">
             {topic}
           </span>
-          <span className="text-xs text-muted-foreground font-mono">
+          <span className="text-xs text-muted-foreground font-mono uppercase tracking-wider">
             {count} articles • {readingTime} min
           </span>
         </div>
-        <div className="h-3 bg-muted border border-foreground/20">
+        <div className="h-2 bg-muted border border-foreground/20">
           <div
             className="h-full bg-primary transition-all duration-500"
             style={{ width: `${width}%` }}
@@ -79,17 +79,23 @@ const AnalyticsPage = () => {
       info: Info
     };
     const colors = {
-      success: 'text-green-600 bg-green-50 border-green-600',
-      warning: 'text-amber-600 bg-amber-50 border-amber-600',
-      info: 'text-blue-600 bg-blue-50 border-blue-600'
+      success: 'border-green-600 bg-green-50',
+      warning: 'border-amber-600 bg-amber-50',
+      info: 'border-accent bg-accent/10'
+    };
+    const iconColors = {
+      success: 'text-green-600',
+      warning: 'text-amber-600',
+      info: 'text-accent'
     };
     const Icon = icons[insight.severity] || Info;
     const colorClass = colors[insight.severity] || colors.info;
+    const iconColor = iconColors[insight.severity] || iconColors.info;
 
     return (
       <div className={`p-4 border-2 ${colorClass}`}>
         <div className="flex items-start gap-3">
-          <Icon className="w-5 h-5 flex-shrink-0 mt-0.5" />
+          <Icon className={`w-5 h-5 flex-shrink-0 mt-0.5 ${iconColor}`} />
           <p className="text-sm font-mono">{insight.message}</p>
         </div>
       </div>
@@ -97,72 +103,66 @@ const AnalyticsPage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="sticky top-0 z-40 bg-card border-b-2 border-foreground">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
+    <AppLayout
+      onLogout={onLogout}
+      showSearch={false}
+      headerRight={
+        <div className="flex items-center gap-2">
+          {/* Time Period Selector */}
+          <div className="flex gap-1 p-1 bg-background border-2 border-foreground">
+            {[7, 30, 90].map((d) => (
               <Button
-                variant="ghost"
+                key={d}
+                variant={days === d ? 'default' : 'ghost'}
                 size="sm"
-                onClick={() => navigate('/dashboard')}
-                className="rounded-none border-2 border-transparent hover:border-foreground"
+                className={`h-8 px-3 rounded-none font-mono text-xs uppercase ${days === d ? 'bg-foreground text-background' : 'hover:bg-muted'
+                  }`}
+                onClick={() => setDays(d)}
               >
-                <ArrowLeft className="w-4 h-4 mr-2" />
-                BACK
+                {d}D
               </Button>
-              <div className="flex items-center justify-center w-10 h-10 border-2 border-foreground bg-primary text-primary-foreground shadow-brutal">
-                <BarChart3 className="w-5 h-5" />
-              </div>
-              <h1 className="font-display text-2xl font-bold tracking-wide uppercase">
-                Learning Analytics
-              </h1>
-            </div>
-            <div className="flex items-center gap-2">
-              {/* Time Period Selector */}
-              <div className="flex gap-1 p-1 bg-background border-2 border-foreground">
-                {[7, 30, 90].map((d) => (
-                  <Button
-                    key={d}
-                    variant={days === d ? 'default' : 'ghost'}
-                    size="sm"
-                    className={`h-8 px-3 rounded-none font-mono text-xs ${days === d ? 'bg-foreground text-background' : 'hover:bg-muted'
-                      }`}
-                    onClick={() => setDays(d)}
-                  >
-                    {d}D
-                  </Button>
-                ))}
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={fetchAnalytics}
-                disabled={loading}
-                className="rounded-none border-2 border-transparent hover:border-foreground"
-              >
-                <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-              </Button>
-            </div>
+            ))}
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={fetchAnalytics}
+            disabled={loading}
+            className="rounded-none border-2 border-transparent hover:border-foreground"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          </Button>
+        </div>
+      }
+    >
+      <div className="px-6 py-6">
+        {/* Page Header */}
+        <div className="flex items-center gap-3 mb-6">
+          <div className="flex items-center justify-center w-10 h-10 border-2 border-foreground bg-primary text-primary-foreground">
+            <BarChart3 className="w-5 h-5" />
+          </div>
+          <div>
+            <h2 className="font-heading text-xl font-bold uppercase tracking-wide">Learning Analytics</h2>
+            <p className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
+              Track your reading progress and patterns
+            </p>
           </div>
         </div>
-      </header>
 
-      {/* Main Content */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {loading ? (
           <div className="flex items-center justify-center py-20">
             <div className="animate-spin h-12 w-12 border-4 border-muted border-t-primary"></div>
           </div>
         ) : data ? (
-          <div className="space-y-8">
+          <StaggerContainer className="space-y-6">
             {/* Stats Grid */}
-            <section>
-              <h2 className="font-heading font-bold uppercase tracking-wide mb-4 flex items-center gap-2">
-                <TrendingUp className="w-5 h-5" />
-                Reading Stats ({days} days)
-              </h2>
+            <StaggerItem>
+              <div className="mb-2">
+                <h3 className="font-heading font-bold uppercase tracking-wide flex items-center gap-2">
+                  <TrendingUp className="w-5 h-5" />
+                  Reading Stats ({days} days)
+                </h3>
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <StatCard
                   icon={BookmarkPlus}
@@ -180,7 +180,6 @@ const AnalyticsPage = () => {
                   icon={CheckCircle2}
                   label="Completion Rate"
                   value={`${data.stats?.completion_rate || 0}%`}
-                  color={data.stats?.completion_rate >= 50 ? 'green' : 'amber'}
                 />
                 <StatCard
                   icon={Clock}
@@ -189,17 +188,19 @@ const AnalyticsPage = () => {
                   sublabel={`~${data.stats?.avg_reading_time_per_article || 0} min/article`}
                 />
               </div>
-            </section>
+            </StaggerItem>
 
             {/* Topics Section */}
             {data.topics && data.topics.length > 0 && (
-              <section>
-                <h2 className="font-heading font-bold uppercase tracking-wide mb-4 flex items-center gap-2">
-                  <BarChart3 className="w-5 h-5" />
-                  Top Topics
-                </h2>
-                <div className="bg-card border-2 border-foreground p-6">
-                  {data.topics.slice(0, 10).map((topic, index) => (
+              <StaggerItem>
+                <div className="mb-2">
+                  <h3 className="font-heading font-bold uppercase tracking-wide flex items-center gap-2">
+                    <BarChart3 className="w-5 h-5" />
+                    Top Topics
+                  </h3>
+                </div>
+                <div className="bg-card border-2 border-foreground p-6 shadow-brutal">
+                  {data.topics.slice(0, 10).map((topic) => (
                     <TopicBar
                       key={topic.topic}
                       topic={topic.topic}
@@ -209,89 +210,95 @@ const AnalyticsPage = () => {
                     />
                   ))}
                 </div>
-              </section>
+              </StaggerItem>
             )}
 
             {/* Reading Patterns */}
             {data.patterns && data.patterns.total_sessions > 0 && (
-              <section>
-                <h2 className="font-heading font-bold uppercase tracking-wide mb-4 flex items-center gap-2">
-                  <Clock className="w-5 h-5" />
-                  Reading Patterns
-                </h2>
+              <StaggerItem>
+                <div className="mb-2">
+                  <h3 className="font-heading font-bold uppercase tracking-wide flex items-center gap-2">
+                    <Clock className="w-5 h-5" />
+                    Reading Patterns
+                  </h3>
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="bg-card border-2 border-foreground p-4">
-                    <div className="font-mono text-xs uppercase text-muted-foreground mb-1">
+                  <div className="bg-card border-2 border-foreground p-5 shadow-brutal">
+                    <div className="font-mono text-xs uppercase tracking-wider text-muted-foreground mb-2">
                       Peak Reading Time
                     </div>
                     <div className="font-display text-2xl font-bold">
                       {data.patterns.peak_hour_label || '--:--'}
                     </div>
-                    <div className="text-xs text-muted-foreground mt-1 font-mono">
+                    <div className="text-xs text-muted-foreground mt-1 font-mono uppercase tracking-wider">
                       {data.patterns.peak_hour_count} sessions
                     </div>
                   </div>
-                  <div className="bg-card border-2 border-foreground p-4">
-                    <div className="font-mono text-xs uppercase text-muted-foreground mb-1">
+                  <div className="bg-card border-2 border-foreground p-5 shadow-brutal">
+                    <div className="font-mono text-xs uppercase tracking-wider text-muted-foreground mb-2">
                       Weekday Reading
                     </div>
                     <div className="font-display text-2xl font-bold">
                       {data.patterns.weekday_percent || 0}%
                     </div>
-                    <div className="text-xs text-muted-foreground mt-1 font-mono">
+                    <div className="text-xs text-muted-foreground mt-1 font-mono uppercase tracking-wider">
                       vs {data.patterns.weekend_percent || 0}% weekends
                     </div>
                   </div>
-                  <div className="bg-card border-2 border-foreground p-4">
-                    <div className="font-mono text-xs uppercase text-muted-foreground mb-1">
+                  <div className="bg-card border-2 border-foreground p-5 shadow-brutal">
+                    <div className="font-mono text-xs uppercase tracking-wider text-muted-foreground mb-2">
                       Total Sessions
                     </div>
                     <div className="font-display text-2xl font-bold">
                       {data.patterns.total_sessions || 0}
                     </div>
-                    <div className="text-xs text-muted-foreground mt-1 font-mono">
+                    <div className="text-xs text-muted-foreground mt-1 font-mono uppercase tracking-wider">
                       reading sessions tracked
                     </div>
                   </div>
                 </div>
-              </section>
+              </StaggerItem>
             )}
 
             {/* Insights */}
             {data.insights && data.insights.length > 0 && (
-              <section>
-                <h2 className="font-heading font-bold uppercase tracking-wide mb-4 flex items-center gap-2">
-                  <Info className="w-5 h-5" />
-                  Insights
-                </h2>
+              <StaggerItem>
+                <div className="mb-2">
+                  <h3 className="font-heading font-bold uppercase tracking-wide flex items-center gap-2">
+                    <Info className="w-5 h-5" />
+                    Insights
+                  </h3>
+                </div>
                 <div className="space-y-3">
                   {data.insights.map((insight, index) => (
                     <InsightCard key={index} insight={insight} />
                   ))}
                 </div>
-              </section>
+              </StaggerItem>
             )}
 
             {/* Empty State */}
             {(!data.topics || data.topics.length === 0) &&
               (!data.insights || data.insights.length === 0) &&
               data.stats?.total_bookmarks === 0 && (
-                <div className="text-center py-12 border-2 border-dashed border-muted-foreground/20">
-                  <BarChart3 className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-                  <h3 className="font-heading text-xl mb-2">No analytics yet</h3>
-                  <p className="text-muted-foreground font-mono text-sm">
-                    Start saving and reading bookmarks to see your learning analytics
-                  </p>
-                </div>
+                <StaggerItem>
+                  <div className="text-center py-12 border-2 border-dashed border-muted-foreground/20">
+                    <BarChart3 className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
+                    <h3 className="font-heading text-xl mb-2 uppercase">No analytics yet</h3>
+                    <p className="text-muted-foreground font-mono text-sm">
+                      Start saving and reading bookmarks to see your learning analytics
+                    </p>
+                  </div>
+                </StaggerItem>
               )}
-          </div>
+          </StaggerContainer>
         ) : (
           <div className="text-center py-12">
-            <p className="text-muted-foreground">Failed to load analytics</p>
+            <p className="text-muted-foreground font-mono">Failed to load analytics</p>
           </div>
         )}
       </div>
-    </div>
+    </AppLayout>
   );
 };
 

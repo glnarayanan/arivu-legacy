@@ -2,10 +2,12 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axiosInstance from '../utils/axiosConfig';
 import { Button } from '../components/ui/button';
+import { Input } from '../components/ui/input';
 import { toast } from 'sonner';
-import { ArrowLeftIcon, NetworkIcon, SearchIcon, SparklesIcon } from 'lucide-react';
+import { Network, SearchIcon, SparklesIcon } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { HardReveal, StaggerContainer, StaggerItem } from '../components/motion/PageOrchestrator';
+import { StaggerContainer, StaggerItem } from '../components/motion/PageOrchestrator';
+import AppLayout from '../components/AppLayout';
 
 const KnowledgeGraphPage = ({ onLogout }) => {
   const navigate = useNavigate();
@@ -60,81 +62,69 @@ const KnowledgeGraphPage = ({ onLogout }) => {
     return graphData.bookmarks.filter(b => bookmarkIds.includes(b.id));
   };
 
-  const filterBookmarksByEntity = (entity) => {
-    if (!graphData) return [];
-    const bookmarkIds = graphData.entity_connections[entity] || [];
-    return graphData.bookmarks.filter(b => bookmarkIds.includes(b.id));
-  };
+  const topConcepts = graphData
+    ? Object.entries(graphData.concept_connections || {})
+      .sort((a, b) => b[1].length - a[1].length)
+      .slice(0, 20)
+    : [];
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-background">
-        <div className="animate-spin h-12 w-12 border-4 border-muted border-t-primary"></div>
-      </div>
-    );
-  }
-
-  if (!graphData) return null;
-
-  const topConcepts = Object.entries(graphData.concept_connections || {})
-    .sort((a, b) => b[1].length - a[1].length)
-    .slice(0, 20);
-
-  const topEntities = Object.entries(graphData.entity_connections || {})
-    .sort((a, b) => b[1].length - a[1].length)
-    .slice(0, 20);
+  const topEntities = graphData
+    ? Object.entries(graphData.entity_connections || {})
+      .sort((a, b) => b[1].length - a[1].length)
+      .slice(0, 20)
+    : [];
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="sticky top-0 z-40 bg-card border-b-2 border-foreground">
-        <HardReveal direction="down">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => navigate('/dashboard')}
-                >
-                  <ArrowLeftIcon className="w-4 h-4 mr-2" />
-                  BACK
-                </Button>
-                <div className="h-6 w-px bg-foreground" />
-                <div className="flex items-center gap-2">
-                  <NetworkIcon className="w-5 h-5" />
-                  <h1 className="font-display text-xl uppercase tracking-wide">Knowledge Graph</h1>
-                </div>
-              </div>
-              <div className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
-                {graphData.total_bookmarks} Bookmarks • {graphData.total_concepts} Concepts
-              </div>
+    <AppLayout onLogout={onLogout} showSearch={false}>
+      <div className="px-6 py-6">
+        {/* Page Header */}
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center justify-center w-10 h-10 border-2 border-foreground bg-primary text-primary-foreground">
+              <Network className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="font-heading text-xl font-bold uppercase tracking-wide">Knowledge Graph</h2>
+              {graphData && (
+                <p className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
+                  {graphData.total_bookmarks} Bookmarks • {graphData.total_concepts} Concepts
+                </p>
+              )}
             </div>
           </div>
-        </HardReveal>
-      </header>
+        </div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <StaggerContainer>
-          {/* Semantic Search */}
-          <StaggerItem>
-            <div className="mb-8">
-              <div className="border-2 border-accent bg-accent/10 p-6">
+        {loading ? (
+          <div className="flex items-center justify-center py-20">
+            <div className="animate-spin h-12 w-12 border-4 border-muted border-t-primary"></div>
+          </div>
+        ) : !graphData ? (
+          <div className="text-center py-20 border-2 border-dashed border-muted-foreground/20">
+            <Network className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
+            <h3 className="font-heading text-xl mb-2 uppercase">No data available</h3>
+            <p className="text-muted-foreground font-mono text-sm">Start saving bookmarks to build your knowledge graph</p>
+          </div>
+        ) : (
+          <StaggerContainer className="space-y-6">
+            {/* Semantic Search */}
+            <StaggerItem>
+              <div className="border-2 border-accent bg-accent/5 p-6">
                 <div className="flex items-center gap-2 mb-4">
                   <SparklesIcon className="w-5 h-5 text-accent" />
-                  <h2 className="font-display text-xl uppercase tracking-wide">Semantic Search</h2>
+                  <h3 className="font-heading font-bold uppercase tracking-wide">Semantic Search</h3>
                 </div>
                 <form onSubmit={handleSearch} className="flex gap-3">
-                  <input
+                  <Input
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="SEARCH BY MEANING, NOT JUST KEYWORDS..."
-                    className="flex-1 h-12 bg-background border-2 border-foreground px-4 py-3 font-mono text-sm placeholder:uppercase placeholder:tracking-wider focus:shadow-brutal-sm focus:outline-none"
+                    className="flex-1 h-12 rounded-none border-2 border-foreground font-mono text-sm placeholder:uppercase placeholder:tracking-wider"
                   />
                   <Button
                     type="submit"
                     disabled={searching}
-                    className="h-12 px-6 font-mono uppercase tracking-wider"
+                    className="h-12 px-6 rounded-none border-2 border-foreground bg-foreground text-background font-mono uppercase tracking-wider hover:bg-foreground/90"
                   >
                     <SearchIcon className="w-4 h-4 mr-2" />
                     {searching ? 'Searching...' : 'Search'}
@@ -143,28 +133,28 @@ const KnowledgeGraphPage = ({ onLogout }) => {
 
                 {searchResults.length > 0 && (
                   <div className="mt-6 space-y-3">
-                    <h3 className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
+                    <h4 className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
                       Search Results ({searchResults.length})
-                    </h3>
+                    </h4>
                     {searchResults.map((result) => (
                       <motion.div
                         key={result.id}
                         initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
-                        className="border-2 border-foreground bg-background p-4 shadow-brutal-sm hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-all duration-150 cursor-pointer"
+                        className="border-2 border-foreground bg-card p-4 shadow-brutal-sm hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-all cursor-pointer"
                         onClick={() => navigate(`/bookmark/${result.id}`)}
                       >
                         <div className="flex items-start justify-between gap-4">
-                          <div className="flex-1">
-                            <h4 className="font-semibold mb-1">{result.title || 'Untitled'}</h4>
+                          <div className="flex-1 min-w-0">
+                            <h5 className="font-heading font-bold text-sm line-clamp-1">{result.title || 'Untitled'}</h5>
                             {result.description && (
-                              <p className="text-sm text-muted-foreground line-clamp-2">{result.description}</p>
+                              <p className="text-sm text-muted-foreground line-clamp-2 mt-1">{result.description}</p>
                             )}
-                            <div className="flex items-center gap-2 mt-2 font-mono text-xs uppercase tracking-wider text-muted-foreground">
-                              <span>{result.domain}</span>
+                            <div className="font-mono text-xs uppercase tracking-wider text-muted-foreground mt-2">
+                              {result.domain}
                             </div>
                           </div>
-                          <div className="font-mono text-xs text-accent border border-accent px-2 py-1 bg-accent/10">
+                          <div className="font-mono text-xs text-accent border-2 border-accent px-2 py-1 bg-accent/10 flex-shrink-0">
                             {Math.round(result.similarity_score * 100)}%
                           </div>
                         </div>
@@ -173,57 +163,52 @@ const KnowledgeGraphPage = ({ onLogout }) => {
                   </div>
                 )}
               </div>
-            </div>
-          </StaggerItem>
+            </StaggerItem>
 
-          {/* Statistics */}
-          <StaggerItem>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-              <div className="border-2 border-foreground bg-card p-6 shadow-brutal">
-                <div className="font-mono text-xs uppercase tracking-wider text-muted-foreground mb-2">
-                  Total Bookmarks
-                </div>
-                <div className="font-display text-4xl uppercase tracking-wide">{graphData.total_bookmarks}</div>
-              </div>
-              <div className="border-2 border-foreground bg-card p-6 shadow-brutal">
-                <div className="font-mono text-xs uppercase tracking-wider text-muted-foreground mb-2">
-                  Unique Concepts
-                </div>
-                <div className="font-display text-4xl uppercase tracking-wide">{graphData.total_concepts}</div>
-              </div>
-              <div className="border-2 border-foreground bg-card p-6 shadow-brutal">
-                <div className="font-mono text-xs uppercase tracking-wider text-muted-foreground mb-2">
-                  Named Entities
-                </div>
-                <div className="font-display text-4xl uppercase tracking-wide">{graphData.total_entities}</div>
-              </div>
-            </div>
-          </StaggerItem>
-
-          {/* Top Concepts */}
-          {topConcepts.length > 0 && (
+            {/* Statistics */}
             <StaggerItem>
-              <div className="mb-8">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="border-2 border-foreground bg-card p-6 shadow-brutal">
-                  <h2 className="font-display text-xl uppercase tracking-wide mb-6 pb-4 border-b-2 border-foreground">
+                  <div className="font-mono text-xs uppercase tracking-wider text-muted-foreground mb-2">
+                    Total Bookmarks
+                  </div>
+                  <div className="font-display text-4xl font-bold">{graphData.total_bookmarks}</div>
+                </div>
+                <div className="border-2 border-foreground bg-card p-6 shadow-brutal">
+                  <div className="font-mono text-xs uppercase tracking-wider text-muted-foreground mb-2">
+                    Unique Concepts
+                  </div>
+                  <div className="font-display text-4xl font-bold">{graphData.total_concepts}</div>
+                </div>
+                <div className="border-2 border-foreground bg-card p-6 shadow-brutal">
+                  <div className="font-mono text-xs uppercase tracking-wider text-muted-foreground mb-2">
+                    Named Entities
+                  </div>
+                  <div className="font-display text-4xl font-bold">{graphData.total_entities}</div>
+                </div>
+              </div>
+            </StaggerItem>
+
+            {/* Top Concepts */}
+            {topConcepts.length > 0 && (
+              <StaggerItem>
+                <div className="border-2 border-foreground bg-card p-6 shadow-brutal">
+                  <h3 className="font-heading font-bold uppercase tracking-wide mb-4 pb-4 border-b-2 border-foreground">
                     Top Concepts
-                  </h2>
-                  <div className="flex flex-wrap gap-3">
+                  </h3>
+                  <div className="flex flex-wrap gap-2">
                     {topConcepts.map(([concept, bookmarkIds]) => (
-                      <motion.button
+                      <button
                         key={concept}
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
                         onClick={() => setSelectedConcept(selectedConcept === concept ? null : concept)}
-                        className={`px-4 py-2 border-2 font-mono text-sm uppercase tracking-wider transition-all duration-150 ${
-                          selectedConcept === concept
-                            ? 'bg-primary text-primary-foreground border-primary shadow-brutal-sm'
-                            : 'bg-muted text-foreground border-foreground hover:bg-foreground hover:text-background'
-                        }`}
+                        className={`px-3 py-1.5 border-2 font-mono text-xs uppercase tracking-wider transition-all ${selectedConcept === concept
+                          ? 'bg-primary text-primary-foreground border-primary shadow-brutal-sm'
+                          : 'bg-muted text-foreground border-foreground hover:bg-foreground hover:text-background'
+                          }`}
                       >
                         {concept}
-                        <span className="ml-2 text-xs opacity-70">({bookmarkIds.length})</span>
-                      </motion.button>
+                        <span className="ml-2 opacity-70">({bookmarkIds.length})</span>
+                      </button>
                     ))}
                   </div>
 
@@ -233,101 +218,98 @@ const KnowledgeGraphPage = ({ onLogout }) => {
                       animate={{ opacity: 1, height: 'auto' }}
                       className="mt-6 pt-6 border-t-2 border-foreground space-y-3"
                     >
-                      <h3 className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
+                      <h4 className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
                         Bookmarks with "{selectedConcept}" ({filterBookmarksByConcept(selectedConcept).length})
-                      </h3>
+                      </h4>
                       {filterBookmarksByConcept(selectedConcept).map((bookmark) => (
                         <div
                           key={bookmark.id}
                           onClick={() => navigate(`/bookmark/${bookmark.id}`)}
-                          className="border-2 border-foreground bg-background p-4 shadow-brutal-sm hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-all duration-150 cursor-pointer"
+                          className="border-2 border-foreground bg-background p-4 shadow-brutal-sm hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-all cursor-pointer"
                         >
-                          <h4 className="font-semibold mb-1">{bookmark.title || 'Untitled'}</h4>
+                          <h5 className="font-heading font-bold text-sm line-clamp-1">{bookmark.title || 'Untitled'}</h5>
                           {bookmark.description && (
-                            <p className="text-sm text-muted-foreground line-clamp-2">{bookmark.description}</p>
+                            <p className="text-sm text-muted-foreground line-clamp-2 mt-1">{bookmark.description}</p>
                           )}
-                          <div className="flex items-center gap-2 mt-2 font-mono text-xs uppercase tracking-wider text-muted-foreground">
-                            <span>{bookmark.domain}</span>
+                          <div className="font-mono text-xs uppercase tracking-wider text-muted-foreground mt-2">
+                            {bookmark.domain}
                           </div>
                         </div>
                       ))}
                     </motion.div>
                   )}
                 </div>
-              </div>
-            </StaggerItem>
-          )}
+              </StaggerItem>
+            )}
 
-          {/* Top Entities */}
-          {topEntities.length > 0 && (
-            <StaggerItem>
-              <div className="mb-8">
+            {/* Named Entities */}
+            {topEntities.length > 0 && (
+              <StaggerItem>
                 <div className="border-2 border-foreground bg-card p-6 shadow-brutal">
-                  <h2 className="font-display text-xl uppercase tracking-wide mb-6 pb-4 border-b-2 border-foreground">
+                  <h3 className="font-heading font-bold uppercase tracking-wide mb-4 pb-4 border-b-2 border-foreground">
                     Named Entities
-                  </h2>
+                  </h3>
                   <div className="flex flex-wrap gap-2">
                     {topEntities.map(([entity, bookmarkIds]) => (
                       <div
                         key={entity}
-                        className="px-3 py-1 border border-foreground bg-muted font-mono text-xs uppercase tracking-wider"
+                        className="px-3 py-1 border-2 border-foreground bg-muted font-mono text-xs uppercase tracking-wider"
                       >
                         {entity}
-                        <span className="ml-1 text-[10px] opacity-70">({bookmarkIds.length})</span>
+                        <span className="ml-1 opacity-70">({bookmarkIds.length})</span>
                       </div>
                     ))}
                   </div>
                 </div>
+              </StaggerItem>
+            )}
+
+            {/* All Bookmarks in Graph */}
+            <StaggerItem>
+              <div className="border-2 border-foreground bg-card p-6 shadow-brutal">
+                <h3 className="font-heading font-bold uppercase tracking-wide mb-4 pb-4 border-b-2 border-foreground">
+                  All Bookmarks in Graph
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {graphData.bookmarks.map((bookmark) => (
+                    <div
+                      key={bookmark.id}
+                      onClick={() => navigate(`/bookmark/${bookmark.id}`)}
+                      className="border-2 border-foreground bg-background p-4 shadow-brutal-sm hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-all cursor-pointer"
+                    >
+                      <div className="flex items-center gap-2 mb-2">
+                        {bookmark.favicon && (
+                          <img
+                            src={bookmark.favicon}
+                            alt=""
+                            className="w-4 h-4 border border-foreground"
+                            onError={(e) => (e.target.style.display = 'none')}
+                          />
+                        )}
+                        <h4 className="font-heading font-bold text-sm truncate">{bookmark.title || 'Untitled'}</h4>
+                      </div>
+                      {bookmark.description && (
+                        <p className="text-xs text-muted-foreground line-clamp-2 mb-2">{bookmark.description}</p>
+                      )}
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        {bookmark.concepts && bookmark.concepts.slice(0, 3).map((concept, idx) => (
+                          <span
+                            key={idx}
+                            className="px-2 py-0.5 border border-foreground bg-muted font-mono text-[10px] uppercase tracking-wider"
+                          >
+                            {concept}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </StaggerItem>
-          )}
-
-          {/* All Bookmarks */}
-          <StaggerItem>
-            <div className="border-2 border-foreground bg-card p-6 shadow-brutal">
-              <h2 className="font-display text-xl uppercase tracking-wide mb-6 pb-4 border-b-2 border-foreground">
-                All Bookmarks in Graph
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {graphData.bookmarks.map((bookmark) => (
-                  <motion.div
-                    key={bookmark.id}
-                    whileHover={{ scale: 1.02 }}
-                    onClick={() => navigate(`/bookmark/${bookmark.id}`)}
-                    className="border-2 border-foreground bg-background p-4 shadow-brutal-sm hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-all duration-150 cursor-pointer"
-                  >
-                    <div className="flex items-center gap-2 mb-2">
-                      {bookmark.favicon && (
-                        <img
-                          src={bookmark.favicon}
-                          alt=""
-                          className="w-4 h-4 border border-foreground"
-                          onError={(e) => (e.target.style.display = 'none')}
-                        />
-                      )}
-                      <h3 className="font-semibold text-sm truncate">{bookmark.title || 'Untitled'}</h3>
-                    </div>
-                    {bookmark.description && (
-                      <p className="text-xs text-muted-foreground line-clamp-2 mb-2">{bookmark.description}</p>
-                    )}
-                    <div className="flex flex-wrap gap-1 mt-2">
-                      {bookmark.concepts && bookmark.concepts.slice(0, 3).map((concept, idx) => (
-                        <span
-                          key={idx}
-                          className="px-2 py-0.5 border border-foreground bg-muted font-mono text-[10px] uppercase tracking-wider"
-                        >
-                          {concept}
-                        </span>
-                      ))}
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
-            </div>
-          </StaggerItem>
-        </StaggerContainer>
+          </StaggerContainer>
+        )}
       </div>
-    </div>
+    </AppLayout>
   );
 };
 
