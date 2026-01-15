@@ -39,6 +39,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from collections import deque
 import time
+import random
 from resurfacing import (
     calculate_resurfacing_score,
     get_resurfacing_reason,
@@ -457,6 +458,21 @@ class Bookmark(BaseModel):
     embedding_model: Optional[str] = None
     entities: Optional[List[str]] = []  # Named entities extracted from content
     concepts: Optional[List[str]] = []  # Key concepts/topics
+
+
+class QuickConnection(BaseModel):
+    id: str
+    title: Optional[str] = None
+    domain: Optional[str] = None
+    favicon: Optional[str] = None
+    connection_type: str
+    connection_reason: str
+
+
+class BookmarkWithConnections(BaseModel):
+    bookmark: Bookmark
+    connections: List[QuickConnection] = []
+    connections_count: int = 0
 
 
 class AISummary(BaseModel):
@@ -1609,7 +1625,83 @@ async def process_bulk_import(
         )
 
 
-@api_router.post("/bookmarks", response_model=Bookmark)
+async def find_quick_connections(
+    bookmark_id: str,
+    url: str,
+    domain: str,
+    title: str,
+    user_id: str,
+    limit: int = 5
+) -> List[QuickConnection]:
+    """
+    Find related bookmarks quickly (before embeddings are generated).
+    
+    Strategy (fast, no embedding needed):
+    1. Domain match: Other bookmarks from same domain
+    """
+    connections = []
+    
+    if not domain:
+        return connections
+    
+    domain_matches = await db.bookmarks.find(
+        {
+            "user_id": user_id,
+            "domain": domain,
+            "id": {"$ne": bookmark_id},
+        },
+        {
+            "_id": 0, "id": 1, "title": 1, "domain": 1, "favicon": 1
+        }
+    ).sort("created_at", -1).limit(limit).to_list(None)
+    
+    for bm in domain_matches:
+        connections.append(QuickConnection(
+            id=bm["id"],
+            title=bm.get("title"),
+            domain=bm.get("domain"),
+            favicon=bm.get("favicon"),
+            connection_type="same_domain",
+            connection_reason=f"Also from {domain}"
+        ))
+    
+    return connections[:limit]
+
+
+@api_router.get("/bookmarks/{bookmark_id}/related")
+async def get_related_bookmarks(
+    bookmark_id: str,
+    limit: int = 5,
+    current_user: dict = Depends(get_current_user_info),
+):
+    bookmark = await db.bookmarks.find_one(
+        {"id": bookmark_id, "user_id": current_user["id"]},
+        {"_id": 0, "id": 1, "url": 1, "domain": 1, "title": 1}
+    )
+    if not bookmark:
+        raise HTTPException(status_code=404, detail="Bookmark not found")
+
+    ai_summary = await db.ai_summaries.find_one(
+        {"bookmark_id": bookmark_id},
+        {"_id": 0, "processing_status": 1}
+    )
+
+    related = await find_quick_connections(
+        bookmark_id=bookmark["id"],
+        url=bookmark.get("url", ""),
+        domain=bookmark.get("domain", ""),
+        title=bookmark.get("title", ""),
+        user_id=current_user["id"],
+        limit=limit
+    )
+
+    return {
+        "related": related,
+        "processing_status": ai_summary.get("processing_status") if ai_summary else None
+    }
+
+
+@api_router.post("/bookmarks", response_model=BookmarkWithConnections)
 @limiter.limit("20/minute")  # IP-based rate limiting
 @limiter.limit("100/hour", key_func=get_user_identifier)  # User-based rate limiting
 async def create_bookmark(
@@ -1661,7 +1753,20 @@ async def create_bookmark(
             {"$addToSet": {"bookmark_ids": bookmark["id"]}},
         )
 
-    return Bookmark(**bookmark)
+    connections = await find_quick_connections(
+        bookmark_id=bookmark["id"],
+        url=bookmark_data.url,
+        domain=parsed_url.netloc,
+        title=bookmark.get("title", ""),
+        user_id=current_user["id"],
+        limit=5
+    )
+
+    return BookmarkWithConnections(
+        bookmark=Bookmark(**bookmark),
+        connections=connections,
+        connections_count=len(connections)
+    )
 
 
 @api_router.get("/bookmarks", response_model=List[dict])
@@ -1989,6 +2094,269 @@ async def unarchive_from_resurfacing(
     )
 
     return {"message": "Bookmark unarchived from resurfacing"}
+
+
+# ============================================
+# Memory Jogger API (Daily Featured Bookmark)
+# ============================================
+
+
+async def get_recent_connections(
+    user_id: str, bookmark_embedding: list, days: int = 7, threshold: float = 0.6
+) -> dict:
+    """
+    Find bookmarks saved in last N days that are semantically related.
+    Returns connection count and topics.
+    """
+    import numpy as np
+
+    cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
+
+    recent_bookmarks = await db.bookmarks.find(
+        {
+            "user_id": user_id,
+            "created_at": {"$gte": cutoff_date.isoformat()},
+            "embedding": {"$exists": True, "$ne": None},
+        },
+        {"_id": 0, "id": 1, "embedding": 1, "title": 1},
+    ).to_list(100)
+
+    if not recent_bookmarks or not bookmark_embedding:
+        return {"count": 0, "topics": []}
+
+    def cosine_similarity_score(vec1, vec2):
+        vec1 = np.array(vec1)
+        vec2 = np.array(vec2)
+        norm1 = np.linalg.norm(vec1)
+        norm2 = np.linalg.norm(vec2)
+        if norm1 == 0 or norm2 == 0:
+            return 0.0
+        return float(np.dot(vec1, vec2) / (norm1 * norm2))
+
+    connected_titles = []
+    for bm in recent_bookmarks:
+        if bm.get("embedding"):
+            similarity = cosine_similarity_score(bookmark_embedding, bm["embedding"])
+            if similarity >= threshold:
+                connected_titles.append(bm.get("title", ""))
+
+    topics = []
+    for title in connected_titles[:5]:
+        words = title.split()[:3] if title else []
+        if words:
+            topics.append(" ".join(words))
+
+    return {"count": len(connected_titles), "topics": topics[:3]}
+
+
+class MemoryJoggerDismissRequest(BaseModel):
+    bookmark_id: str = Field(..., description="The bookmark ID to dismiss")
+
+
+@api_router.get("/memory-jogger")
+async def get_memory_jogger(current_user: dict = Depends(get_current_user_info)):
+    """
+    Get a single featured bookmark for today's memory jogger.
+    Uses scoring algorithm to surface forgotten but relevant bookmarks.
+    """
+    current_time = datetime.now(timezone.utc)
+    seven_days_ago = current_time - timedelta(days=7)
+    thirty_days_ago = current_time - timedelta(days=30)
+
+    query = {
+        "user_id": current_user["id"],
+        "$or": [
+            {"last_accessed": {"$lt": seven_days_ago.isoformat()}},
+            {"last_accessed": {"$exists": False}},
+        ],
+        "$and": [
+            {
+                "$or": [
+                    {"resurfacing_snoozed_until": {"$exists": False}},
+                    {"resurfacing_snoozed_until": None},
+                    {"resurfacing_snoozed_until": {"$lt": current_time.isoformat()}},
+                ]
+            },
+            {
+                "$or": [
+                    {"resurfacing_archived": {"$exists": False}},
+                    {"resurfacing_archived": False},
+                ]
+            },
+        ],
+    }
+
+    projection = {
+        "_id": 0,
+        "id": 1,
+        "title": 1,
+        "url": 1,
+        "domain": 1,
+        "favicon": 1,
+        "thumbnail": 1,
+        "description": 1,
+        "created_at": 1,
+        "last_accessed": 1,
+        "embedding": 1,
+    }
+
+    bookmarks = await db.bookmarks.find(query, projection).limit(200).to_list(None)
+
+    if not bookmarks:
+        return {
+            "bookmark": None,
+            "context": None,
+            "has_memory": False,
+            "message": "Save more bookmarks to unlock daily memories",
+        }
+
+    bookmark_ids = [b["id"] for b in bookmarks]
+    summaries = await db.ai_summaries.find(
+        {"bookmark_id": {"$in": bookmark_ids}, "processing_status": "completed"},
+        {"_id": 0, "bookmark_id": 1},
+    ).to_list(None)
+    summary_set = {s["bookmark_id"] for s in summaries}
+
+    related_counts = {}
+    for bm in bookmarks:
+        if bm.get("embedding"):
+            conn_data = await get_recent_connections(
+                current_user["id"], bm["embedding"], days=7, threshold=0.6
+            )
+            related_counts[bm["id"]] = conn_data
+
+    scored_bookmarks = []
+    for bm in bookmarks:
+        score = 0
+
+        conn_data = related_counts.get(bm["id"], {"count": 0, "topics": []})
+        if conn_data["count"] > 0:
+            score += 30
+
+        last_accessed = bm.get("last_accessed")
+        days_since_accessed = 30
+        if last_accessed:
+            try:
+                if isinstance(last_accessed, str):
+                    last_accessed_dt = datetime.fromisoformat(
+                        last_accessed.replace("Z", "+00:00")
+                    )
+                else:
+                    last_accessed_dt = last_accessed
+                if last_accessed_dt.tzinfo is None:
+                    last_accessed_dt = last_accessed_dt.replace(tzinfo=timezone.utc)
+                days_since_accessed = (current_time - last_accessed_dt).days
+            except (ValueError, TypeError):
+                days_since_accessed = 30
+
+        if days_since_accessed >= 30:
+            score += 20
+
+        if bm["id"] in summary_set:
+            score += 10
+
+        all_user_related = await db.bookmarks.find(
+            {
+                "user_id": current_user["id"],
+                "id": {"$ne": bm["id"]},
+                "embedding": {"$exists": True, "$ne": None},
+            },
+            {"_id": 0, "id": 1},
+        ).to_list(10)
+        if len(all_user_related) >= 3:
+            score += 5
+
+        score += random.randint(0, 15)
+
+        scored_bookmarks.append(
+            {
+                "bookmark": bm,
+                "score": score,
+                "days_since_accessed": days_since_accessed,
+                "conn_data": conn_data,
+            }
+        )
+
+    scored_bookmarks.sort(key=lambda x: x["score"], reverse=True)
+    top = scored_bookmarks[0]
+    selected_bookmark = top["bookmark"]
+
+    created_at = selected_bookmark.get("created_at")
+    days_since_saved = 0
+    if created_at:
+        try:
+            if isinstance(created_at, str):
+                created_at_dt = datetime.fromisoformat(
+                    created_at.replace("Z", "+00:00")
+                )
+            else:
+                created_at_dt = created_at
+            if created_at_dt.tzinfo is None:
+                created_at_dt = created_at_dt.replace(tzinfo=timezone.utc)
+            days_since_saved = (current_time - created_at_dt).days
+        except (ValueError, TypeError):
+            days_since_saved = 0
+
+    conn_data = top["conn_data"]
+    connection_count = conn_data["count"]
+    connected_topics = conn_data["topics"]
+
+    if connection_count > 0:
+        reason = f"Connects to {connection_count} bookmark{'s' if connection_count > 1 else ''} you saved this week"
+        if connected_topics:
+            reason += f" about {', '.join(connected_topics[:2])}"
+    elif top["days_since_accessed"] >= 30:
+        reason = f"You haven't visited this in {top['days_since_accessed']} days"
+    else:
+        reason = "A forgotten gem from your collection"
+
+    ai_summary = await db.ai_summaries.find_one(
+        {"bookmark_id": selected_bookmark["id"]}, {"_id": 0}
+    )
+
+    selected_bookmark.pop("embedding", None)
+
+    return {
+        "bookmark": {
+            **selected_bookmark,
+            "ai_summary": ai_summary,
+        },
+        "context": {
+            "days_since_saved": days_since_saved,
+            "days_since_accessed": top["days_since_accessed"],
+            "connection_count": connection_count,
+            "connected_topics": connected_topics,
+            "reason": reason,
+        },
+        "has_memory": True,
+    }
+
+
+@api_router.post("/memory-jogger/dismiss")
+async def dismiss_memory_jogger(
+    request: MemoryJoggerDismissRequest,
+    current_user: dict = Depends(get_current_user_info),
+):
+    """
+    Dismiss today's memory jogger. Records dismissal for analytics.
+    """
+    bookmark = await db.bookmarks.find_one(
+        {"id": request.bookmark_id, "user_id": current_user["id"]}
+    )
+    if not bookmark:
+        raise HTTPException(status_code=404, detail="Bookmark not found")
+
+    await db.bookmarks.update_one(
+        {"id": request.bookmark_id},
+        {
+            "$set": {
+                "memory_jogger_dismissed_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        },
+    )
+
+    return {"message": "Memory jogger dismissed", "bookmark_id": request.bookmark_id}
 
 
 @api_router.get("/bookmarks/{bookmark_id}")
