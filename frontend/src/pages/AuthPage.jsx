@@ -4,8 +4,9 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { toast } from 'sonner';
-import { BookmarkIcon } from 'lucide-react';
+import { BookmarkIcon, Loader2 } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
 
 const API = '/api';
 
@@ -19,6 +20,9 @@ const AuthPage = ({ onLogin }) => {
     password: '',
     name: ''
   });
+  const [forgotPasswordOpen, setForgotPasswordOpen] = useState(false);
+  const [forgotPasswordEmail, setForgotPasswordEmail] = useState('');
+  const [forgotPasswordLoading, setForgotPasswordLoading] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -45,15 +49,39 @@ const AuthPage = ({ onLogin }) => {
     }
   };
 
+  const handleForgotPassword = async (e) => {
+    e.preventDefault();
+    if (!forgotPasswordEmail) return;
+
+    setForgotPasswordLoading(true);
+
+    try {
+      await axios.post(`${API}/auth/forgot-password`, {
+        email: forgotPasswordEmail
+      });
+
+      toast.success('If an account exists with this email, you will receive a reset link.');
+      setForgotPasswordOpen(false);
+      setForgotPasswordEmail('');
+    } catch (error) {
+      // Still show success to prevent email enumeration
+      toast.success('If an account exists with this email, you will receive a reset link.');
+      setForgotPasswordOpen(false);
+      setForgotPasswordEmail('');
+    } finally {
+      setForgotPasswordLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center px-4 bg-background">
-      <motion.div 
+      <motion.div
         initial={{ opacity: 0, y: 40 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
         className="w-full max-w-md space-y-8"
       >
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ delay: 0.1, duration: 0.4 }}
@@ -70,7 +98,7 @@ const AuthPage = ({ onLogin }) => {
           </p>
         </motion.div>
 
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2, duration: 0.4 }}
@@ -134,7 +162,16 @@ const AuthPage = ({ onLogin }) => {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="password" className="font-mono text-xs uppercase tracking-wider">Password</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="password" className="font-mono text-xs uppercase tracking-wider">Password</Label>
+                <button
+                  type="button"
+                  onClick={() => setForgotPasswordOpen(true)}
+                  className="font-mono text-xs text-primary hover:underline uppercase tracking-wider"
+                >
+                  Forgot?
+                </button>
+              </div>
               <Input
                 id="password"
                 data-testid="password-input"
@@ -163,8 +200,49 @@ const AuthPage = ({ onLogin }) => {
           </div>
         </motion.div>
       </motion.div>
+
+      {/* Forgot Password Dialog */}
+      <Dialog open={forgotPasswordOpen} onOpenChange={setForgotPasswordOpen}>
+        <DialogContent className="rounded-none border-2 border-foreground shadow-brutal">
+          <DialogHeader>
+            <DialogTitle className="font-display text-xl uppercase tracking-wide">Reset Password</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleForgotPassword} className="space-y-4">
+            <p className="font-mono text-sm text-muted-foreground">
+              Enter your email address and we'll send you a link to reset your password.
+            </p>
+            <div className="space-y-2">
+              <Label htmlFor="forgot-email" className="font-mono text-xs uppercase tracking-wider">Email</Label>
+              <Input
+                id="forgot-email"
+                type="email"
+                placeholder="YOU@EXAMPLE.COM"
+                value={forgotPasswordEmail}
+                onChange={(e) => setForgotPasswordEmail(e.target.value)}
+                required
+                className="rounded-none border-2 border-foreground font-mono"
+              />
+            </div>
+            <Button
+              type="submit"
+              disabled={forgotPasswordLoading}
+              className="w-full rounded-none border-2 border-foreground bg-primary text-primary-foreground shadow-brutal hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-all"
+            >
+              {forgotPasswordLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  SENDING...
+                </>
+              ) : (
+                'SEND RESET LINK'
+              )}
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
 
 export default AuthPage;
+

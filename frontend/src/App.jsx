@@ -4,7 +4,8 @@ import AuthPage from './pages/AuthPage';
 import DashboardPage from './pages/DashboardPage';
 import BookmarkDetailPage from './pages/BookmarkDetailPage';
 import DuplicatesPage from './pages/DuplicatesPage';
-import ImportsPage from './pages/ImportsPage';
+import SettingsPage from './pages/SettingsPage';
+import ResetPasswordPage from './pages/ResetPasswordPage';
 import KnowledgeGraphPage from './pages/KnowledgeGraphPage';
 import AnalyticsPage from './pages/AnalyticsPage';
 import { Toaster } from './components/ui/sonner';
@@ -104,14 +105,22 @@ function App() {
             }
           />
           <Route
-            path="/imports"
+            path="/settings"
             element={
               isAuthenticated ? (
-                <ImportsPage onLogout={handleLogout} />
+                <SettingsPage onLogout={handleLogout} />
               ) : (
                 <Navigate to="/auth" replace />
               )
             }
+          />
+          <Route
+            path="/imports"
+            element={<Navigate to="/settings?section=import" replace />}
+          />
+          <Route
+            path="/reset-password"
+            element={<ResetPasswordPage />}
           />
           <Route
             path="/knowledge-graph"
