@@ -24,13 +24,14 @@ The frontend automatically sends cookies with each request via `axios.defaults.w
 
 1. [Authentication](#authentication-endpoints) - Signup, login, logout, token refresh
 2. [Bookmarks](#bookmarks-endpoints) - CRUD operations for bookmarks
-3. [Knowledge Graph](#knowledge-graph-endpoints) - Semantic AI knowledge graph
-4. [Resurfacing](#resurfacing-endpoints) - Intelligent resurfacing engine
-5. [Analytics](#analytics-endpoints) - Reading statistics and insights
-6. [Duplicates](#duplicates-endpoints) - Duplicate detection and merging
-7. [Collections](#collections-endpoints) - Bookmark collections
-8. [Import/Export](#importexport-endpoints) - Data migration
-9. [Content Intelligence](#content-intelligence-endpoints) - Content evaluation
+3. [Search](#search-endpoints) - Hybrid keyword + semantic search
+4. [Knowledge Graph](#knowledge-graph-endpoints) - Semantic AI knowledge graph
+5. [Resurfacing](#resurfacing-endpoints) - Intelligent resurfacing engine
+6. [Analytics](#analytics-endpoints) - Reading statistics and insights
+7. [Duplicates](#duplicates-endpoints) - Duplicate detection and merging
+8. [Collections](#collections-endpoints) - Bookmark collections
+9. [Import/Export](#importexport-endpoints) - Data migration
+10. [Content Intelligence](#content-intelligence-endpoints) - Content evaluation
 
 ---
 
@@ -304,6 +305,55 @@ Record that a bookmark was accessed (for analytics).
 **Authentication:** Required
 
 **Response:** `200 OK`
+
+---
+
+## Search Endpoints
+
+### GET /api/search
+Unified hybrid search combining keyword matching and semantic similarity.
+
+**Authentication:** Required
+
+**Query Parameters:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| query | string | required | Search query (min 2 chars) |
+| limit | int | 20 | Max results to return |
+| use_semantic | bool | true | Enable semantic similarity |
+| use_keyword | bool | true | Enable keyword matching |
+| domain | string | null | Filter by domain |
+| collection_id | string | null | Filter by collection |
+| read_status | string | null | "read" or "unread" |
+
+**Response:** `200 OK`
+```json
+{
+  "results": [
+    {
+      "id": "bookmark_id",
+      "title": "Example Title",
+      "url": "https://example.com",
+      "relevance_score": 0.85,
+      "keyword_score": 0.6,
+      "semantic_score": 0.95,
+      "ai_summary": {...}
+    }
+  ],
+  "query": "machine learning",
+  "total": 15,
+  "search_mode": {
+    "semantic": true,
+    "keyword": true
+  },
+  "message": null
+}
+```
+
+**Notes:**
+- Uses two-stage retrieval: keyword candidate filtering → semantic reranking
+- Combines scores: `relevance = 0.7 * semantic + 0.3 * keyword`
+- Minimum semantic threshold of 0.25 filters low-quality matches
 
 ---
 

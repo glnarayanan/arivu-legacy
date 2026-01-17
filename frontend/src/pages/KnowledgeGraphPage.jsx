@@ -46,7 +46,8 @@ const KnowledgeGraphPage = ({ onLogout }) => {
       const response = await axiosInstance.get(`/knowledge-graph/search?query=${encodeURIComponent(searchQuery)}&limit=10`);
       setSearchResults(response.data.results || []);
       if (response.data.results.length === 0) {
-        toast.info('No semantically similar bookmarks found');
+        const message = response.data.message || 'No semantically similar bookmarks found';
+        toast.info(message);
       }
     } catch (error) {
       toast.error('Search failed');

@@ -1287,8 +1287,22 @@ def calculate_reading_time(text_content: str) -> int:
     return max(1, round(word_count / 200))
 
 
+def normalize_embedding(embedding: List[float]) -> List[float]:
+    """L2-normalize an embedding vector for consistent cosine similarity."""
+    import numpy as np
+    vec = np.array(embedding)
+    norm = np.linalg.norm(vec)
+    if norm > 0:
+        return (vec / norm).tolist()
+    return embedding
+
+
 async def generate_embedding(
-    text_content: str, title: str = "", description: str = "", min_length: int = 50
+    text_content: str,
+    title: str = "",
+    description: str = "",
+    min_length: int = 50,
+    task_type: str = "retrieval_document",
 ) -> Optional[List[float]]:
     """
     Generate embedding vector for semantic search using Google's embedding model
@@ -1298,9 +1312,10 @@ async def generate_embedding(
         title: Bookmark title (optional)
         description: Bookmark description (optional)
         min_length: Minimum character length required (default 50 for content, use 3 for queries)
+        task_type: "retrieval_document" for indexing, "retrieval_query" for searching
 
     Returns:
-        List of floats representing the embedding vector, or None if generation fails
+        List of floats representing the L2-normalized embedding vector, or None if generation fails
     """
     try:
         if not text_content or len(text_content.strip()) < min_length:
@@ -1324,29 +1339,149 @@ async def generate_embedding(
         # Use first 10,000 characters of content to avoid token limits
         combined_text += text_content[:10000].strip()
 
-        # Use Google's embedding model
+        # Use Google's embedding model with correct task type
         await gemini_rate_limiter.acquire(estimated_tokens=500)
         result = await asyncio.to_thread(
             genai.embed_content,
             model="models/text-embedding-004",
             content=combined_text,
-            task_type="retrieval_document",
+            task_type=task_type,
         )
 
         embedding = result["embedding"]
-        logger.info(f"Generated embedding vector with {len(embedding)} dimensions")
-        return embedding
+        # L2-normalize for consistent cosine similarity (dot product after normalization)
+        normalized_embedding = normalize_embedding(embedding)
+        logger.info(f"Generated {task_type} embedding vector with {len(normalized_embedding)} dimensions")
+        return normalized_embedding
 
     except Exception as e:
         logger.error(f"Error generating embedding: {type(e).__name__}: {str(e)}")
         return None
 
 
+# Denylist for common false positive entities
+ENTITY_DENYLIST = {
+    "the", "this", "that", "these", "those", "what", "which", "where", "when",
+    "how", "why", "who", "will", "would", "could", "should", "may", "might",
+    "must", "can", "read", "more", "here", "click", "view", "see", "also",
+    "january", "february", "march", "april", "may", "june", "july", "august",
+    "september", "october", "november", "december", "monday", "tuesday",
+    "wednesday", "thursday", "friday", "saturday", "sunday", "today", "yesterday",
+    "tomorrow", "new", "update", "updated", "latest", "recent", "best", "top",
+    "home", "about", "contact", "privacy", "terms", "copyright", "share",
+}
+
+# Minimum confidence threshold for entities
+MIN_ENTITY_CONFIDENCE = 0.6
+
+
+def normalize_entity_name(name: str) -> str:
+    """Normalize entity name: lowercase, trim, collapse whitespace."""
+    return " ".join(name.lower().strip().split())
+
+
+async def extract_entities_with_gemini(text_content: str) -> List[dict]:
+    """
+    Extract named entities using Gemini structured extraction.
+    
+    Returns list of: {"name": str, "type": str, "confidence": float}
+    """
+    try:
+        if not text_content or len(text_content.strip()) < 100:
+            return []
+        
+        gemini_api_key = os.environ.get("GEMINI_API_KEY")
+        if not gemini_api_key:
+            return []
+        
+        # Use first 5000 chars to limit token usage
+        content_sample = text_content[:5000].strip()
+        
+        extraction_prompt = f"""Extract named entities from this content. Return ONLY valid JSON, no markdown.
+
+Content:
+{content_sample}
+
+Return this exact JSON structure:
+{{"entities": [{{"name": "Entity Name", "type": "person|organization|technology|concept|topic", "confidence": 0.9}}]}}
+
+Rules:
+- Extract only explicitly mentioned entities (not inferred)
+- Maximum 15 entities
+- Confidence 0-1 scale based on clarity of mention
+- Types: person, organization, technology, concept, topic
+- Ignore common words, months, days, navigation terms
+- Use canonical/full names when possible
+- No duplicates"""
+
+        await gemini_rate_limiter.acquire(estimated_tokens=800)
+        model = genai.GenerativeModel("gemini-2.5-flash")
+        response = await asyncio.to_thread(
+            model.generate_content,
+            extraction_prompt,
+            generation_config=genai.types.GenerationConfig(
+                temperature=0.1,  # Low temperature for consistent extraction
+                max_output_tokens=1000,
+            ),
+        )
+        
+        if not response or not response.text:
+            return []
+        
+        # Parse JSON response
+        import json
+        response_text = response.text.strip()
+        # Handle markdown code blocks
+        if response_text.startswith("```"):
+            response_text = response_text.split("```")[1]
+            if response_text.startswith("json"):
+                response_text = response_text[4:]
+        
+        data = json.loads(response_text)
+        entities = data.get("entities", [])
+        
+        # Filter and normalize entities
+        valid_entities = []
+        seen_names = set()
+        
+        for entity in entities:
+            name = entity.get("name", "").strip()
+            normalized = normalize_entity_name(name)
+            confidence = entity.get("confidence", 0.5)
+            entity_type = entity.get("type", "concept")
+            
+            # Skip if in denylist, too short, or duplicate
+            if (
+                normalized in ENTITY_DENYLIST
+                or len(normalized) < 2
+                or normalized in seen_names
+                or confidence < MIN_ENTITY_CONFIDENCE
+            ):
+                continue
+            
+            seen_names.add(normalized)
+            valid_entities.append({
+                "name": name,  # Keep original casing
+                "type": entity_type,
+                "confidence": confidence,
+            })
+        
+        logger.info(f"Extracted {len(valid_entities)} entities via Gemini")
+        return valid_entities[:15]
+        
+    except json.JSONDecodeError as e:
+        logger.warning(f"Failed to parse entity extraction JSON: {e}")
+        return []
+    except Exception as e:
+        logger.error(f"Error in Gemini entity extraction: {type(e).__name__}: {str(e)}")
+        return []
+
+
 async def extract_entities_and_concepts(
     text_content: str, summary_data: dict
 ) -> tuple[List[str], List[str]]:
     """
-    Extract named entities and key concepts from content
+    Extract named entities and key concepts from content using Gemini AI.
 
     Args:
         text_content: Main text content
@@ -1356,43 +1491,17 @@ async def extract_entities_and_concepts(
         Tuple of (entities list, concepts list)
     """
     try:
-        entities = []
         concepts = []
 
         # Use suggested tags from AI summary as initial concepts
         if summary_data and "suggested_tags" in summary_data:
             concepts = summary_data["suggested_tags"][:10]
 
-        # Simple entity extraction using regex patterns (proper nouns, organizations)
-        # In a production system, you'd use spaCy or similar NER library
-        if text_content:
-            # Extract capitalized words/phrases (simple entity detection)
-            import re
-
-            # Match sequences of capitalized words
-            entity_pattern = r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b"
-            found_entities = re.findall(entity_pattern, text_content[:5000])
-
-            # Filter and deduplicate
-            entity_counts = {}
-            for entity in found_entities:
-                if len(entity) > 2 and entity not in [
-                    "The",
-                    "This",
-                    "That",
-                    "These",
-                    "Those",
-                ]:
-                    entity_counts[entity] = entity_counts.get(entity, 0) + 1
-
-            # Keep entities that appear at least twice
-            entities = [
-                e
-                for e, count in sorted(
-                    entity_counts.items(), key=lambda x: x[1], reverse=True
-                )
-                if count >= 2
-            ][:15]
+        # Use Gemini for high-quality entity extraction
+        extracted = await extract_entities_with_gemini(text_content)
+        
+        # Convert to simple list of entity names for backward compatibility
+        entities = [e["name"] for e in extracted]
 
         return entities, concepts
 
@@ -1830,14 +1939,25 @@ async def get_bookmarks(
         .to_list(None)
     )
 
+    # Improved search: use keyword matching across multiple fields
+    # For full hybrid search with semantic, use the /api/search endpoint
     if search:
         search_lower = search.lower()
-        bookmarks = [
-            b
-            for b in bookmarks
-            if search_lower in (b.get("title") or "").lower()
-            or search_lower in (b.get("description") or "").lower()
-        ]
+        
+        def matches_search(b: dict) -> bool:
+            """Check if bookmark matches search query."""
+            title = (b.get("title") or "").lower()
+            description = (b.get("description") or "").lower()
+            url = (b.get("url") or "").lower()
+            domain = (b.get("domain") or "").lower()
+            return (
+                search_lower in title
+                or search_lower in description
+                or search_lower in url
+                or search_lower in domain
+            )
+        
+        bookmarks = [b for b in bookmarks if matches_search(b)]
 
     bookmark_ids = [b["id"] for b in bookmarks]
     summaries = await db.ai_summaries.find(
@@ -2438,26 +2558,25 @@ async def get_related_bookmarks(
             "message": "No other bookmarks with semantic data available",
         }
 
-    # Calculate cosine similarity for each bookmark
+    # Calculate similarity using dot product (vectors are L2-normalized)
     import numpy as np
 
-    def cosine_similarity_score(vec1, vec2):
-        """Calculate cosine similarity between two vectors"""
-        vec1 = np.array(vec1)
-        vec2 = np.array(vec2)
-        return np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2))
+    def dot_product_similarity(vec1, vec2):
+        """Dot product of L2-normalized vectors equals cosine similarity."""
+        return float(np.dot(vec1, vec2))
 
-    # Calculate similarity scores
+    # Calculate similarity scores and filter by threshold
     similarities = []
     for bookmark in all_bookmarks:
         if bookmark.get("embedding"):
-            similarity = cosine_similarity_score(
+            similarity = dot_product_similarity(
                 source_embedding, bookmark["embedding"]
             )
-            # Remove embedding from result to reduce payload size
-            bookmark.pop("embedding", None)
-            bookmark["similarity_score"] = float(similarity)
-            similarities.append(bookmark)
+            # Only include results above minimum threshold
+            if similarity >= MIN_SEMANTIC_SCORE:
+                bookmark.pop("embedding", None)
+                bookmark["similarity_score"] = similarity
+                similarities.append(bookmark)
 
     # Sort by similarity score and take top N
     similarities.sort(key=lambda x: x["similarity_score"], reverse=True)
@@ -2543,12 +2662,17 @@ async def explore_knowledge_graph(
     }
 
 
+# Minimum semantic similarity threshold for search results
+MIN_SEMANTIC_SCORE = 0.25
+
+
 @api_router.get("/knowledge-graph/search")
 async def semantic_search(
     query: str, limit: int = 10, current_user: dict = Depends(get_current_user_info)
 ):
     """
-    Semantic search across all bookmarks using query embedding
+    Semantic search across all bookmarks using query embedding.
+    Uses correct task_type for queries and applies minimum similarity threshold.
     Part of Semantic Knowledge Graph feature (Phase 1)
     """
     if not query or len(query.strip()) < 3:
@@ -2556,8 +2680,10 @@ async def semantic_search(
             status_code=400, detail="Query must be at least 3 characters"
         )
 
-    # Generate embedding for the search query (allow short queries with min_length=3)
-    query_embedding = await generate_embedding(query, min_length=3)
+    # Generate embedding for the search query with correct task type
+    query_embedding = await generate_embedding(
+        query, min_length=3, task_type="retrieval_query"
+    )
 
     if not query_embedding:
         raise HTTPException(
@@ -2586,27 +2712,244 @@ async def semantic_search(
     if not all_bookmarks:
         return {"results": [], "message": "No bookmarks with semantic data available"}
 
-    # Calculate similarity scores
+    # Calculate similarity scores using dot product (vectors are L2-normalized)
     import numpy as np
 
-    def cosine_similarity_score(vec1, vec2):
-        vec1 = np.array(vec1)
-        vec2 = np.array(vec2)
-        return np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2))
+    def dot_product_similarity(vec1, vec2):
+        """Dot product of L2-normalized vectors equals cosine similarity."""
+        return float(np.dot(vec1, vec2))
 
     results = []
     for bookmark in all_bookmarks:
         if bookmark.get("embedding"):
-            similarity = cosine_similarity_score(query_embedding, bookmark["embedding"])
-            bookmark.pop("embedding", None)
-            bookmark["similarity_score"] = float(similarity)
-            results.append(bookmark)
+            similarity = dot_product_similarity(query_embedding, bookmark["embedding"])
+            # Only include results above minimum threshold
+            if similarity >= MIN_SEMANTIC_SCORE:
+                bookmark.pop("embedding", None)
+                bookmark["similarity_score"] = similarity
+                results.append(bookmark)
 
     # Sort by similarity and return top results
     results.sort(key=lambda x: x["similarity_score"], reverse=True)
     top_results = results[:limit]
 
-    return {"results": top_results, "query": query}
+    # Provide helpful message if no strong matches
+    message = None
+    if not top_results:
+        message = "No strongly matching bookmarks found. Try different search terms."
+
+    return {"results": top_results, "query": query, "message": message}
+
+
+# Hybrid search weights
+SEMANTIC_WEIGHT = 0.7
+KEYWORD_WEIGHT = 0.3
+
+
+@api_router.get("/search")
+async def hybrid_search(
+    query: str,
+    limit: int = 20,
+    use_semantic: bool = True,
+    use_keyword: bool = True,
+    domain: Optional[str] = None,
+    collection_id: Optional[str] = None,
+    read_status: Optional[str] = None,
+    current_user: dict = Depends(get_current_user_info),
+):
+    """
+    Hybrid search combining keyword matching and semantic similarity.
+    
+    Two-stage retrieval:
+    1. Keyword candidate retrieval (fast, broad coverage)
+    2. Semantic reranking of candidates (accurate, meaning-based)
+    
+    This provides the best of both worlds: exact keyword matches AND conceptual relevance.
+    """
+    import numpy as np
+    
+    if not query or len(query.strip()) < 2:
+        raise HTTPException(
+            status_code=400, detail="Query must be at least 2 characters"
+        )
+    
+    query_lower = query.lower().strip()
+    user_id = current_user["id"]
+    
+    # Build base query with filters
+    base_query = {"user_id": user_id}
+    
+    if domain:
+        base_query["domain"] = domain
+    
+    if read_status == "read":
+        base_query["read_status"] = True
+    elif read_status == "unread":
+        base_query["read_status"] = False
+    
+    if collection_id:
+        collection = await db.collections.find_one(
+            {"id": collection_id}, {"_id": 0, "bookmark_ids": 1}
+        )
+        if collection:
+            base_query["id"] = {"$in": collection.get("bookmark_ids", [])}
+    
+    # Projection for candidates
+    projection = {
+        "_id": 0,
+        "id": 1,
+        "url": 1,
+        "title": 1,
+        "description": 1,
+        "domain": 1,
+        "thumbnail": 1,
+        "favicon": 1,
+        "reading_time": 1,
+        "read_status": 1,
+        "created_at": 1,
+        "embedding": 1,
+        "entities": 1,
+        "concepts": 1,
+    }
+    
+    # Stage 1: Get keyword candidates (up to 200 for reranking)
+    candidate_limit = min(200, limit * 10)  # Get more candidates for reranking
+    
+    # Fetch all user bookmarks that match filters (we'll filter by keyword in Python)
+    all_candidates = await db.bookmarks.find(
+        base_query, projection
+    ).limit(candidate_limit * 2).to_list(None)
+    
+    # Keyword scoring: check title, description, url, entities, concepts
+    def keyword_score(bookmark: dict) -> float:
+        """Score bookmark based on keyword matching (0-1 scale)."""
+        score = 0.0
+        max_score = 5.0  # Normalize to 0-1
+        
+        title = (bookmark.get("title") or "").lower()
+        description = (bookmark.get("description") or "").lower()
+        url = (bookmark.get("url") or "").lower()
+        entities = [e.lower() for e in bookmark.get("entities", [])]
+        concepts = [c.lower() for c in bookmark.get("concepts", [])]
+        
+        # Title match (highest weight)
+        if query_lower in title:
+            score += 2.0
+            # Exact title match bonus
+            if query_lower == title:
+                score += 1.0
+        
+        # Description match
+        if query_lower in description:
+            score += 1.0
+        
+        # URL match
+        if query_lower in url:
+            score += 0.5
+        
+        # Entity/concept match
+        if any(query_lower in e for e in entities):
+            score += 0.5
+        if any(query_lower in c for c in concepts):
+            score += 0.5
+        
+        return min(score / max_score, 1.0)
+    
+    # Score all candidates by keyword
+    keyword_candidates = []
+    for bookmark in all_candidates:
+        kw_score = keyword_score(bookmark)
+        if use_keyword and kw_score > 0:
+            bookmark["_keyword_score"] = kw_score
+            keyword_candidates.append(bookmark)
+        elif not use_keyword:
+            bookmark["_keyword_score"] = 0.0
+            keyword_candidates.append(bookmark)
+    
+    # If keyword-only mode and no matches, also include recent bookmarks as fallback
+    if use_keyword and not use_semantic and len(keyword_candidates) == 0:
+        # Return recent bookmarks as fallback
+        keyword_candidates = all_candidates[:limit]
+        for b in keyword_candidates:
+            b["_keyword_score"] = 0.0
+    
+    # If no keyword filter, use all candidates for semantic search
+    if not use_keyword:
+        keyword_candidates = all_candidates
+    
+    # Stage 2: Semantic reranking (if enabled and we have query embedding)
+    query_embedding = None
+    if use_semantic and len(query.strip()) >= 3:
+        query_embedding = await generate_embedding(
+            query, min_length=3, task_type="retrieval_query"
+        )
+    
+    def dot_product_similarity(vec1, vec2):
+        """Dot product of L2-normalized vectors equals cosine similarity."""
+        return float(np.dot(vec1, vec2))
+    
+    # Calculate final scores
+    results = []
+    for bookmark in keyword_candidates:
+        kw_score = bookmark.get("_keyword_score", 0.0)
+        semantic_score = 0.0
+        
+        # Calculate semantic score if we have embeddings
+        if query_embedding and bookmark.get("embedding"):
+            semantic_score = dot_product_similarity(query_embedding, bookmark["embedding"])
+        
+        # Combined score
+        if use_semantic and use_keyword:
+            final_score = (SEMANTIC_WEIGHT * semantic_score) + (KEYWORD_WEIGHT * kw_score)
+        elif use_semantic:
+            final_score = semantic_score
+        else:
+            final_score = kw_score
+        
+        # Apply minimum threshold for semantic-only results
+        if use_semantic and not use_keyword and final_score < MIN_SEMANTIC_SCORE:
+            continue
+        
+        # Clean up internal fields and add scores
+        bookmark.pop("embedding", None)
+        bookmark.pop("_keyword_score", None)
+        bookmark["relevance_score"] = round(final_score, 4)
+        bookmark["keyword_score"] = round(kw_score, 4)
+        bookmark["semantic_score"] = round(semantic_score, 4) if semantic_score else None
+        
+        results.append(bookmark)
+    
+    # Sort by final score
+    results.sort(key=lambda x: x["relevance_score"], reverse=True)
+    top_results = results[:limit]
+    
+    # Fetch AI summaries for results
+    if top_results:
+        bookmark_ids = [b["id"] for b in top_results]
+        summaries = await db.ai_summaries.find(
+            {"bookmark_id": {"$in": bookmark_ids}}, {"_id": 0}
+        ).to_list(None)
+        summary_map = {s["bookmark_id"]: s for s in summaries}
+        
+        for bookmark in top_results:
+            summary = summary_map.get(bookmark["id"])
+            if summary:
+                bookmark["ai_summary"] = summary
+    
+    message = None
+    if not top_results:
+        message = "No matching bookmarks found. Try different search terms."
+    
+    return {
+        "results": top_results,
+        "query": query,
+        "total": len(top_results),
+        "search_mode": {
+            "semantic": use_semantic,
+            "keyword": use_keyword,
+        },
+        "message": message,
+    }
 
 
 @api_router.post("/knowledge-graph/regenerate-embeddings")
