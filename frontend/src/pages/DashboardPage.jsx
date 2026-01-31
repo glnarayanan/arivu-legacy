@@ -16,12 +16,15 @@ import Sidebar from '../components/Sidebar';
 import MemoryJogger from '../components/MemoryJogger';
 import { BrutalConfetti, SuccessToast, MilestoneToast } from '../components/delight';
 import { checkBookmarkCountMilestones, markMilestoneReached } from '../utils/milestones';
+import BookmarkCardSkeleton from '../components/BookmarkCardSkeleton';
+import ErrorMessage from '../components/ErrorMessage';
 
 const DashboardPage = ({ onLogout }) => {
   const navigate = useNavigate();
   const [bookmarks, setBookmarks] = useState([]);
   const [collections, setCollections] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterTag, setFilterTag] = useState('');
   const [filterDomain, setFilterDomain] = useState('');
@@ -47,6 +50,7 @@ const DashboardPage = ({ onLogout }) => {
 
   const fetchBookmarks = async () => {
     try {
+      setError(null);
       const params = new URLSearchParams();
       if (searchQuery) params.append('search', searchQuery);
       if (filterTag) params.append('tag', filterTag);
@@ -68,8 +72,12 @@ const DashboardPage = ({ onLogout }) => {
       });
       setAllTags([...tags]);
       setAllDomains([...domains]);
-    } catch (error) {
-      toast.error('Failed to fetch bookmarks');
+    } catch (err) {
+      const message = err.response?.status === 0
+        ? 'Unable to connect. Check your internet connection.'
+        : err.response?.data?.detail || 'Failed to load bookmarks';
+      setError(message);
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -439,6 +447,7 @@ const DashboardPage = ({ onLogout }) => {
                     placeholder="SEARCH..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
+                    maxLength={200}
                     className="h-10 rounded-none border-2 border-foreground bg-background pl-10 text-sm shadow-none focus-visible:ring-0 font-mono placeholder:text-muted-foreground"
                   />
                 </div>
@@ -481,6 +490,7 @@ const DashboardPage = ({ onLogout }) => {
                 placeholder="SEARCH BOOKMARKS..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
+                maxLength={200}
                 className="h-12 rounded-none border-2 border-foreground bg-background px-4 pl-12 text-base shadow-none focus-visible:ring-0 font-mono placeholder:text-muted-foreground"
               />
             </div>
@@ -679,50 +689,97 @@ const DashboardPage = ({ onLogout }) => {
           )}
 
           {loading ? (
-            <div className="flex items-center justify-center py-20">
-              <div className="animate-spin h-12 w-12 border-4 border-muted border-t-primary rounded-none"></div>
+            <div
+              className={viewMode === 'grid'
+                ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
+                : "space-y-3"
+              }
+            >
+              {[...Array(6)].map((_, i) => (
+                <BookmarkCardSkeleton key={i} viewMode={viewMode} />
+              ))}
             </div>
+          ) : error ? (
+            <ErrorMessage
+              title="Failed to load bookmarks"
+              message={error}
+              onRetry={() => {
+                setLoading(true);
+                fetchBookmarks();
+              }}
+              retrying={loading}
+            />
           ) : bookmarks.length === 0 ? (
             <div className="text-center py-20 border-2 border-dashed border-muted-foreground/20 p-8">
-              <SparklesIcon className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
-              <h2 className="font-display text-2xl font-semibold mb-2 uppercase tracking-wide">No bookmarks yet</h2>
-              <p className="text-muted-foreground mb-6 font-mono text-sm">Start saving web pages and let AI organize them for you</p>
-              <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button data-testid="add-first-bookmark-btn" size="lg" className="rounded-none border-2 border-foreground bg-primary text-primary-foreground shadow-brutal hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-all">
-                    <PlusIcon className="w-5 h-5 mr-2" />
-                    ADD YOUR FIRST BOOKMARK
+              {searchQuery || filterTag || filterDomain || filterCollection || readFilter !== 'all' ? (
+                <>
+                  <SearchIcon className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
+                  <h2 className="font-display text-2xl font-semibold mb-2 uppercase tracking-wide">No results found</h2>
+                  <p className="text-muted-foreground mb-6 font-mono text-sm">
+                    {searchQuery
+                      ? `No bookmarks match "${searchQuery.length > 30 ? searchQuery.slice(0, 30) + '...' : searchQuery}"`
+                      : 'No bookmarks match your current filters'
+                    }
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="lg"
+                    className="rounded-none border-2 border-foreground bg-background hover:bg-muted font-mono uppercase tracking-wider"
+                    onClick={() => {
+                      setSearchQuery('');
+                      setFilterTag('');
+                      setFilterDomain('');
+                      setFilterCollection('');
+                      setReadFilter('all');
+                    }}
+                  >
+                    Clear all filters
                   </Button>
-                </DialogTrigger>
-                <DialogContent className="rounded-none border-2 border-foreground shadow-brutal" aria-describedby="add-bookmark-description">
-                  <DialogHeader>
-                    <DialogTitle className="font-heading font-bold uppercase">Add Bookmark</DialogTitle>
-                    <p id="add-bookmark-description" className="text-sm text-muted-foreground sr-only">
-                      Enter a URL to save and get AI-powered summaries
-                    </p>
-                  </DialogHeader>
-                  <form onSubmit={handleAddBookmark} className="space-y-4">
-                    <Input
-                      data-testid="bookmark-url-input"
-                      type="url"
-                      placeholder="HTTPS://EXAMPLE.COM/ARTICLE"
-                      value={newBookmarkUrl}
-                      onChange={(e) => setNewBookmarkUrl(e.target.value)}
-                      required
-                      className="rounded-none border-2 border-foreground font-mono"
-                      autoFocus
-                    />
-                    <Button
-                      data-testid="save-bookmark-btn"
-                      type="submit"
-                      className="w-full rounded-none border-2 border-foreground bg-primary text-primary-foreground shadow-brutal hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-all"
-                      disabled={addingBookmark}
-                    >
-                      {addingBookmark ? 'SAVING...' : 'SAVE BOOKMARK'}
-                    </Button>
-                  </form>
-                </DialogContent>
-              </Dialog>
+                </>
+              ) : (
+                <>
+                  <SparklesIcon className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
+                  <h2 className="font-display text-2xl font-semibold mb-2 uppercase tracking-wide">No bookmarks yet</h2>
+                  <p className="text-muted-foreground mb-6 font-mono text-sm">Start saving web pages and let AI organize them for you</p>
+                  <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button data-testid="add-first-bookmark-btn" size="lg" className="rounded-none border-2 border-foreground bg-primary text-primary-foreground shadow-brutal hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-all">
+                        <PlusIcon className="w-5 h-5 mr-2" />
+                        ADD YOUR FIRST BOOKMARK
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="rounded-none border-2 border-foreground shadow-brutal" aria-describedby="add-bookmark-description">
+                      <DialogHeader>
+                        <DialogTitle className="font-heading font-bold uppercase">Add Bookmark</DialogTitle>
+                        <p id="add-bookmark-description" className="text-sm text-muted-foreground sr-only">
+                          Enter a URL to save and get AI-powered summaries
+                        </p>
+                      </DialogHeader>
+                      <form onSubmit={handleAddBookmark} className="space-y-4">
+                        <Input
+                          data-testid="bookmark-url-input"
+                          type="url"
+                          placeholder="HTTPS://EXAMPLE.COM/ARTICLE"
+                          value={newBookmarkUrl}
+                          onChange={(e) => setNewBookmarkUrl(e.target.value)}
+                          required
+                          maxLength={2048}
+                          className="rounded-none border-2 border-foreground font-mono"
+                          autoFocus
+                        />
+                        <Button
+                          data-testid="save-bookmark-btn"
+                          type="submit"
+                          className="w-full rounded-none border-2 border-foreground bg-primary text-primary-foreground shadow-brutal hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-all"
+                          disabled={addingBookmark}
+                        >
+                          {addingBookmark ? 'SAVING...' : 'SAVE BOOKMARK'}
+                        </Button>
+                      </form>
+                    </DialogContent>
+                  </Dialog>
+                </>
+              )}
             </div>
           ) : (
             <StaggerContainer
@@ -783,6 +840,7 @@ const DashboardPage = ({ onLogout }) => {
               value={newBookmarkUrl}
               onChange={(e) => setNewBookmarkUrl(e.target.value)}
               required
+              maxLength={2048}
               className="rounded-none border-2 border-foreground font-mono"
               autoFocus
             />
