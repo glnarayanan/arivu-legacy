@@ -16,6 +16,7 @@ import Sidebar from '../components/Sidebar';
 import MemoryJogger from '../components/MemoryJogger';
 import { BrutalConfetti, SuccessToast, MilestoneToast } from '../components/delight';
 import { checkBookmarkCountMilestones, markMilestoneReached } from '../utils/milestones';
+import { WelcomeModal, EmptyStateGuide, FirstBookmarkGuide } from '../components/onboarding';
 
 const DashboardPage = ({ onLogout }) => {
   const navigate = useNavigate();
@@ -44,6 +45,16 @@ const DashboardPage = ({ onLogout }) => {
   const [memoryJogger, setMemoryJogger] = useState(null);
   const [memoryJoggerDismissed, setMemoryJoggerDismissed] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
+  const [showWelcome, setShowWelcome] = useState(false);
+  const [firstBookmarkId, setFirstBookmarkId] = useState(null);
+
+  // Check if user should see welcome modal (first time)
+  useEffect(() => {
+    const hasSeenWelcome = localStorage.getItem('arivu_welcome_completed');
+    if (!hasSeenWelcome) {
+      setShowWelcome(true);
+    }
+  }, []);
 
   const fetchBookmarks = async () => {
     try {
@@ -262,6 +273,9 @@ const DashboardPage = ({ onLogout }) => {
         // Show confetti celebration
         setShowConfetti(true);
 
+        // Set first bookmark ID to show guide
+        setFirstBookmarkId(savedBookmark.id);
+
         // Show special first bookmark toast
         toast.custom((t) => (
           <SuccessToast
@@ -467,6 +481,8 @@ const DashboardPage = ({ onLogout }) => {
           onResurfacingArchive={handleResurfacingArchive}
           agedCount={agedCount}
           onViewAged={() => setShowAgedOnly(true)}
+          bookmarkCount={bookmarks.length}
+          onOpenAddBookmark={() => setDialogOpen(true)}
         />
 
         {/* Main Content */}
@@ -683,47 +699,10 @@ const DashboardPage = ({ onLogout }) => {
               <div className="animate-spin h-12 w-12 border-4 border-muted border-t-primary rounded-none"></div>
             </div>
           ) : bookmarks.length === 0 ? (
-            <div className="text-center py-20 border-2 border-dashed border-muted-foreground/20 p-8">
-              <SparklesIcon className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
-              <h2 className="font-display text-2xl font-semibold mb-2 uppercase tracking-wide">No bookmarks yet</h2>
-              <p className="text-muted-foreground mb-6 font-mono text-sm">Start saving web pages and let AI organize them for you</p>
-              <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button data-testid="add-first-bookmark-btn" size="lg" className="rounded-none border-2 border-foreground bg-primary text-primary-foreground shadow-brutal hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-all">
-                    <PlusIcon className="w-5 h-5 mr-2" />
-                    ADD YOUR FIRST BOOKMARK
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="rounded-none border-2 border-foreground shadow-brutal" aria-describedby="add-bookmark-description">
-                  <DialogHeader>
-                    <DialogTitle className="font-heading font-bold uppercase">Add Bookmark</DialogTitle>
-                    <p id="add-bookmark-description" className="text-sm text-muted-foreground sr-only">
-                      Enter a URL to save and get AI-powered summaries
-                    </p>
-                  </DialogHeader>
-                  <form onSubmit={handleAddBookmark} className="space-y-4">
-                    <Input
-                      data-testid="bookmark-url-input"
-                      type="url"
-                      placeholder="HTTPS://EXAMPLE.COM/ARTICLE"
-                      value={newBookmarkUrl}
-                      onChange={(e) => setNewBookmarkUrl(e.target.value)}
-                      required
-                      className="rounded-none border-2 border-foreground font-mono"
-                      autoFocus
-                    />
-                    <Button
-                      data-testid="save-bookmark-btn"
-                      type="submit"
-                      className="w-full rounded-none border-2 border-foreground bg-primary text-primary-foreground shadow-brutal hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-all"
-                      disabled={addingBookmark}
-                    >
-                      {addingBookmark ? 'SAVING...' : 'SAVE BOOKMARK'}
-                    </Button>
-                  </form>
-                </DialogContent>
-              </Dialog>
-            </div>
+            <EmptyStateGuide
+              type="bookmarks"
+              onPrimaryAction={() => setDialogOpen(true)}
+            />
           ) : (
             <StaggerContainer
               className={viewMode === 'grid'
@@ -805,6 +784,21 @@ const DashboardPage = ({ onLogout }) => {
         active={showConfetti}
         onComplete={() => setShowConfetti(false)}
       />
+
+      {/* Welcome modal for first-time users */}
+      {showWelcome && (
+        <WelcomeModal
+          onComplete={() => setShowWelcome(false)}
+        />
+      )}
+
+      {/* First bookmark guide */}
+      {firstBookmarkId && (
+        <FirstBookmarkGuide
+          bookmarkId={firstBookmarkId}
+          onDismiss={() => setFirstBookmarkId(null)}
+        />
+      )}
     </div>
   );
 };
