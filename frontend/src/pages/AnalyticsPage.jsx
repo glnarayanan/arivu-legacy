@@ -8,20 +8,26 @@ import {
 import { toast } from 'sonner';
 import { StaggerContainer, StaggerItem } from '../components/motion/PageOrchestrator';
 import AppLayout from '../components/AppLayout';
+import ErrorMessage from '../components/ErrorMessage';
 
 const AnalyticsPage = ({ onLogout }) => {
   const [loading, setLoading] = useState(true);
   const [days, setDays] = useState(30);
   const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
 
   const fetchAnalytics = async () => {
     setLoading(true);
+    setError(null);
     try {
       const response = await axiosInstance.get(`/analytics/summary?days=${days}`);
       setData(response.data);
-    } catch (error) {
-      console.error('Failed to fetch analytics:', error);
-      toast.error('Failed to load analytics');
+    } catch (err) {
+      const message = err.response?.status === 0
+        ? 'Unable to connect. Check your internet connection.'
+        : err.response?.data?.detail || 'Failed to load analytics';
+      setError(message);
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -153,6 +159,13 @@ const AnalyticsPage = ({ onLogout }) => {
           <div className="flex items-center justify-center py-20">
             <div className="animate-spin h-12 w-12 border-4 border-muted border-t-primary"></div>
           </div>
+        ) : error ? (
+          <ErrorMessage
+            title="Failed to load analytics"
+            message={error}
+            onRetry={fetchAnalytics}
+            retrying={loading}
+          />
         ) : data ? (
           <StaggerContainer className="space-y-6">
             {/* Stats Grid */}
