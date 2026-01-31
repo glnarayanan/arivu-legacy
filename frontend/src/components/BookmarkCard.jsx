@@ -87,7 +87,7 @@ const BookmarkCard = ({ bookmark, onDelete, onClick, bulkMode, isSelected, onTog
                 </svg>
               </div>
             )}
-            <h3 className="font-heading font-bold text-base line-clamp-1 flex-1">
+            <h3 className="font-heading font-bold text-base line-clamp-1 flex-1 break-all">
               {bookmark.title || bookmark.url}
             </h3>
           </div>
@@ -125,7 +125,8 @@ const BookmarkCard = ({ bookmark, onDelete, onClick, bulkMode, isSelected, onTog
               {bookmark.ai_summary.suggested_tags.slice(0, 3).map((tag, idx) => (
                 <span
                   key={idx}
-                  className="inline-flex items-center px-2 py-0.5 border border-foreground bg-muted font-mono text-xs uppercase tracking-wider text-foreground"
+                  className="inline-flex items-center px-2 py-0.5 border border-foreground bg-muted font-mono text-xs uppercase tracking-wider text-foreground max-w-[120px] truncate"
+                  title={tag}
                 >
                   {tag}
                 </span>
@@ -226,7 +227,7 @@ const BookmarkCard = ({ bookmark, onDelete, onClick, bulkMode, isSelected, onTog
       </div>
 
       <div className="p-4 space-y-3">
-        <h3 className="font-heading font-bold text-base line-clamp-2 leading-snug">
+        <h3 className="font-heading font-bold text-base line-clamp-2 leading-snug break-all">
           {bookmark.title || bookmark.url}
         </h3>
 
@@ -241,7 +242,8 @@ const BookmarkCard = ({ bookmark, onDelete, onClick, bulkMode, isSelected, onTog
             {bookmark.ai_summary.suggested_tags.slice(0, 3).map((tag, idx) => (
               <span
                 key={idx}
-                className="inline-flex items-center px-2 py-0.5 border border-foreground bg-muted font-mono text-xs uppercase tracking-wider text-foreground"
+                className="inline-flex items-center px-2 py-0.5 border border-foreground bg-muted font-mono text-xs uppercase tracking-wider text-foreground max-w-[120px] truncate"
+                title={tag}
               >
                 {tag}
               </span>
