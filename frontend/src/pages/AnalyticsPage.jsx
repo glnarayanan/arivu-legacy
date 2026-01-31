@@ -8,9 +8,12 @@ import {
 import { toast } from 'sonner';
 import { StaggerContainer, StaggerItem } from '../components/motion/PageOrchestrator';
 import AppLayout from '../components/AppLayout';
+import { useNavigate } from 'react-router-dom';
+import { EmptyStateGuide } from '../components/onboarding';
 import ErrorMessage from '../components/ErrorMessage';
 
 const AnalyticsPage = ({ onLogout }) => {
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [days, setDays] = useState(30);
   const [data, setData] = useState(null);
@@ -295,13 +298,10 @@ const AnalyticsPage = ({ onLogout }) => {
               (!data.insights || data.insights.length === 0) &&
               data.stats?.total_bookmarks === 0 && (
                 <StaggerItem>
-                  <div className="text-center py-12 border-2 border-dashed border-muted-foreground/20">
-                    <BarChart3 className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-                    <h3 className="font-heading text-xl mb-2 uppercase">No analytics yet</h3>
-                    <p className="text-muted-foreground font-mono text-sm">
-                      Start saving and reading bookmarks to see your learning analytics
-                    </p>
-                  </div>
+                  <EmptyStateGuide
+                    type="analytics"
+                    onPrimaryAction={() => navigate('/dashboard')}
+                  />
                 </StaggerItem>
               )}
           </StaggerContainer>

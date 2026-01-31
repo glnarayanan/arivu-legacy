@@ -10,6 +10,7 @@ import { StaggerContainer, StaggerItem } from '../components/motion/PageOrchestr
 import AppLayout from '../components/AppLayout';
 import { AILoadingSpinner, AnimatedCounter, MilestoneToast } from '../components/delight';
 import { checkMilestone, markMilestoneReached } from '../utils/milestones';
+import { EmptyStateGuide } from '../components/onboarding';
 import ErrorMessage from '../components/ErrorMessage';
 
 const KnowledgeGraphPage = ({ onLogout }) => {
@@ -143,12 +144,11 @@ const KnowledgeGraphPage = ({ onLogout }) => {
             onRetry={fetchGraphData}
             retrying={loading}
           />
-        ) : !graphData ? (
-          <div className="text-center py-20 border-2 border-dashed border-muted-foreground/20">
-            <Network className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
-            <h3 className="font-heading text-xl mb-2 uppercase">No data available</h3>
-            <p className="text-muted-foreground font-mono text-sm">Start saving bookmarks to build your knowledge graph</p>
-          </div>
+        ) : !graphData || graphData.total_bookmarks === 0 ? (
+          <EmptyStateGuide
+            type="graph"
+            onPrimaryAction={() => navigate('/dashboard')}
+          />
         ) : (
           <StaggerContainer className="space-y-6">
             {/* Semantic Search */}
