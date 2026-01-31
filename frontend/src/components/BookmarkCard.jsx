@@ -3,6 +3,7 @@ import { Button } from './ui/button';
 import { formatDistanceToNow } from 'date-fns';
 import AgingIndicator from './AgingIndicator';
 import axiosInstance from '../utils/axiosConfig';
+import { LoadingMessages } from './delight';
 
 const BookmarkCard = ({ bookmark, onDelete, onClick, bulkMode, isSelected, onToggleSelect, isHighlighted, viewMode = 'list' }) => {
   const handleDelete = (e) => {
@@ -133,9 +134,17 @@ const BookmarkCard = ({ bookmark, onDelete, onClick, bulkMode, isSelected, onTog
           )}
 
           {bookmark.ai_summary?.processing_status === 'pending' && (
-            <div className="flex items-center gap-2 font-mono text-xs uppercase tracking-wider text-accent mt-2">
+            <div className="flex items-center gap-2 text-accent mt-2">
               <SparklesIcon className="w-3 h-3 animate-pulse" />
-              <span>AI processing...</span>
+              <LoadingMessages
+                messages={[
+                  'Analyzing content...',
+                  'Extracting concepts...',
+                  'Building connections...',
+                  'Training your brain...'
+                ]}
+                className="text-accent"
+              />
             </div>
           )}
         </div>
@@ -242,9 +251,17 @@ const BookmarkCard = ({ bookmark, onDelete, onClick, bulkMode, isSelected, onTog
 
         {bookmark.ai_summary?.processing_status === 'pending' && (
           <div className="space-y-2">
-            <div className="flex items-center gap-2 font-mono text-xs uppercase tracking-wider text-accent">
+            <div className="flex items-center gap-2 text-accent">
               <SparklesIcon className="w-3 h-3 animate-pulse" />
-              <span>AI processing...</span>
+              <LoadingMessages
+                messages={[
+                  'Analyzing content...',
+                  'Extracting concepts...',
+                  'Building connections...',
+                  'Training your brain...'
+                ]}
+                className="text-accent"
+              />
             </div>
             <div className="w-full bg-muted h-1.5 overflow-hidden border border-foreground/10">
               <div className="h-full bg-accent animate-pulse" style={{width: '60%'}}></div>
