@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axiosInstance from '../utils/axiosConfig';
 import { Button } from '../components/ui/button';
@@ -8,6 +8,8 @@ import { Network, SearchIcon, SparklesIcon } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { StaggerContainer, StaggerItem } from '../components/motion/PageOrchestrator';
 import AppLayout from '../components/AppLayout';
+import { AILoadingSpinner, AnimatedCounter, MilestoneToast } from '../components/delight';
+import { checkMilestone, markMilestoneReached } from '../utils/milestones';
 
 const KnowledgeGraphPage = ({ onLogout }) => {
   const navigate = useNavigate();
@@ -17,6 +19,10 @@ const KnowledgeGraphPage = ({ onLogout }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [searching, setSearching] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
+
+  // Track if milestone has been shown this session
+  const milestoneShownRef = useRef(false);
 
   useEffect(() => {
     const fetchGraphData = async () => {
@@ -34,6 +40,29 @@ const KnowledgeGraphPage = ({ onLogout }) => {
     fetchGraphData();
   }, []);
 
+  // Check for first_graph milestone on mount
+  useEffect(() => {
+    if (milestoneShownRef.current) return;
+
+    const { reached } = checkMilestone('first_graph');
+    if (!reached) {
+      milestoneShownRef.current = true;
+      markMilestoneReached('first_graph');
+
+      // Slight delay to let the page load first
+      const timer = setTimeout(() => {
+        toast.custom((t) => (
+          <MilestoneToast
+            milestone="first_graph"
+            onDismiss={() => toast.dismiss(t)}
+          />
+        ), { duration: 5000 });
+      }, 500);
+
+      return () => clearTimeout(timer);
+    }
+  }, []);
+
   const handleSearch = async (e) => {
     e.preventDefault();
     if (!searchQuery.trim() || searchQuery.length < 3) {
@@ -45,6 +74,7 @@ const KnowledgeGraphPage = ({ onLogout }) => {
     try {
       const response = await axiosInstance.get(`/knowledge-graph/search?query=${encodeURIComponent(searchQuery)}&limit=10`);
       setSearchResults(response.data.results || []);
+      setHasSearched(true);
       if (response.data.results.length === 0) {
         const message = response.data.message || 'No semantically similar bookmarks found';
         toast.info(message);
@@ -127,40 +157,90 @@ const KnowledgeGraphPage = ({ onLogout }) => {
                     disabled={searching}
                     className="h-12 px-6 rounded-none border-2 border-foreground bg-foreground text-background font-mono uppercase tracking-wider hover:bg-foreground/90"
                   >
-                    <SearchIcon className="w-4 h-4 mr-2" />
-                    {searching ? 'Searching...' : 'Search'}
+                    {searching ? (
+                      <AILoadingSpinner
+                        messages={[
+                          'Understanding your intent...',
+                          'Finding semantic matches...',
+                          'Connecting concepts...',
+                          'Searching the graph...'
+                        ]}
+                        size="sm"
+                        className="text-background [&_span]:text-background [&_div]:border-background [&_div]:border-t-transparent"
+                      />
+                    ) : (
+                      <>
+                        <SearchIcon className="w-4 h-4 mr-2" />
+                        Search
+                      </>
+                    )}
                   </Button>
                 </form>
 
+                {/* Empty state for no results */}
+                {searchResults.length === 0 && hasSearched && !searching && (
+                  <div className="mt-6 text-center py-8 border-2 border-dashed border-muted-foreground/30">
+                    <SearchIcon className="w-10 h-10 mx-auto mb-3 text-muted-foreground/50" />
+                    <p className="font-mono text-sm uppercase tracking-wider text-muted-foreground">
+                      No semantic matches found. Try different wording?
+                    </p>
+                  </div>
+                )}
+
                 {searchResults.length > 0 && (
                   <div className="mt-6 space-y-3">
+                    <style>{`
+                      @keyframes similarity-pulse {
+                        0%, 100% { border-color: #3B82F6; }
+                        50% { border-color: #F97316; }
+                      }
+                      .high-similarity-pulse {
+                        animation: similarity-pulse 0.5s ease-in-out 2;
+                      }
+                    `}</style>
                     <h4 className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
                       Search Results ({searchResults.length})
                     </h4>
-                    {searchResults.map((result) => (
-                      <motion.div
-                        key={result.id}
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="border-2 border-foreground bg-card p-4 shadow-brutal-sm hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-all cursor-pointer"
-                        onClick={() => navigate(`/bookmark/${result.id}`)}
-                      >
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="flex-1 min-w-0">
-                            <h5 className="font-heading font-bold text-sm line-clamp-1">{result.title || 'Untitled'}</h5>
-                            {result.description && (
-                              <p className="text-sm text-muted-foreground line-clamp-2 mt-1">{result.description}</p>
-                            )}
-                            <div className="font-mono text-xs uppercase tracking-wider text-muted-foreground mt-2">
-                              {result.domain}
+                    {searchResults.map((result, index) => {
+                      const similarityPercent = Math.round(result.similarity_score * 100);
+                      const isHighSimilarity = similarityPercent > 85;
+
+                      return (
+                        <motion.div
+                          key={result.id}
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{
+                            type: 'spring',
+                            stiffness: 400,
+                            damping: 25,
+                            delay: index * 0.08
+                          }}
+                          className="border-2 border-foreground bg-card p-4 shadow-brutal-sm hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-all cursor-pointer"
+                          onClick={() => navigate(`/bookmark/${result.id}`)}
+                        >
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="flex-1 min-w-0">
+                              <h5 className="font-heading font-bold text-sm line-clamp-1">{result.title || 'Untitled'}</h5>
+                              {result.description && (
+                                <p className="text-sm text-muted-foreground line-clamp-2 mt-1">{result.description}</p>
+                              )}
+                              <div className="font-mono text-xs uppercase tracking-wider text-muted-foreground mt-2">
+                                {result.domain}
+                              </div>
+                            </div>
+                            <div className={`font-mono text-xs text-accent border-2 border-accent px-2 py-1 bg-accent/10 flex-shrink-0 ${isHighSimilarity ? 'high-similarity-pulse' : ''}`}>
+                              <AnimatedCounter
+                                endValue={similarityPercent}
+                                suffix="%"
+                                duration={0.5}
+                                delay={index * 0.1}
+                              />
                             </div>
                           </div>
-                          <div className="font-mono text-xs text-accent border-2 border-accent px-2 py-1 bg-accent/10 flex-shrink-0">
-                            {Math.round(result.similarity_score * 100)}%
-                          </div>
-                        </div>
-                      </motion.div>
-                    ))}
+                        </motion.div>
+                      );
+                    })}
                   </div>
                 )}
               </div>

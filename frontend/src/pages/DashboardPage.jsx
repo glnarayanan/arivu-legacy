@@ -14,6 +14,8 @@ import { StaggerContainer, StaggerItem, HardReveal } from '../components/motion/
 import UserMenu from '../components/UserMenu';
 import Sidebar from '../components/Sidebar';
 import MemoryJogger from '../components/MemoryJogger';
+import { BrutalConfetti, SuccessToast, MilestoneToast } from '../components/delight';
+import { checkBookmarkCountMilestones, markMilestoneReached } from '../utils/milestones';
 
 const DashboardPage = ({ onLogout }) => {
   const navigate = useNavigate();
@@ -41,6 +43,7 @@ const DashboardPage = ({ onLogout }) => {
   const [resurfacingSuggestions, setResurfacingSuggestions] = useState([]);
   const [memoryJogger, setMemoryJogger] = useState(null);
   const [memoryJoggerDismissed, setMemoryJoggerDismissed] = useState(false);
+  const [showConfetti, setShowConfetti] = useState(false);
 
   const fetchBookmarks = async () => {
     try {
@@ -246,18 +249,77 @@ const DashboardPage = ({ onLogout }) => {
       const response = await axiosInstance.post(`/bookmarks`, { url: newBookmarkUrl });
       setNewBookmarkUrl('');
       setDialogOpen(false);
-      
+
       const savedBookmark = response.data.bookmark;
-      
-      toast.success('Bookmark saved!', {
-        action: {
-          label: 'View',
-          onClick: () => navigate(`/bookmark/${savedBookmark.id}`)
-        }
-      });
-      
+
+      // Check if this is the first bookmark ever saved
+      const isFirstBookmark = !localStorage.getItem('arivu_first_bookmark_saved');
+
+      if (isFirstBookmark) {
+        // Mark first bookmark as saved
+        localStorage.setItem('arivu_first_bookmark_saved', 'true');
+
+        // Show confetti celebration
+        setShowConfetti(true);
+
+        // Show special first bookmark toast
+        toast.custom((t) => (
+          <SuccessToast
+            message="First bookmark saved! Your second brain begins."
+            action={{
+              label: 'View',
+              onClick: () => {
+                toast.dismiss(t);
+                navigate(`/bookmark/${savedBookmark.id}`);
+              }
+            }}
+            onClose={() => toast.dismiss(t)}
+          />
+        ), { duration: 5000 });
+      } else {
+        // Show custom toast with animated checkmark for subsequent bookmarks
+        toast.custom((t) => (
+          <SuccessToast
+            message="Saved!"
+            action={{
+              label: 'View',
+              onClick: () => {
+                toast.dismiss(t);
+                navigate(`/bookmark/${savedBookmark.id}`);
+              }
+            }}
+            onClose={() => toast.dismiss(t)}
+          />
+        ), { duration: 3000 });
+      }
+
       // Refresh bookmarks list after a delay for AI to start processing
-      setTimeout(() => fetchBookmarks(), 2000);
+      // and check for milestone achievements
+      setTimeout(async () => {
+        await fetchBookmarks();
+
+        // Check for bookmark count milestones
+        // We need to get the updated count after the new bookmark is added
+        try {
+          const countResponse = await axiosInstance.get('/bookmarks?limit=1');
+          // The backend returns paginated results, but we can estimate count from the current bookmarks length + 1
+          // Or better, check the current bookmarks array after fetch
+          const currentCount = bookmarks.length + 1; // +1 for the just-added bookmark
+          const milestoneToTrigger = checkBookmarkCountMilestones(currentCount);
+
+          if (milestoneToTrigger) {
+            markMilestoneReached(milestoneToTrigger, currentCount);
+            toast.custom((t) => (
+              <MilestoneToast
+                milestone={milestoneToTrigger}
+                onDismiss={() => toast.dismiss(t)}
+              />
+            ), { duration: 6000 });
+          }
+        } catch (err) {
+          console.error('Failed to check milestones:', err);
+        }
+      }, 2000);
     } catch (error) {
       toast.error('Failed to save bookmark');
     } finally {
@@ -737,6 +799,12 @@ const DashboardPage = ({ onLogout }) => {
       </Dialog>
 
       <KeyboardShortcutsModal open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
+
+      {/* First bookmark celebration confetti */}
+      <BrutalConfetti
+        active={showConfetti}
+        onComplete={() => setShowConfetti(false)}
+      />
     </div>
   );
 };
