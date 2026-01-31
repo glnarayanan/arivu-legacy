@@ -34,6 +34,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { Input } from './ui/input';
 import axiosInstance from '../utils/axiosConfig';
 import { toast } from 'sonner';
+import { OnboardingChecklist } from './onboarding';
 
 // Settings sections for when on settings page
 const SETTINGS_SECTIONS = [
@@ -64,6 +65,9 @@ const Sidebar = ({
   // Aged bookmarks props
   agedCount = 0,
   onViewAged,
+  // Onboarding props
+  bookmarkCount = 0,
+  onOpenAddBookmark,
 }) => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -192,6 +196,16 @@ const Sidebar = ({
           {/* Show Collections/Filters/Tags when NOT on Settings Page */}
           {!isSettingsPage && (
             <>
+              {/* Onboarding Checklist for new users */}
+              <div className="px-3 pt-2">
+                <OnboardingChecklist
+                  bookmarkCount={bookmarkCount}
+                  collectionCount={collections.length}
+                  hasVisitedGraph={localStorage.getItem('arivu_milestone_first_graph') === 'true'}
+                  onOpenAddBookmark={onOpenAddBookmark}
+                />
+              </div>
+
               {/* Aged Bookmarks Indicator */}
               {agedCount > 0 && (
                 <div className="mx-3 mb-3 p-2 bg-amber-50 border-2 border-foreground">
