@@ -10,6 +10,7 @@ import { StaggerContainer, StaggerItem } from '../components/motion/PageOrchestr
 import AppLayout from '../components/AppLayout';
 import { AILoadingSpinner, AnimatedCounter, MilestoneToast } from '../components/delight';
 import { checkMilestone, markMilestoneReached } from '../utils/milestones';
+import ErrorMessage from '../components/ErrorMessage';
 
 const KnowledgeGraphPage = ({ onLogout }) => {
   const navigate = useNavigate();
@@ -20,23 +21,29 @@ const KnowledgeGraphPage = ({ onLogout }) => {
   const [searchResults, setSearchResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
+  const [error, setError] = useState(null);
 
   // Track if milestone has been shown this session
   const milestoneShownRef = useRef(false);
 
-  useEffect(() => {
-    const fetchGraphData = async () => {
-      try {
-        const response = await axiosInstance.get('/knowledge-graph/explore?limit=100');
-        setGraphData(response.data);
-      } catch (error) {
-        toast.error('Failed to load knowledge graph');
-        console.error(error);
-      } finally {
-        setLoading(false);
-      }
-    };
+  const fetchGraphData = async () => {
+    try {
+      setError(null);
+      setLoading(true);
+      const response = await axiosInstance.get('/knowledge-graph/explore?limit=100');
+      setGraphData(response.data);
+    } catch (err) {
+      const message = err.response?.status === 0
+        ? 'Unable to connect. Check your internet connection.'
+        : err.response?.data?.detail || 'Failed to load knowledge graph';
+      setError(message);
+      toast.error(message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  useEffect(() => {
     fetchGraphData();
   }, []);
 
@@ -129,6 +136,13 @@ const KnowledgeGraphPage = ({ onLogout }) => {
           <div className="flex items-center justify-center py-20">
             <div className="animate-spin h-12 w-12 border-4 border-muted border-t-primary"></div>
           </div>
+        ) : error ? (
+          <ErrorMessage
+            title="Failed to load knowledge graph"
+            message={error}
+            onRetry={fetchGraphData}
+            retrying={loading}
+          />
         ) : !graphData ? (
           <div className="text-center py-20 border-2 border-dashed border-muted-foreground/20">
             <Network className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
@@ -150,12 +164,14 @@ const KnowledgeGraphPage = ({ onLogout }) => {
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="SEARCH BY MEANING, NOT JUST KEYWORDS..."
-                    className="flex-1 h-12 rounded-none border-2 border-foreground font-mono text-sm placeholder:uppercase placeholder:tracking-wider"
+                    maxLength={500}
+                    disabled={searching}
+                    className="flex-1 h-12 rounded-none border-2 border-foreground font-mono text-sm placeholder:uppercase placeholder:tracking-wider disabled:opacity-50"
                   />
                   <Button
                     type="submit"
-                    disabled={searching}
-                    className="h-12 px-6 rounded-none border-2 border-foreground bg-foreground text-background font-mono uppercase tracking-wider hover:bg-foreground/90"
+                    disabled={searching || searchQuery.length < 3}
+                    className="h-12 px-6 rounded-none border-2 border-foreground bg-foreground text-background font-mono uppercase tracking-wider hover:bg-foreground/90 disabled:opacity-50"
                   >
                     {searching ? (
                       <AILoadingSpinner
