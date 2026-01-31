@@ -17,12 +17,15 @@ import MemoryJogger from '../components/MemoryJogger';
 import { BrutalConfetti, SuccessToast, MilestoneToast } from '../components/delight';
 import { checkBookmarkCountMilestones, markMilestoneReached } from '../utils/milestones';
 import { WelcomeModal, EmptyStateGuide, FirstBookmarkGuide } from '../components/onboarding';
+import BookmarkCardSkeleton from '../components/BookmarkCardSkeleton';
+import ErrorMessage from '../components/ErrorMessage';
 
 const DashboardPage = ({ onLogout }) => {
   const navigate = useNavigate();
   const [bookmarks, setBookmarks] = useState([]);
   const [collections, setCollections] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterTag, setFilterTag] = useState('');
   const [filterDomain, setFilterDomain] = useState('');
@@ -58,6 +61,7 @@ const DashboardPage = ({ onLogout }) => {
 
   const fetchBookmarks = async () => {
     try {
+      setError(null);
       const params = new URLSearchParams();
       if (searchQuery) params.append('search', searchQuery);
       if (filterTag) params.append('tag', filterTag);
@@ -79,8 +83,12 @@ const DashboardPage = ({ onLogout }) => {
       });
       setAllTags([...tags]);
       setAllDomains([...domains]);
-    } catch (error) {
-      toast.error('Failed to fetch bookmarks');
+    } catch (err) {
+      const message = err.response?.status === 0
+        ? 'Unable to connect. Check your internet connection.'
+        : err.response?.data?.detail || 'Failed to load bookmarks';
+      setError(message);
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -453,6 +461,7 @@ const DashboardPage = ({ onLogout }) => {
                     placeholder="SEARCH..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
+                    maxLength={200}
                     className="h-10 rounded-none border-2 border-foreground bg-background pl-10 text-sm shadow-none focus-visible:ring-0 font-mono placeholder:text-muted-foreground"
                   />
                 </div>
@@ -497,6 +506,7 @@ const DashboardPage = ({ onLogout }) => {
                 placeholder="SEARCH BOOKMARKS..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
+                maxLength={200}
                 className="h-12 rounded-none border-2 border-foreground bg-background px-4 pl-12 text-base shadow-none focus-visible:ring-0 font-mono placeholder:text-muted-foreground"
               />
             </div>
@@ -695,14 +705,58 @@ const DashboardPage = ({ onLogout }) => {
           )}
 
           {loading ? (
-            <div className="flex items-center justify-center py-20">
-              <div className="animate-spin h-12 w-12 border-4 border-muted border-t-primary rounded-none"></div>
+            <div
+              className={viewMode === 'grid'
+                ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
+                : "space-y-3"
+              }
+            >
+              {[...Array(6)].map((_, i) => (
+                <BookmarkCardSkeleton key={i} viewMode={viewMode} />
+              ))}
             </div>
-          ) : bookmarks.length === 0 ? (
-            <EmptyStateGuide
-              type="bookmarks"
-              onPrimaryAction={() => setDialogOpen(true)}
+          ) : error ? (
+            <ErrorMessage
+              title="Failed to load bookmarks"
+              message={error}
+              onRetry={() => {
+                setLoading(true);
+                fetchBookmarks();
+              }}
+              retrying={loading}
             />
+          ) : bookmarks.length === 0 ? (
+            searchQuery || filterTag || filterDomain || filterCollection || readFilter !== 'all' ? (
+              <div className="text-center py-20 border-2 border-dashed border-muted-foreground/20 p-8">
+                <SearchIcon className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
+                <h2 className="font-display text-2xl font-semibold mb-2 uppercase tracking-wide">No results found</h2>
+                <p className="text-muted-foreground mb-6 font-mono text-sm">
+                  {searchQuery
+                    ? `No bookmarks match "${searchQuery.length > 30 ? searchQuery.slice(0, 30) + '...' : searchQuery}"`
+                    : 'No bookmarks match your current filters'
+                  }
+                </p>
+                <Button
+                  variant="outline"
+                  size="lg"
+                  className="rounded-none border-2 border-foreground bg-background hover:bg-muted font-mono uppercase tracking-wider"
+                  onClick={() => {
+                    setSearchQuery('');
+                    setFilterTag('');
+                    setFilterDomain('');
+                    setFilterCollection('');
+                    setReadFilter('all');
+                  }}
+                >
+                  Clear all filters
+                </Button>
+              </div>
+            ) : (
+              <EmptyStateGuide
+                type="bookmarks"
+                onPrimaryAction={() => setDialogOpen(true)}
+              />
+            )
           ) : (
             <StaggerContainer
               className={viewMode === 'grid'
@@ -762,6 +816,7 @@ const DashboardPage = ({ onLogout }) => {
               value={newBookmarkUrl}
               onChange={(e) => setNewBookmarkUrl(e.target.value)}
               required
+              maxLength={2048}
               className="rounded-none border-2 border-foreground font-mono"
               autoFocus
             />

@@ -144,6 +144,8 @@ const AuthPage = ({ onLogin }) => {
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                   required={!isLogin}
+                  maxLength={100}
+                  disabled={loading}
                 />
               </div>
             )}
@@ -158,6 +160,8 @@ const AuthPage = ({ onLogin }) => {
                 value={formData.email}
                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                 required
+                maxLength={254}
+                disabled={loading}
               />
             </div>
 
@@ -180,6 +184,8 @@ const AuthPage = ({ onLogin }) => {
                 value={formData.password}
                 onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                 required
+                maxLength={128}
+                disabled={loading}
               />
             </div>
 
@@ -220,6 +226,8 @@ const AuthPage = ({ onLogin }) => {
                 value={forgotPasswordEmail}
                 onChange={(e) => setForgotPasswordEmail(e.target.value)}
                 required
+                maxLength={254}
+                disabled={forgotPasswordLoading}
                 className="rounded-none border-2 border-foreground font-mono"
               />
             </div>
