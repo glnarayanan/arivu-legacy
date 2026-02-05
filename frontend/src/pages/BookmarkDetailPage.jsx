@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import axiosInstance from '../utils/axiosConfig';
 import { Button } from '../components/ui/button';
 import { toast } from 'sonner';
-import { ArrowLeftIcon, ExternalLinkIcon, SparklesIcon, ListIcon, BookOpenIcon, NetworkIcon, Shield, CheckCircle2, AlertTriangle, Clock } from 'lucide-react';
+import { ArrowLeftIcon, ExternalLinkIcon, SparklesIcon, ListIcon, NetworkIcon, Shield, CheckCircle2, AlertTriangle, Clock } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { motion } from 'framer-motion';
 import DOMPurify from 'dompurify';
@@ -179,16 +179,12 @@ const BookmarkDetailPage = ({ onLogout }) => {
                   </div>
 
                   <Tabs defaultValue="quick" className="w-full">
-                    <TabsList className="grid w-full grid-cols-3 bg-background border-2 border-foreground p-1">
+                    <TabsList className="grid w-full grid-cols-2 bg-background border-2 border-foreground p-1">
                       <TabsTrigger data-testid="quick-summary-tab" value="quick" className="data-[state=active]:bg-foreground data-[state=active]:text-background font-mono text-xs uppercase tracking-wider">
                         <ListIcon className="w-4 h-4 mr-2" />
-                        Quick
+                        Summary
                       </TabsTrigger>
                       <TabsTrigger data-testid="detailed-summary-tab" value="detailed" className="data-[state=active]:bg-foreground data-[state=active]:text-background font-mono text-xs uppercase tracking-wider">
-                        <BookOpenIcon className="w-4 h-4 mr-2" />
-                        Detailed
-                      </TabsTrigger>
-                      <TabsTrigger data-testid="highlights-tab" value="highlights" className="data-[state=active]:bg-foreground data-[state=active]:text-background font-mono text-xs uppercase tracking-wider">
                         <SparklesIcon className="w-4 h-4 mr-2" />
                         Highlights
                       </TabsTrigger>
@@ -197,45 +193,35 @@ const BookmarkDetailPage = ({ onLogout }) => {
                     <TabsContent value="quick" className="space-y-4 mt-4">
                       {bookmark.ai_summary.one_sentence && (
                         <div>
-                          <h3 className="font-mono text-xs uppercase tracking-widest text-muted-foreground mb-2">Summary</h3>
-                          <p className="text-lg leading-relaxed">
+                          <h3 className="font-mono text-xs uppercase tracking-widest text-muted-foreground mb-2">TL;DR</h3>
+                          <p className="text-lg leading-relaxed font-medium">
                             {bookmark.ai_summary.one_sentence}
                           </p>
                         </div>
                       )}
 
-                      {bookmark.ai_summary.bullet_points && bookmark.ai_summary.bullet_points.length > 0 && (
+                      {/* Exec Summary - new field, fallback to long_form for backward compat */}
+                      {(bookmark.ai_summary.exec_summary || bookmark.ai_summary.long_form) && (
                         <div>
-                          <h3 className="font-mono text-xs uppercase tracking-widest text-muted-foreground mb-2">Key Points</h3>
-                          <ul className="space-y-2">
-                            {bookmark.ai_summary.bullet_points.map((point, idx) => (
-                              <li key={idx} className="flex gap-3">
-                                <span className="text-primary font-bold">•</span>
-                                <span className="leading-relaxed">{point}</span>
-                              </li>
+                          <h3 className="font-mono text-xs uppercase tracking-widest text-muted-foreground mb-2">Executive Summary</h3>
+                          <div className="prose prose-sm max-w-none">
+                            {(bookmark.ai_summary.exec_summary || bookmark.ai_summary.long_form).split('\n').filter(p => p.trim()).map((para, idx) => (
+                              <p key={idx} className="mb-3 leading-relaxed text-foreground/90">{para}</p>
                             ))}
-                          </ul>
+                          </div>
                         </div>
                       )}
                     </TabsContent>
 
                     <TabsContent value="detailed" className="mt-4">
-                      {bookmark.ai_summary.long_form && (
-                        <div className="prose prose-sm max-w-none leading-loose">
-                          {bookmark.ai_summary.long_form.split('\n').map((para, idx) => (
-                            <p key={idx} className="mb-4 leading-loose">{para}</p>
+                      {bookmark.ai_summary.highlights && bookmark.ai_summary.highlights.length > 0 ? (
+                        <div className="space-y-3">
+                          {bookmark.ai_summary.highlights.map((highlight, idx) => (
+                            <div key={idx} className="border-l-4 border-primary bg-primary/5 pl-4 py-3">
+                              <p className="leading-relaxed">{highlight}</p>
+                            </div>
                           ))}
                         </div>
-                      )}
-                    </TabsContent>
-
-                    <TabsContent value="highlights" className="space-y-3 mt-4">
-                      {bookmark.ai_summary.highlights && bookmark.ai_summary.highlights.length > 0 ? (
-                        bookmark.ai_summary.highlights.map((highlight, idx) => (
-                          <div key={idx} className="border-l-4 border-primary bg-primary/10 pl-4 py-2">
-                            <p className="italic leading-relaxed">"{highlight}"</p>
-                          </div>
-                        ))
                       ) : (
                         <p className="text-muted-foreground font-mono text-sm">No highlights extracted</p>
                       )}
