@@ -241,7 +241,7 @@ def get_user_identifier(request: Request) -> str:
             user_id = payload.get("sub")
             if user_id:
                 return f"user:{user_id}"
-    except:
+    except Exception:
         pass
     # Fallback to IP-based rate limiting
     return f"ip:{get_remote_address(request)}"
@@ -773,7 +773,7 @@ async def send_password_reset_email(email: str, reset_token: str):
         logger.info(f"Password reset email sent to {email}")
         return True
     except Exception as e:
-        logger.error(f"Failed to send password reset email: {type(e).__name__}: {str(e)}")
+        logger.exception(f"Failed to send password reset email")
         return False
 
 
@@ -1078,9 +1078,8 @@ async def fetch_webpage_content(url: str):
     except Exception as e:
         # Sanitize URL in logs - remove query params and fragments
         safe_url = urlparse(url)._replace(query="", fragment="").geturl()
-        logger.error(
-            f"Error fetching webpage from domain {urlparse(url).netloc}: {type(e).__name__}: {str(e)}",
-            exc_info=True,
+        logger.exception(
+            f"Error fetching webpage from domain {urlparse(url).netloc}"
         )
         return {
             "title": urlparse(url).netloc,
@@ -1111,8 +1110,8 @@ async def generate_ai_summaries(text_content: str, bookmark_id: str):
         )
         return {"processing_status": "failed"}
     except Exception as e:
-        logger.error(
-            f"Error in AI summary wrapper for bookmark {bookmark_id}: {type(e).__name__}"
+        logger.exception(
+            f"Error in AI summary wrapper for bookmark {bookmark_id}"
         )
         return {"processing_status": "failed"}
 
@@ -1288,8 +1287,8 @@ TAGS:""",
         logger.info(f"AI summaries generated successfully for bookmark {bookmark_id}")
         return {"processing_status": "completed"}
     except Exception as e:
-        logger.error(
-            f"Error generating AI summaries for bookmark {bookmark_id}: {type(e).__name__}"
+        logger.exception(
+            f"Error generating AI summaries for bookmark {bookmark_id}"
         )
         await db.ai_summaries.update_one(
             {"bookmark_id": bookmark_id},
@@ -1380,7 +1379,7 @@ async def generate_embedding(
         return normalized_embedding
 
     except Exception as e:
-        logger.error(f"Error generating embedding: {type(e).__name__}: {str(e)}")
+        logger.exception(f"Error generating embedding")
         return None
 
 
@@ -1498,7 +1497,7 @@ Rules:
         logger.warning(f"Failed to parse entity extraction JSON: {e}")
         return []
     except Exception as e:
-        logger.error(f"Error in Gemini entity extraction: {type(e).__name__}: {str(e)}")
+        logger.exception(f"Error in Gemini entity extraction")
         return []
 
 
@@ -1531,7 +1530,7 @@ async def extract_entities_and_concepts(
         return entities, concepts
 
     except Exception as e:
-        logger.error(f"Error extracting entities and concepts: {type(e).__name__}")
+        logger.exception(f"Error extracting entities and concepts")
         return [], []
 
 
@@ -1600,7 +1599,7 @@ async def process_bookmark_content(
 
         logger.info(f"Successfully processed bookmark: {bookmark_id}")
     except Exception as e:
-        logger.error(f"Error processing bookmark {bookmark_id}: {type(e).__name__}")
+        logger.exception(f"Error processing bookmark {bookmark_id}")
 
 
 async def process_bulk_import(
@@ -1657,8 +1656,8 @@ async def process_bulk_import(
                     )
             except Exception as e:
                 failed += 1
-                logger.error(
-                    f"Error fetching content for bookmark {bookmark_id}: {type(e).__name__}"
+                logger.exception(
+                    f"Error fetching content for bookmark {bookmark_id}"
                 )
 
         # Update after Phase 1 completion
@@ -1725,8 +1724,8 @@ async def process_bulk_import(
                     )
             except Exception as e:
                 failed += 1
-                logger.error(
-                    f"Error processing AI for bookmark {bookmark_id}: {type(e).__name__}"
+                logger.exception(
+                    f"Error processing AI for bookmark {bookmark_id}"
                 )
 
         # Mark job as completed
@@ -1747,7 +1746,7 @@ async def process_bulk_import(
         )
 
     except Exception as e:
-        logger.error(f"Error in bulk import job {import_job_id}: {type(e).__name__}")
+        logger.exception(f"Error in bulk import job {import_job_id}")
         await db.import_jobs.update_one(
             {"id": import_job_id},
             {
@@ -3569,8 +3568,8 @@ async def regenerate_embeddings(
                         )
 
             except Exception as e:
-                logger.error(
-                    f"Error generating embedding for bookmark {bookmark.get('id')}: {e}"
+                logger.exception(
+                    f"Error generating embedding for bookmark {bookmark.get('id')}"
                 )
 
         logger.info(
@@ -3760,7 +3759,7 @@ async def detect_duplicates(current_user: dict = Depends(get_current_user_info))
                                 "bookmarks": [bookmarks[i], bookmarks[j]],
                             }
                         )
-        except:
+        except Exception:
             pass
 
     return {"duplicates": duplicates}
@@ -4024,8 +4023,8 @@ async def import_bookmarks(
         # Re-raise HTTP exceptions as-is (these are validation errors with proper messages)
         raise
     except Exception as e:
-        logger.error(
-            f"Error importing bookmarks for user {current_user['id']}: {type(e).__name__} - {str(e)}"
+        logger.exception(
+            f"Error importing bookmarks for user {current_user['id']}"
         )
         raise HTTPException(
             status_code=500, detail=f"Failed to import bookmarks: {str(e)}"
