@@ -193,6 +193,9 @@ gemini_rate_limiter = EnhancedGeminiRateLimiter(
     max_daily=5000,  # 50% of 10K requests/day
 )
 
+# Environment detection for security settings
+IS_PRODUCTION = os.environ.get("ENVIRONMENT", "development") == "production"
+
 # Configure structured logging
 logging.basicConfig(
     level=os.environ.get("LOG_LEVEL", "INFO").upper(),
@@ -200,6 +203,7 @@ logging.basicConfig(
     handlers=[logging.StreamHandler()],
 )
 logger = logging.getLogger(__name__)
+logger.info(f"Server running in {'PRODUCTION' if IS_PRODUCTION else 'DEVELOPMENT'} mode")
 
 mongo_url = os.environ["MONGO_URL"]
 # Configure MongoDB client with timeouts to prevent hanging connections
@@ -642,7 +646,7 @@ async def login(request: Request, login_data: UserLogin, response: Response):
         key="access_token",
         value=access_token,
         httponly=True,
-        secure=False,  # Set to False for localhost dev
+        secure=IS_PRODUCTION,
         samesite="lax",
         max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         path="/",
@@ -652,7 +656,7 @@ async def login(request: Request, login_data: UserLogin, response: Response):
         key="refresh_token",
         value=refresh_token,
         httponly=True,
-        secure=False,
+        secure=IS_PRODUCTION,
         samesite="lax",
         max_age=REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
         path="/",
