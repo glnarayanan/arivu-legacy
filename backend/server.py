@@ -1058,7 +1058,8 @@ async def fetch_webpage_content(url: str):
             text_content = soup.get_text(separator="\n", strip=True)
             text_content = text_content if text_content else ""
 
-        text_content = " ".join(text_content.split())[:10000]
+        # Store full content for offline reading (AI processing applies its own adaptive limits)
+        text_content = " ".join(text_content.split())
 
         logger.info(f"Successfully fetched content from {urlparse(url).netloc}")
         return {
@@ -1129,43 +1130,73 @@ async def _generate_ai_summaries_impl(text_content: str, bookmark_id: str):
         genai.configure(api_key=gemini_api_key)
         model = genai.GenerativeModel("gemini-2.5-flash")
 
-        content_snippet = text_content[:4000].strip()
+        # Use generous content for AI processing (Gemini 2.5 Flash has 1M token context)
+        # Full text stored in DB; this limit is just for AI summarization cost efficiency
+        content_for_summary = text_content[:50000].strip()  # ~10K tokens
 
-        # Define all prompts upfront
+        # Shorter snippet for tags (topic detection doesn't need full article)
+        content_for_tags = text_content[:5000].strip()
+
+        # Define all prompts with improved quality guidance
         prompts = {
-            "one_sentence": f"""You are a factual summarizer. Create ONE concise sentence (max 20 words) summarizing the main point. Be direct and factual.
+            "one_sentence": f"""You are an expert content analyst. Your task is to distill the core message of this article into a single, precise sentence.
 
-Summarize in ONE sentence:
+REQUIREMENTS:
+- Maximum 25 words
+- Capture the PRIMARY insight, finding, or argument
+- Be specific—avoid generic statements like "this article discusses..."
+- Use active voice and strong verbs
+- Include the most newsworthy or unique element
 
-{content_snippet}""",
-            "bullets": f"""Extract exactly 3 key bullet points. Format as:
-- Point 1
-- Point 2
-- Point 3
-Be factual and concise.
+ARTICLE:
+{content_for_summary}
 
-Extract 3 key points:
+ONE-SENTENCE SUMMARY:""",
+            "exec_summary": f"""You are a senior analyst creating an executive briefing. Summarize this content for a busy professional who needs to quickly understand the key points.
 
-{content_snippet}""",
-            "long_form": f"""Create a comprehensive summary (150-200 words) with clear sections. Be factual and well-structured.
+REQUIREMENTS:
+- Write 2-3 paragraphs (100-150 words total)
+- First paragraph: The core argument or main finding
+- Second paragraph: Key supporting evidence or examples
+- Third paragraph (if needed): Implications or takeaways
+- Use clear, direct language—no filler phrases
+- Be specific with numbers, names, and facts when available
+- Avoid meta-commentary like "this article shows..."
 
-Create a detailed summary with Overview, Key Facts, and Main Points:
+ARTICLE:
+{content_for_summary}
 
-{content_snippet}""",
-            "highlights": f"""Extract 3-5 important direct quotes or key statements. Return one per line without bullets.
+EXECUTIVE SUMMARY:""",
+            "highlights": f"""You are extracting the most valuable insights from this content. Identify 4-6 key highlights that a reader would want to remember.
 
-Extract key quotes or statements:
+REQUIREMENTS:
+- Each highlight should be a complete, standalone insight
+- Include specific facts, statistics, quotes, or findings
+- Focus on actionable or memorable information
+- Write each highlight as 1-2 sentences
+- Format: One highlight per line, no bullets or numbers
 
-{content_snippet}""",
-            "tags": f"""Generate 4-6 relevant single-word or two-word tags. Return comma-separated lowercase tags.
+ARTICLE:
+{content_for_summary}
 
-Generate relevant tags:
+KEY HIGHLIGHTS:""",
+            "tags": f"""Generate precise, useful tags for categorizing and searching this content.
 
-{content_snippet[:1500]}""",
+REQUIREMENTS:
+- 4-6 tags total
+- Mix of: topic tags, format tags (e.g., tutorial, opinion, research), and domain tags
+- Use lowercase, hyphenate multi-word tags (e.g., machine-learning)
+- Be specific (prefer "react-hooks" over "javascript")
+- Return as comma-separated list
+
+ARTICLE:
+{content_for_tags}
+
+TAGS:""",
         }
 
-        # Estimated tokens per prompt (avg ~1000 tokens each)
-        estimated_tokens_per_call = 1000
+        # Estimated tokens per prompt - higher for longer content
+        estimated_tokens_per_call = 1500
 
         # Parallel API call function
         async def call_gemini(prompt_type, prompt_text):
@@ -1182,12 +1213,11 @@ Generate relevant tags:
 
             return prompt_type, response
 
-        # Execute all 5 calls in parallel
+        # Execute all 4 calls in parallel (removed bullets and long_form, added exec_summary)
         results = await asyncio.gather(
             *[
                 call_gemini("one_sentence", prompts["one_sentence"]),
-                call_gemini("bullets", prompts["bullets"]),
-                call_gemini("long_form", prompts["long_form"]),
+                call_gemini("exec_summary", prompts["exec_summary"]),
                 call_gemini("highlights", prompts["highlights"]),
                 call_gemini("tags", prompts["tags"]),
             ]
@@ -1203,60 +1233,51 @@ Generate relevant tags:
             else "Summary unavailable"
         )
 
-        # Parse bullet points
-        bullet_points = []
-        if results_dict["bullets"].text:
-            for line in results_dict["bullets"].text.split("\n"):
-                line = line.strip()
-                if line.startswith("-") or line.startswith("•") or line.startswith("*"):
-                    bullet_points.append(line.lstrip("-•* ").strip())
-            bullet_points = bullet_points[:3]
-
-            if len(bullet_points) < 3:
-                bullet_points = [
-                    b.strip()
-                    for b in results_dict["bullets"].text.split(".")
-                    if b.strip()
-                ][:3]
-
-        # Parse long-form summary
-        long_form = (
-            results_dict["long_form"].text.strip()
-            if results_dict["long_form"].text
-            else "Detailed summary unavailable"
+        # Parse executive summary (replaces both bullets and long_form)
+        exec_summary = (
+            results_dict["exec_summary"].text.strip()
+            if results_dict["exec_summary"].text
+            else "Executive summary unavailable"
         )
 
-        # Parse highlights
+        # Parse highlights (improved parsing for 4-6 highlights)
         highlights = []
         if results_dict["highlights"].text:
             for line in results_dict["highlights"].text.split("\n"):
-                line = line.strip().strip('-•*"').strip('"').strip()
-                if len(line) > 10:
+                # Clean up the line - remove bullets, numbers, quotes
+                line = line.strip()
+                line = line.lstrip("-•*0123456789.)")
+                line = line.strip().strip('"').strip()
+                if len(line) > 20:  # Require more substantial highlights
                     highlights.append(line)
-            highlights = highlights[:5]
+            highlights = highlights[:6]
 
-        # Parse tags
+        # Parse tags (improved to handle hyphenated multi-word tags)
         suggested_tags = []
         if results_dict["tags"].text:
-            for tag in (
-                results_dict["tags"].text.replace(",", " ").replace("\n", " ").split()
-            ):
+            # Split by comma first, then clean each tag
+            raw_tags = results_dict["tags"].text.replace("\n", ",").split(",")
+            for tag in raw_tags:
                 tag = tag.strip().strip(".,;:").lower()
-                if tag and len(tag) > 2:
+                # Remove any remaining bullets or numbers
+                tag = tag.lstrip("-•*0123456789.) ")
+                if tag and len(tag) > 2 and len(tag) < 30:
                     suggested_tags.append(tag)
-            suggested_tags = list(set(suggested_tags))[:6]
+            suggested_tags = list(dict.fromkeys(suggested_tags))[:6]  # Preserve order, remove dupes
 
         await db.ai_summaries.update_one(
             {"bookmark_id": bookmark_id},
             {
                 "$set": {
                     "one_sentence": one_sentence,
-                    "bullet_points": bullet_points,
-                    "long_form": long_form,
+                    "exec_summary": exec_summary,
                     "highlights": highlights,
                     "suggested_tags": suggested_tags,
                     "processing_status": "completed",
                     "updated_at": datetime.now(timezone.utc).isoformat(),
+                    # Keep legacy fields for backward compatibility
+                    "bullet_points": [],  # Deprecated
+                    "long_form": exec_summary,  # Map to exec_summary for backward compat
                 }
             },
         )
@@ -2590,9 +2611,15 @@ async def explore_knowledge_graph(
     limit: int = 50, current_user: dict = Depends(get_current_user_info)
 ):
     """
-    Explore the user's knowledge graph - get all bookmarks with semantic data
-    Part of Semantic Knowledge Graph feature (Phase 1)
+    Explore the user's knowledge graph with enhanced graph metrics.
+    
+    Features:
+    - Entity/concept importance ranking (by connection count)
+    - Bookmark similarity clusters
+    - Co-occurrence relationships
     """
+    import numpy as np
+    
     # Get all bookmarks with embeddings
     bookmarks = (
         await db.bookmarks.find(
@@ -2612,24 +2639,39 @@ async def explore_knowledge_graph(
                 "created_at": 1,
                 "entities": 1,
                 "concepts": 1,
-                "embedding": 1,  # Include for clustering
+                "embedding": 1,
             },
         )
         .limit(limit)
         .to_list(None)
     )
 
-    # Extract all unique entities and concepts
-    all_entities = set()
-    all_concepts = set()
+    if not bookmarks:
+        return {
+            "bookmarks": [],
+            "entities": [],
+            "concepts": [],
+            "concept_connections": {},
+            "entity_connections": {},
+            "entity_importance": {},
+            "concept_importance": {},
+            "related_bookmarks": {},
+            "total_bookmarks": 0,
+            "total_entities": 0,
+            "total_concepts": 0,
+        }
+
+    # Extract all unique entities and concepts with counts
+    entity_counts = {}
+    concept_counts = {}
 
     for bookmark in bookmarks:
-        if bookmark.get("entities"):
-            all_entities.update(bookmark["entities"])
-        if bookmark.get("concepts"):
-            all_concepts.update(bookmark["concepts"])
+        for entity in bookmark.get("entities", []):
+            entity_counts[entity] = entity_counts.get(entity, 0) + 1
+        for concept in bookmark.get("concepts", []):
+            concept_counts[concept] = concept_counts.get(concept, 0) + 1
 
-    # Build concept/entity connections (which bookmarks share which concepts)
+    # Build concept/entity connections
     concept_connections = {}
     entity_connections = {}
 
@@ -2646,24 +2688,241 @@ async def explore_knowledge_graph(
                 entity_connections[entity] = []
             entity_connections[entity].append(bookmark_id)
 
+    # Calculate entity/concept importance (IDF-weighted connection score)
+    total_docs = len(bookmarks)
+    
+    def calculate_importance(count: int) -> float:
+        # Higher count = more connected = more important, but with diminishing returns
+        # Also penalize very common terms (like TF-IDF logic)
+        if count == 0:
+            return 0.0
+        idf = math.log((total_docs + 1) / (count + 1)) + 1
+        connection_score = math.log(count + 1)
+        return round(idf * connection_score, 3)
+    
+    entity_importance = {
+        entity: calculate_importance(count) 
+        for entity, count in entity_counts.items()
+    }
+    concept_importance = {
+        concept: calculate_importance(count) 
+        for concept, count in concept_counts.items()
+    }
+
+    # Find related bookmarks using embedding similarity
+    related_bookmarks = {}
+    embedding_map = {b["id"]: b.get("embedding") for b in bookmarks if b.get("embedding")}
+    
+    if len(embedding_map) > 1:
+        def dot_product_similarity(vec1, vec2):
+            return float(np.dot(vec1, vec2))
+        
+        # For each bookmark, find top 3 most similar
+        for bookmark in bookmarks:
+            if not bookmark.get("embedding"):
+                continue
+            
+            similarities = []
+            for other in bookmarks:
+                if other["id"] == bookmark["id"] or not other.get("embedding"):
+                    continue
+                sim = dot_product_similarity(bookmark["embedding"], other["embedding"])
+                if sim > 0.5:  # Only include reasonably similar
+                    similarities.append((other["id"], round(sim, 3)))
+            
+            # Sort and take top 3
+            similarities.sort(key=lambda x: x[1], reverse=True)
+            if similarities:
+                related_bookmarks[bookmark["id"]] = similarities[:3]
+
     # Remove embeddings from response to reduce payload
     for bookmark in bookmarks:
         bookmark.pop("embedding", None)
 
+    # Sort entities/concepts by importance for response
+    top_entities = sorted(entity_importance.items(), key=lambda x: x[1], reverse=True)[:50]
+    top_concepts = sorted(concept_importance.items(), key=lambda x: x[1], reverse=True)[:50]
+
     return {
         "bookmarks": bookmarks,
-        "entities": list(all_entities),
-        "concepts": list(all_concepts),
+        "entities": [e[0] for e in top_entities],
+        "concepts": [c[0] for c in top_concepts],
         "concept_connections": concept_connections,
         "entity_connections": entity_connections,
+        "entity_importance": dict(top_entities),
+        "concept_importance": dict(top_concepts),
+        "related_bookmarks": related_bookmarks,
         "total_bookmarks": len(bookmarks),
-        "total_entities": len(all_entities),
-        "total_concepts": len(all_concepts),
+        "total_entities": len(entity_counts),
+        "total_concepts": len(concept_counts),
     }
 
 
 # Minimum semantic similarity threshold for search results
-MIN_SEMANTIC_SCORE = 0.25
+# ============================================================================
+# ENHANCED SEARCH ALGORITHM - BM25 + RRF + Graph-Aware Ranking
+# ============================================================================
+
+# BM25 parameters (tuned for bookmark search)
+BM25_K1 = 1.2  # Term frequency saturation
+BM25_B = 0.75  # Length normalization factor
+
+# RRF fusion constant (typically 20-60, higher = more weight to lower ranks)
+RRF_K = 60
+
+# Stopwords for tokenization
+SEARCH_STOPWORDS = {
+    "a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for",
+    "of", "with", "by", "from", "as", "is", "was", "are", "were", "been",
+    "be", "have", "has", "had", "do", "does", "did", "will", "would",
+    "could", "should", "may", "might", "must", "shall", "can", "this",
+    "that", "these", "those", "it", "its", "i", "you", "he", "she", "we",
+    "they", "what", "which", "who", "whom", "when", "where", "why", "how",
+}
+
+
+def tokenize_text(text: str) -> List[str]:
+    """Tokenize text for BM25 scoring."""
+    if not text:
+        return []
+    # Lowercase, split on non-alphanumeric, filter stopwords and short tokens
+    tokens = re.findall(r'\b[a-z0-9]+\b', text.lower())
+    return [t for t in tokens if t not in SEARCH_STOPWORDS and len(t) > 1]
+
+
+def calculate_bm25_score(
+    query_tokens: List[str],
+    doc_tokens: List[str],
+    doc_freq: Dict[str, int],
+    avg_doc_len: float,
+    total_docs: int,
+) -> float:
+    """
+    Calculate BM25 score for a document given a query.
+    
+    BM25(d, q) = Σ IDF(t) * (tf(t,d) * (k1+1)) / (tf(t,d) + k1 * (1 - b + b * |d|/avgdl))
+    """
+    if not query_tokens or not doc_tokens:
+        return 0.0
+    
+    doc_len = len(doc_tokens)
+    if doc_len == 0 or avg_doc_len == 0:
+        return 0.0
+    
+    # Count term frequencies in document
+    doc_tf = {}
+    for token in doc_tokens:
+        doc_tf[token] = doc_tf.get(token, 0) + 1
+    
+    score = 0.0
+    for term in query_tokens:
+        if term not in doc_tf:
+            continue
+        
+        tf = doc_tf[term]
+        df = doc_freq.get(term, 1)  # Document frequency of term
+        
+        # IDF with smoothing: log((N - df + 0.5) / (df + 0.5))
+        idf = max(0.0, math.log((total_docs - df + 0.5) / (df + 0.5)))
+        
+        # BM25 term score
+        numerator = tf * (BM25_K1 + 1)
+        denominator = tf + BM25_K1 * (1 - BM25_B + BM25_B * (doc_len / avg_doc_len))
+        
+        score += idf * (numerator / denominator)
+    
+    return score
+
+
+def calculate_entity_boost(
+    query_entities: List[str],
+    doc_entities: List[str],
+    entity_idf: Dict[str, float],
+) -> float:
+    """
+    Calculate IDF-weighted entity overlap score.
+    Boosts bookmarks that share entities/concepts with the query.
+    """
+    if not query_entities or not doc_entities:
+        return 0.0
+    
+    query_set = {e.lower() for e in query_entities}
+    doc_set = {e.lower() for e in doc_entities}
+    
+    overlap = query_set & doc_set
+    if not overlap:
+        return 0.0
+    
+    # Sum IDF weights for matching entities
+    score = sum(entity_idf.get(e, 1.0) for e in overlap)
+    return score
+
+
+def reciprocal_rank_fusion(
+    ranked_lists: List[List[tuple]],
+    k: int = RRF_K,
+) -> Dict[str, float]:
+    """
+    Combine multiple ranked lists using Reciprocal Rank Fusion.
+    
+    RRF(d) = Σ 1 / (k + rank_l(d)) for each list l
+    
+    Args:
+        ranked_lists: List of [(doc_id, score), ...] sorted by score descending
+        k: Fusion constant (default 60)
+    
+    Returns:
+        Dict of doc_id -> RRF score
+    """
+    rrf_scores = {}
+    
+    for ranked_list in ranked_lists:
+        for rank, (doc_id, _score) in enumerate(ranked_list, start=1):
+            if doc_id not in rrf_scores:
+                rrf_scores[doc_id] = 0.0
+            rrf_scores[doc_id] += 1.0 / (k + rank)
+    
+    return rrf_scores
+
+
+def detect_query_type(query: str) -> str:
+    """
+    Detect query type to adapt search weighting.
+    
+    Returns: 'exact', 'technical', or 'semantic'
+    """
+    # Quoted phrases indicate exact match desire
+    if '"' in query or "'" in query:
+        return 'exact'
+    
+    # Technical patterns: URLs, code-like syntax, file paths
+    if re.search(r'[/\\._:@#]+', query) or re.search(r'\b\d+\.\d+\b', query):
+        return 'technical'
+    
+    # Short queries (1-2 words) tend to be keyword-focused
+    word_count = len(query.split())
+    if word_count <= 2:
+        return 'exact'
+    
+    # Longer natural language queries benefit from semantic
+    return 'semantic'
+
+
+def get_adaptive_weights(query_type: str) -> tuple:
+    """
+    Get adaptive semantic/keyword weights based on query type.
+    
+    Returns: (semantic_weight, keyword_weight)
+    """
+    if query_type == 'exact':
+        return (0.3, 0.7)  # Favor keyword matching
+    elif query_type == 'technical':
+        return (0.4, 0.6)  # Balanced with keyword edge
+    else:  # semantic
+        return (0.75, 0.25)  # Favor semantic understanding
+
+
+import math
 
 
 @api_router.get("/knowledge-graph/search")
@@ -2671,16 +2930,17 @@ async def semantic_search(
     query: str, limit: int = 10, current_user: dict = Depends(get_current_user_info)
 ):
     """
-    Semantic search across all bookmarks using query embedding.
-    Uses correct task_type for queries and applies minimum similarity threshold.
-    Part of Semantic Knowledge Graph feature (Phase 1)
+    Enhanced semantic search using adaptive thresholds and entity boosting.
+    Uses RRF to combine semantic similarity with entity overlap.
     """
+    import numpy as np
+    
     if not query or len(query.strip()) < 3:
         raise HTTPException(
             status_code=400, detail="Query must be at least 3 characters"
         )
 
-    # Generate embedding for the search query with correct task type
+    # Generate embedding for the search query
     query_embedding = await generate_embedding(
         query, min_length=3, task_type="retrieval_query"
     )
@@ -2712,38 +2972,98 @@ async def semantic_search(
     if not all_bookmarks:
         return {"results": [], "message": "No bookmarks with semantic data available"}
 
-    # Calculate similarity scores using dot product (vectors are L2-normalized)
-    import numpy as np
-
     def dot_product_similarity(vec1, vec2):
-        """Dot product of L2-normalized vectors equals cosine similarity."""
         return float(np.dot(vec1, vec2))
 
-    results = []
+    # Calculate semantic scores for all bookmarks
+    semantic_scores = []
     for bookmark in all_bookmarks:
         if bookmark.get("embedding"):
-            similarity = dot_product_similarity(query_embedding, bookmark["embedding"])
-            # Only include results above minimum threshold
-            if similarity >= MIN_SEMANTIC_SCORE:
-                bookmark.pop("embedding", None)
-                bookmark["similarity_score"] = similarity
-                results.append(bookmark)
+            sim = dot_product_similarity(query_embedding, bookmark["embedding"])
+            semantic_scores.append((bookmark["id"], sim, bookmark))
+    
+    if not semantic_scores:
+        return {"results": [], "message": "No bookmarks with embeddings"}
 
-    # Sort by similarity and return top results
-    results.sort(key=lambda x: x["similarity_score"], reverse=True)
+    # Calculate adaptive threshold based on score distribution
+    scores_only = [s[1] for s in semantic_scores]
+    if scores_only:
+        mean_score = sum(scores_only) / len(scores_only)
+        std_score = (sum((s - mean_score) ** 2 for s in scores_only) / len(scores_only)) ** 0.5
+        # Adaptive threshold: at least 0.10, or mean - 1 std
+        adaptive_threshold = max(0.10, mean_score - std_score)
+    else:
+        adaptive_threshold = 0.15
+
+    # Build entity IDF for boosting
+    entity_counts = {}
+    for bookmark in all_bookmarks:
+        for entity in bookmark.get("entities", []) + bookmark.get("concepts", []):
+            entity_lower = entity.lower()
+            entity_counts[entity_lower] = entity_counts.get(entity_lower, 0) + 1
+    
+    total_docs = len(all_bookmarks)
+    entity_idf = {
+        e: math.log((total_docs + 1) / (count + 1)) 
+        for e, count in entity_counts.items()
+    }
+
+    # Extract entities from query (simple approach: use query tokens as potential entities)
+    query_tokens = tokenize_text(query)
+    
+    # Build ranked lists for RRF
+    # List 1: Semantic similarity
+    semantic_ranked = sorted(semantic_scores, key=lambda x: x[1], reverse=True)[:100]
+    
+    # List 2: Entity/concept overlap (using query tokens as entity proxies)
+    entity_scores = []
+    for bookmark in all_bookmarks:
+        all_doc_entities = bookmark.get("entities", []) + bookmark.get("concepts", [])
+        boost = calculate_entity_boost(query_tokens, all_doc_entities, entity_idf)
+        if boost > 0:
+            entity_scores.append((bookmark["id"], boost, bookmark))
+    entity_ranked = sorted(entity_scores, key=lambda x: x[1], reverse=True)[:100]
+
+    # RRF fusion
+    rrf_scores = reciprocal_rank_fusion([
+        [(item[0], item[1]) for item in semantic_ranked],
+        [(item[0], item[1]) for item in entity_ranked],
+    ])
+
+    # Build result set
+    bookmark_map = {b["id"]: b for b in all_bookmarks}
+    semantic_map = {item[0]: item[1] for item in semantic_scores}
+    entity_map = {item[0]: item[1] for item in entity_scores}
+    
+    results = []
+    for doc_id, rrf_score in rrf_scores.items():
+        sem_score = semantic_map.get(doc_id, 0.0)
+        
+        # Apply adaptive threshold
+        if sem_score < adaptive_threshold:
+            continue
+        
+        bookmark = bookmark_map[doc_id].copy()
+        bookmark.pop("embedding", None)
+        bookmark["similarity_score"] = round(sem_score, 4)
+        bookmark["entity_score"] = round(entity_map.get(doc_id, 0.0), 4)
+        bookmark["rrf_score"] = round(rrf_score, 4)
+        results.append(bookmark)
+
+    # Sort by RRF score
+    results.sort(key=lambda x: x["rrf_score"], reverse=True)
     top_results = results[:limit]
 
-    # Provide helpful message if no strong matches
     message = None
     if not top_results:
         message = "No strongly matching bookmarks found. Try different search terms."
 
-    return {"results": top_results, "query": query, "message": message}
-
-
-# Hybrid search weights
-SEMANTIC_WEIGHT = 0.7
-KEYWORD_WEIGHT = 0.3
+    return {
+        "results": top_results,
+        "query": query,
+        "adaptive_threshold": round(adaptive_threshold, 4),
+        "message": message,
+    }
 
 
 @api_router.get("/search")
@@ -2758,13 +3078,14 @@ async def hybrid_search(
     current_user: dict = Depends(get_current_user_info),
 ):
     """
-    Hybrid search combining keyword matching and semantic similarity.
+    Enhanced hybrid search using BM25 + Semantic + Entity boosting with RRF fusion.
     
-    Two-stage retrieval:
-    1. Keyword candidate retrieval (fast, broad coverage)
-    2. Semantic reranking of candidates (accurate, meaning-based)
-    
-    This provides the best of both worlds: exact keyword matches AND conceptual relevance.
+    Improvements over basic hybrid:
+    1. BM25 for proper lexical ranking (not just substring matching)
+    2. Reciprocal Rank Fusion for robust score combination
+    3. Adaptive weighting based on query type
+    4. Entity/concept graph boosting
+    5. Adaptive semantic thresholds
     """
     import numpy as np
     
@@ -2774,7 +3095,12 @@ async def hybrid_search(
         )
     
     query_lower = query.lower().strip()
+    query_tokens = tokenize_text(query)
     user_id = current_user["id"]
+    
+    # Detect query type for adaptive weighting
+    query_type = detect_query_type(query)
+    semantic_weight, keyword_weight = get_adaptive_weights(query_type)
     
     # Build base query with filters
     base_query = {"user_id": user_id}
@@ -2810,116 +3136,173 @@ async def hybrid_search(
         "embedding": 1,
         "entities": 1,
         "concepts": 1,
+        "text_content": 1,  # For BM25 scoring
     }
     
-    # Stage 1: Get keyword candidates (up to 200 for reranking)
-    candidate_limit = min(200, limit * 10)  # Get more candidates for reranking
-    
-    # Fetch all user bookmarks that match filters (we'll filter by keyword in Python)
+    # Fetch candidates (increased limit for better reranking)
+    candidate_limit = min(500, limit * 25)
     all_candidates = await db.bookmarks.find(
         base_query, projection
-    ).limit(candidate_limit * 2).to_list(None)
+    ).limit(candidate_limit).to_list(None)
     
-    # Keyword scoring: check title, description, url, entities, concepts
-    def keyword_score(bookmark: dict) -> float:
-        """Score bookmark based on keyword matching (0-1 scale)."""
-        score = 0.0
-        max_score = 5.0  # Normalize to 0-1
-        
-        title = (bookmark.get("title") or "").lower()
-        description = (bookmark.get("description") or "").lower()
-        url = (bookmark.get("url") or "").lower()
-        entities = [e.lower() for e in bookmark.get("entities", [])]
-        concepts = [c.lower() for c in bookmark.get("concepts", [])]
-        
-        # Title match (highest weight)
-        if query_lower in title:
-            score += 2.0
-            # Exact title match bonus
-            if query_lower == title:
-                score += 1.0
-        
-        # Description match
-        if query_lower in description:
-            score += 1.0
-        
-        # URL match
-        if query_lower in url:
-            score += 0.5
-        
-        # Entity/concept match
-        if any(query_lower in e for e in entities):
-            score += 0.5
-        if any(query_lower in c for c in concepts):
-            score += 0.5
-        
-        return min(score / max_score, 1.0)
+    if not all_candidates:
+        return {
+            "results": [],
+            "query": query,
+            "total": 0,
+            "search_mode": {"semantic": use_semantic, "keyword": use_keyword},
+            "message": "No bookmarks found matching filters.",
+        }
     
-    # Score all candidates by keyword
-    keyword_candidates = []
+    # ========== BM25 SCORING ==========
+    # Build document corpus for BM25
+    doc_tokens_map = {}
+    all_doc_lengths = []
+    doc_freq = {}  # Term -> number of documents containing it
+    
     for bookmark in all_candidates:
-        kw_score = keyword_score(bookmark)
-        if use_keyword and kw_score > 0:
-            bookmark["_keyword_score"] = kw_score
-            keyword_candidates.append(bookmark)
-        elif not use_keyword:
-            bookmark["_keyword_score"] = 0.0
-            keyword_candidates.append(bookmark)
+        # Combine searchable text fields (weighted by importance)
+        title = bookmark.get("title") or ""
+        description = bookmark.get("description") or ""
+        text_content = (bookmark.get("text_content") or "")[:2000]  # Limit content
+        entities = " ".join(bookmark.get("entities", []))
+        concepts = " ".join(bookmark.get("concepts", []))
+        
+        # Weight title more by repeating it
+        combined = f"{title} {title} {title} {description} {entities} {concepts} {text_content}"
+        tokens = tokenize_text(combined)
+        
+        doc_tokens_map[bookmark["id"]] = tokens
+        all_doc_lengths.append(len(tokens))
+        
+        # Count document frequency for each unique term
+        for term in set(tokens):
+            doc_freq[term] = doc_freq.get(term, 0) + 1
     
-    # If keyword-only mode and no matches, also include recent bookmarks as fallback
-    if use_keyword and not use_semantic and len(keyword_candidates) == 0:
-        # Return recent bookmarks as fallback
-        keyword_candidates = all_candidates[:limit]
-        for b in keyword_candidates:
-            b["_keyword_score"] = 0.0
+    avg_doc_len = sum(all_doc_lengths) / len(all_doc_lengths) if all_doc_lengths else 1.0
+    total_docs = len(all_candidates)
     
-    # If no keyword filter, use all candidates for semantic search
-    if not use_keyword:
-        keyword_candidates = all_candidates
+    # Calculate BM25 scores
+    bm25_scores = []
+    for bookmark in all_candidates:
+        doc_tokens = doc_tokens_map.get(bookmark["id"], [])
+        score = calculate_bm25_score(
+            query_tokens, doc_tokens, doc_freq, avg_doc_len, total_docs
+        )
+        if score > 0:
+            bm25_scores.append((bookmark["id"], score))
     
-    # Stage 2: Semantic reranking (if enabled and we have query embedding)
+    # Sort for ranking
+    bm25_ranked = sorted(bm25_scores, key=lambda x: x[1], reverse=True)
+    
+    # ========== SEMANTIC SCORING ==========
+    semantic_scores = []
     query_embedding = None
+    
     if use_semantic and len(query.strip()) >= 3:
         query_embedding = await generate_embedding(
             query, min_length=3, task_type="retrieval_query"
         )
     
-    def dot_product_similarity(vec1, vec2):
-        """Dot product of L2-normalized vectors equals cosine similarity."""
-        return float(np.dot(vec1, vec2))
+    if query_embedding:
+        def dot_product_similarity(vec1, vec2):
+            return float(np.dot(vec1, vec2))
+        
+        for bookmark in all_candidates:
+            if bookmark.get("embedding"):
+                sim = dot_product_similarity(query_embedding, bookmark["embedding"])
+                semantic_scores.append((bookmark["id"], sim))
     
-    # Calculate final scores
+    semantic_ranked = sorted(semantic_scores, key=lambda x: x[1], reverse=True)
+    
+    # Calculate adaptive semantic threshold
+    if semantic_scores:
+        scores_only = [s[1] for s in semantic_scores]
+        mean_score = sum(scores_only) / len(scores_only)
+        std_score = (sum((s - mean_score) ** 2 for s in scores_only) / len(scores_only)) ** 0.5
+        adaptive_threshold = max(0.10, mean_score - std_score)
+    else:
+        adaptive_threshold = 0.15
+    
+    # ========== ENTITY BOOSTING ==========
+    # Build entity IDF
+    entity_counts = {}
+    for bookmark in all_candidates:
+        for entity in bookmark.get("entities", []) + bookmark.get("concepts", []):
+            entity_lower = entity.lower()
+            entity_counts[entity_lower] = entity_counts.get(entity_lower, 0) + 1
+    
+    entity_idf = {
+        e: math.log((total_docs + 1) / (count + 1)) 
+        for e, count in entity_counts.items()
+    }
+    
+    entity_scores = []
+    for bookmark in all_candidates:
+        all_doc_entities = bookmark.get("entities", []) + bookmark.get("concepts", [])
+        boost = calculate_entity_boost(query_tokens, all_doc_entities, entity_idf)
+        if boost > 0:
+            entity_scores.append((bookmark["id"], boost))
+    
+    entity_ranked = sorted(entity_scores, key=lambda x: x[1], reverse=True)
+    
+    # ========== RRF FUSION ==========
+    ranked_lists = []
+    if use_keyword and bm25_ranked:
+        ranked_lists.append(bm25_ranked[:100])
+    if use_semantic and semantic_ranked:
+        ranked_lists.append(semantic_ranked[:100])
+    if entity_ranked:
+        ranked_lists.append(entity_ranked[:100])
+    
+    if not ranked_lists:
+        return {
+            "results": [],
+            "query": query,
+            "total": 0,
+            "search_mode": {"semantic": use_semantic, "keyword": use_keyword},
+            "message": "No matching bookmarks found.",
+        }
+    
+    rrf_scores = reciprocal_rank_fusion(ranked_lists)
+    
+    # Build lookup maps
+    bookmark_map = {b["id"]: b for b in all_candidates}
+    bm25_map = {item[0]: item[1] for item in bm25_scores}
+    semantic_map = {item[0]: item[1] for item in semantic_scores}
+    entity_map = {item[0]: item[1] for item in entity_scores}
+    
+    # ========== FINAL RANKING ==========
     results = []
-    for bookmark in keyword_candidates:
-        kw_score = bookmark.get("_keyword_score", 0.0)
-        semantic_score = 0.0
+    for doc_id, rrf_score in rrf_scores.items():
+        sem_score = semantic_map.get(doc_id, 0.0)
+        bm25_score_val = bm25_map.get(doc_id, 0.0)
+        entity_score_val = entity_map.get(doc_id, 0.0)
         
-        # Calculate semantic score if we have embeddings
-        if query_embedding and bookmark.get("embedding"):
-            semantic_score = dot_product_similarity(query_embedding, bookmark["embedding"])
-        
-        # Combined score
-        if use_semantic and use_keyword:
-            final_score = (SEMANTIC_WEIGHT * semantic_score) + (KEYWORD_WEIGHT * kw_score)
-        elif use_semantic:
-            final_score = semantic_score
-        else:
-            final_score = kw_score
-        
-        # Apply minimum threshold for semantic-only results
-        if use_semantic and not use_keyword and final_score < MIN_SEMANTIC_SCORE:
+        # Apply semantic threshold for semantic-only mode
+        if use_semantic and not use_keyword and sem_score < adaptive_threshold:
             continue
         
-        # Clean up internal fields and add scores
+        # Skip if no meaningful scores
+        if rrf_score <= 0:
+            continue
+        
+        bookmark = bookmark_map[doc_id].copy()
         bookmark.pop("embedding", None)
-        bookmark.pop("_keyword_score", None)
-        bookmark["relevance_score"] = round(final_score, 4)
-        bookmark["keyword_score"] = round(kw_score, 4)
-        bookmark["semantic_score"] = round(semantic_score, 4) if semantic_score else None
+        bookmark.pop("text_content", None)
+        
+        # Normalize BM25 for display (0-1 scale based on max)
+        max_bm25 = max((s[1] for s in bm25_scores), default=1.0)
+        normalized_bm25 = bm25_score_val / max_bm25 if max_bm25 > 0 else 0.0
+        
+        bookmark["relevance_score"] = round(rrf_score, 4)
+        bookmark["keyword_score"] = round(normalized_bm25, 4)
+        bookmark["semantic_score"] = round(sem_score, 4) if sem_score else None
+        bookmark["entity_score"] = round(entity_score_val, 4) if entity_score_val else None
         
         results.append(bookmark)
     
-    # Sort by final score
+    # Sort by RRF score
     results.sort(key=lambda x: x["relevance_score"], reverse=True)
     top_results = results[:limit]
     
@@ -2944,11 +3327,165 @@ async def hybrid_search(
         "results": top_results,
         "query": query,
         "total": len(top_results),
+        "query_type": query_type,
+        "adaptive_threshold": round(adaptive_threshold, 4),
         "search_mode": {
             "semantic": use_semantic,
             "keyword": use_keyword,
+            "semantic_weight": semantic_weight,
+            "keyword_weight": keyword_weight,
         },
         "message": message,
+    }
+
+
+@api_router.get("/knowledge-graph/expand-query")
+async def expand_query(
+    query: str,
+    max_expansions: int = 10,
+    current_user: dict = Depends(get_current_user_info),
+):
+    """
+    Expand a search query using the knowledge graph.
+    
+    Returns related entities and concepts that could improve search results.
+    Uses:
+    1. Direct entity/concept matches in user's bookmarks
+    2. Co-occurring entities (appear in same bookmarks)
+    3. Embedding similarity for semantic expansions
+    """
+    import numpy as np
+    
+    if not query or len(query.strip()) < 2:
+        raise HTTPException(
+            status_code=400, detail="Query must be at least 2 characters"
+        )
+    
+    query_lower = query.lower().strip()
+    query_tokens = set(tokenize_text(query))
+    
+    # Get user's entities and concepts with their bookmark associations
+    all_bookmarks = await db.bookmarks.find(
+        {"user_id": current_user["id"]},
+        {
+            "_id": 0,
+            "id": 1,
+            "entities": 1,
+            "concepts": 1,
+            "embedding": 1,
+        },
+    ).limit(500).to_list(None)
+    
+    if not all_bookmarks:
+        return {
+            "query": query,
+            "expansions": [],
+            "related_entities": [],
+            "related_concepts": [],
+        }
+    
+    # Build entity/concept co-occurrence map
+    entity_to_bookmarks = {}
+    concept_to_bookmarks = {}
+    
+    for bookmark in all_bookmarks:
+        bid = bookmark["id"]
+        for entity in bookmark.get("entities", []):
+            if entity not in entity_to_bookmarks:
+                entity_to_bookmarks[entity] = set()
+            entity_to_bookmarks[entity].add(bid)
+        for concept in bookmark.get("concepts", []):
+            if concept not in concept_to_bookmarks:
+                concept_to_bookmarks[concept] = set()
+            concept_to_bookmarks[concept].add(bid)
+    
+    # Find direct matches (entities/concepts containing query terms)
+    direct_entity_matches = []
+    direct_concept_matches = []
+    
+    for entity in entity_to_bookmarks.keys():
+        entity_lower = entity.lower()
+        if any(token in entity_lower for token in query_tokens):
+            direct_entity_matches.append(entity)
+    
+    for concept in concept_to_bookmarks.keys():
+        concept_lower = concept.lower()
+        if any(token in concept_lower for token in query_tokens):
+            direct_concept_matches.append(concept)
+    
+    # Find co-occurring entities/concepts (appear in same bookmarks as matched ones)
+    matched_bookmark_ids = set()
+    for entity in direct_entity_matches:
+        matched_bookmark_ids.update(entity_to_bookmarks.get(entity, set()))
+    for concept in direct_concept_matches:
+        matched_bookmark_ids.update(concept_to_bookmarks.get(concept, set()))
+    
+    # Collect co-occurring terms with frequency counts
+    cooccur_entities = {}
+    cooccur_concepts = {}
+    
+    for bookmark in all_bookmarks:
+        if bookmark["id"] in matched_bookmark_ids:
+            for entity in bookmark.get("entities", []):
+                if entity not in direct_entity_matches:
+                    cooccur_entities[entity] = cooccur_entities.get(entity, 0) + 1
+            for concept in bookmark.get("concepts", []):
+                if concept not in direct_concept_matches:
+                    cooccur_concepts[concept] = cooccur_concepts.get(concept, 0) + 1
+    
+    # Sort by frequency and take top items
+    top_cooccur_entities = sorted(
+        cooccur_entities.items(), key=lambda x: x[1], reverse=True
+    )[:max_expansions]
+    top_cooccur_concepts = sorted(
+        cooccur_concepts.items(), key=lambda x: x[1], reverse=True
+    )[:max_expansions]
+    
+    # Build expansion list (mix of direct and co-occurring)
+    expansions = []
+    
+    # Add direct matches first (high relevance)
+    for entity in direct_entity_matches[:5]:
+        expansions.append({
+            "term": entity,
+            "type": "entity",
+            "source": "direct_match",
+            "relevance": 1.0,
+        })
+    for concept in direct_concept_matches[:5]:
+        expansions.append({
+            "term": concept,
+            "type": "concept",
+            "source": "direct_match",
+            "relevance": 1.0,
+        })
+    
+    # Add co-occurring terms (medium relevance)
+    for entity, count in top_cooccur_entities[:5]:
+        expansions.append({
+            "term": entity,
+            "type": "entity",
+            "source": "co_occurrence",
+            "relevance": round(min(count / 5.0, 0.8), 2),
+        })
+    for concept, count in top_cooccur_concepts[:5]:
+        expansions.append({
+            "term": concept,
+            "type": "concept",
+            "source": "co_occurrence",
+            "relevance": round(min(count / 5.0, 0.8), 2),
+        })
+    
+    # Sort by relevance and limit
+    expansions.sort(key=lambda x: x["relevance"], reverse=True)
+    
+    return {
+        "query": query,
+        "expansions": expansions[:max_expansions],
+        "related_entities": direct_entity_matches[:10] + [e[0] for e in top_cooccur_entities[:5]],
+        "related_concepts": direct_concept_matches[:10] + [c[0] for c in top_cooccur_concepts[:5]],
+        "total_entities_searched": len(entity_to_bookmarks),
+        "total_concepts_searched": len(concept_to_bookmarks),
     }
 
 
