@@ -59,6 +59,7 @@ from analytics import (
 )
 import resend
 import secrets
+import redis.asyncio as aioredis
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -261,6 +262,10 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60  # 1 hour for access tokens
 REFRESH_TOKEN_EXPIRE_DAYS = 30  # 30 days for refresh tokens
 PASSWORD_RESET_TOKEN_EXPIRE_HOURS = 1  # 1 hour for password reset tokens
 
+# Account lockout configuration (SEC-04)
+LOCKOUT_THRESHOLD = 5  # Failed attempts before lockout
+LOCKOUT_DURATION_SECONDS = 15 * 60  # 15 minutes
+
 # Resend email configuration
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
 RESEND_FROM_EMAIL = os.environ.get("RESEND_FROM_EMAIL", "noreply@arivu.app")
@@ -271,6 +276,52 @@ if RESEND_API_KEY:
     logger.info("Resend email configured successfully")
 else:
     logger.warning("RESEND_API_KEY not set - password reset emails will not work")
+
+# Redis client for account lockout tracking (SEC-04)
+redis_client = None
+
+
+async def get_redis():
+    """Get or create Redis client for lockout tracking"""
+    global redis_client
+    if redis_client is None:
+        redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+        redis_client = await aioredis.from_url(redis_url, decode_responses=True)
+        logger.info("Redis client initialized for account lockout tracking")
+    return redis_client
+
+
+async def is_account_locked(email: str) -> bool:
+    """Check if account is locked due to too many failed attempts"""
+    try:
+        r = await get_redis()
+        attempts = await r.get(f"login_attempts:{email}")
+        return attempts is not None and int(attempts) >= LOCKOUT_THRESHOLD
+    except Exception as e:
+        logger.exception(f"Redis error checking lockout for {email}")
+        return False  # Fail open - don't block login if Redis is down
+
+
+async def record_failed_login(email: str):
+    """Increment failed login counter with expiry"""
+    try:
+        r = await get_redis()
+        key = f"login_attempts:{email}"
+        pipe = r.pipeline()
+        pipe.incr(key)
+        pipe.expire(key, LOCKOUT_DURATION_SECONDS)
+        await pipe.execute()
+    except Exception as e:
+        logger.exception(f"Redis error recording failed login for {email}")
+
+
+async def clear_failed_logins(email: str):
+    """Clear failed login counter on successful login"""
+    try:
+        r = await get_redis()
+        await r.delete(f"login_attempts:{email}")
+    except Exception as e:
+        logger.exception(f"Redis error clearing failed logins for {email}")
 
 
 # Security validation functions
@@ -629,10 +680,23 @@ async def signup(request: Request, user_data: UserSignup):
 @limiter.limit("5/minute")  # Prevent brute force attacks
 async def login(request: Request, login_data: UserLogin, response: Response):
     """Authenticate user and return tokens as HTTP-only cookies"""
+    # Normalize email for lockout tracking
+    email_lower = login_data.email.lower()
+
+    # Check lockout BEFORE credential validation (prevents enumeration)
+    if await is_account_locked(email_lower):
+        logger.warning(f"Login attempt on locked account: {email_lower}")
+        # Same message as invalid credentials to prevent enumeration
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
     user = await db.users.find_one({"email": login_data.email})
     if not user or not pwd_context.verify(login_data.password, user["password_hash"]):
+        await record_failed_login(email_lower)
         logger.warning(f"Login failed: invalid credentials for {login_data.email}")
         raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    # Clear failed attempts on successful login
+    await clear_failed_logins(email_lower)
 
     # Create tokens
     access_token = create_access_token(data={"sub": user["id"]})

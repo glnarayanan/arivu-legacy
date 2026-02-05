@@ -101,6 +101,7 @@ pytokens==0.3.0
 pytz==2025.2
 PyYAML==6.0.3
 readability-lxml==0.8.4.1
+redis>=5.0.0
 referencing==0.37.0
 regex==2025.11.3
 requests==2.32.5
