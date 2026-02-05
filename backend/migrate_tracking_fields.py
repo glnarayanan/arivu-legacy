@@ -176,6 +176,101 @@ async def create_indexes():
         client.close()
 
 
+async def create_phase2_indexes():
+    """
+    Create Phase 2 database indexes following ESR (Equality-Sort-Range) pattern.
+    These indexes optimize common query patterns for scale.
+
+    Indexes created:
+    - bookmarks.user_created_idx: User's bookmarks sorted by date (most common query)
+    - bookmarks.user_read_status_created_idx: Unread bookmarks by date
+    - bookmarks.user_url_unique_idx: Prevent duplicate URLs per user (UNIQUE)
+    - ai_summaries.bookmark_id_idx: Primary lookup pattern for AI summaries
+
+    This is an idempotent operation - safe to run multiple times.
+    """
+    print("\n" + "=" * 60)
+    print("Phase 2 Index Creation: ESR-Optimized Compound Indexes")
+    print("=" * 60)
+
+    client = AsyncIOMotorClient(MONGO_URL)
+    db = client[DB_NAME]
+
+    try:
+        # Index 1: User's bookmarks sorted by date (ESR: Equality on user_id, Sort on created_at)
+        print("\n[1/4] Creating index on bookmarks (user_id, created_at desc)...")
+        try:
+            await db.bookmarks.create_index(
+                [("user_id", 1), ("created_at", -1)],
+                name="user_created_idx",
+                background=True
+            )
+            print("  ✓ Index created: user_created_idx")
+        except Exception as e:
+            print(f"  ⚠ Index user_created_idx: {e}")
+
+        # Index 2: Unread bookmarks by date (ESR: Equality on user_id+read_status, Sort on created_at)
+        print("\n[2/4] Creating index on bookmarks (user_id, read_status, created_at desc)...")
+        try:
+            await db.bookmarks.create_index(
+                [("user_id", 1), ("read_status", 1), ("created_at", -1)],
+                name="user_read_status_created_idx",
+                background=True
+            )
+            print("  ✓ Index created: user_read_status_created_idx")
+        except Exception as e:
+            print(f"  ⚠ Index user_read_status_created_idx: {e}")
+
+        # Index 3: Unique URL per user (prevents duplicates)
+        print("\n[3/4] Creating unique index on bookmarks (user_id, url)...")
+        try:
+            await db.bookmarks.create_index(
+                [("user_id", 1), ("url", 1)],
+                name="user_url_unique_idx",
+                unique=True,
+                background=True
+            )
+            print("  ✓ Index created: user_url_unique_idx (UNIQUE)")
+        except Exception as e:
+            print(f"  ⚠ Index user_url_unique_idx: {e}")
+
+        # Index 4: AI summaries lookup by bookmark_id
+        print("\n[4/4] Creating index on ai_summaries (bookmark_id)...")
+        try:
+            await db.ai_summaries.create_index(
+                [("bookmark_id", 1)],
+                name="bookmark_id_idx",
+                background=True
+            )
+            print("  ✓ Index created: bookmark_id_idx")
+        except Exception as e:
+            print(f"  ⚠ Index bookmark_id_idx: {e}")
+
+        # List all indexes on bookmarks collection
+        print("\n--- All Indexes on Bookmarks Collection ---")
+        indexes = await db.bookmarks.index_information()
+        for index_name, index_info in indexes.items():
+            unique_marker = " (UNIQUE)" if index_info.get('unique', False) else ""
+            print(f"  - {index_name}: {index_info.get('key', [])}{unique_marker}")
+
+        # List all indexes on ai_summaries collection
+        print("\n--- All Indexes on AI Summaries Collection ---")
+        indexes = await db.ai_summaries.index_information()
+        for index_name, index_info in indexes.items():
+            print(f"  - {index_name}: {index_info.get('key', [])}")
+
+        print("\n" + "=" * 60)
+        print("✓ Phase 2 Index Creation Complete!")
+        print("=" * 60)
+
+    except Exception as e:
+        print(f"\n❌ Error during Phase 2 index creation: {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        client.close()
+
+
 async def main():
     """
     Main migration function.
@@ -201,4 +296,16 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    if "--phase2-indexes" in sys.argv:
+        # Run only Phase 2 index creation
+        asyncio.run(create_phase2_indexes())
+    elif "--help" in sys.argv or "-h" in sys.argv:
+        print("Usage: python migrate_tracking_fields.py [OPTIONS]")
+        print("")
+        print("Options:")
+        print("  (no args)         Run Phase 1 data migration + indexes")
+        print("  --phase2-indexes  Run Phase 2 index creation only")
+        print("  --help, -h        Show this help message")
+    else:
+        # Default: Run Phase 1 migration
+        asyncio.run(main())

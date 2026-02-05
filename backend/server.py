@@ -214,10 +214,12 @@ client = AsyncIOMotorClient(
     connectTimeoutMS=10000,  # 10 second timeout for initial connection
     socketTimeoutMS=30000,  # 30 second timeout for socket operations
     maxPoolSize=50,  # Limit connection pool size
+    minPoolSize=10,  # Keep connections warm to avoid cold starts
     maxIdleTimeMS=45000,  # Close idle connections after 45 seconds
     waitQueueTimeoutMS=10000,  # 10 second timeout waiting for connection from pool
     retryWrites=True,  # Enable retry for write operations
     retryReads=True,  # Enable retry for read operations
+    compressors=["snappy"],  # Network compression for large embeddings
 )
 db_name = os.environ.get("DB_NAME", "arivu_db")
 db = client[db_name]
@@ -2383,6 +2385,49 @@ async def get_recent_connections(
     return {"count": len(connected_titles), "topics": topics[:3]}
 
 
+def calculate_connections_batch(
+    target_embedding: list,
+    recent_bookmarks: list,
+    threshold: float = 0.6
+) -> dict:
+    """
+    Calculate semantic connections entirely in-memory.
+    No database queries - works on pre-loaded bookmark data.
+
+    Args:
+        target_embedding: The embedding to compare against
+        recent_bookmarks: List of dicts with 'embedding' and 'title' keys
+        threshold: Cosine similarity threshold (default 0.6)
+
+    Returns:
+        dict with 'count' and 'topics' keys
+    """
+    import numpy as np
+
+    if not target_embedding or not recent_bookmarks:
+        return {"count": 0, "topics": []}
+
+    target = np.array(target_embedding)
+    target_norm = np.linalg.norm(target)
+    if target_norm == 0:
+        return {"count": 0, "topics": []}
+
+    connections = []
+    for bm in recent_bookmarks:
+        embedding = bm.get("embedding")
+        if embedding:
+            other = np.array(embedding)
+            other_norm = np.linalg.norm(other)
+            if other_norm > 0:
+                similarity = float(np.dot(target, other) / (target_norm * other_norm))
+                if similarity >= threshold:
+                    connections.append(bm.get("title", ""))
+
+    # Extract topic keywords from connected bookmark titles
+    topics = [" ".join(t.split()[:3]) for t in connections[:5] if t]
+    return {"count": len(connections), "topics": topics[:3]}
+
+
 class MemoryJoggerDismissRequest(BaseModel):
     bookmark_id: str = Field(..., description="The bookmark ID to dismiss")
 
@@ -2451,11 +2496,24 @@ async def get_memory_jogger(current_user: dict = Depends(get_current_user_info))
     ).to_list(None)
     summary_set = {s["bookmark_id"] for s in summaries}
 
+    # Load recent bookmarks with embeddings for connection scoring (single query)
+    recent_with_embeddings = await db.bookmarks.find(
+        {
+            "user_id": current_user["id"],
+            "created_at": {"$gte": seven_days_ago.isoformat()},
+            "embedding": {"$exists": True, "$ne": None},
+        },
+        {"_id": 0, "id": 1, "embedding": 1, "title": 1},
+    ).to_list(None)
+
+    # Calculate connections in-memory (no database queries in loop)
     related_counts = {}
     for bm in bookmarks:
         if bm.get("embedding"):
-            conn_data = await get_recent_connections(
-                current_user["id"], bm["embedding"], days=7, threshold=0.6
+            conn_data = calculate_connections_batch(
+                bm["embedding"],
+                recent_with_embeddings,
+                threshold=0.6
             )
             related_counts[bm["id"]] = conn_data
 
@@ -2489,15 +2547,8 @@ async def get_memory_jogger(current_user: dict = Depends(get_current_user_info))
         if bm["id"] in summary_set:
             score += 10
 
-        all_user_related = await db.bookmarks.find(
-            {
-                "user_id": current_user["id"],
-                "id": {"$ne": bm["id"]},
-                "embedding": {"$exists": True, "$ne": None},
-            },
-            {"_id": 0, "id": 1},
-        ).to_list(10)
-        if len(all_user_related) >= 3:
+        # Use pre-loaded recent_with_embeddings count (no per-bookmark query)
+        if len(recent_with_embeddings) >= 3:
             score += 5
 
         score += random.randint(0, 15)
