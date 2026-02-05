@@ -266,6 +266,9 @@ PASSWORD_RESET_TOKEN_EXPIRE_HOURS = 1  # 1 hour for password reset tokens
 LOCKOUT_THRESHOLD = 5  # Failed attempts before lockout
 LOCKOUT_DURATION_SECONDS = 15 * 60  # 15 minutes
 
+# Content fetching limits (SEC-05)
+MAX_CONTENT_SIZE = 10 * 1024 * 1024  # 10MB max for webpage content
+
 # Resend email configuration
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
 RESEND_FROM_EMAIL = os.environ.get("RESEND_FROM_EMAIL", "noreply@arivu.app")
@@ -1056,10 +1059,33 @@ async def fetch_webpage_content(url: str):
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.5",
         }
-        response = requests.get(url, headers=headers, timeout=15, allow_redirects=True)
-        response.raise_for_status()
 
-        html_content = response.text
+        # Use streaming to check size before loading into memory (SEC-05)
+        with requests.get(url, headers=headers, timeout=15, allow_redirects=True, stream=True) as response:
+            response.raise_for_status()
+
+            # Check Content-Length header BEFORE downloading
+            content_length = response.headers.get('content-length')
+            if content_length and int(content_length) > MAX_CONTENT_SIZE:
+                logger.warning(f"Content too large (Content-Length: {content_length}): {urlparse(url).netloc}")
+                raise ValueError(f"Content too large: {int(content_length) // (1024*1024)}MB exceeds {MAX_CONTENT_SIZE // (1024*1024)}MB limit")
+
+            # Stream content in chunks, tracking total size
+            chunks = []
+            total_size = 0
+            for chunk in response.iter_content(chunk_size=8192):
+                total_size += len(chunk)
+                if total_size > MAX_CONTENT_SIZE:
+                    logger.warning(f"Content exceeded size limit during download: {urlparse(url).netloc}")
+                    raise ValueError(f"Content exceeded {MAX_CONTENT_SIZE // (1024*1024)}MB limit during download")
+                chunks.append(chunk)
+
+            # Decode content - try utf-8, fall back to detected encoding
+            try:
+                html_content = b''.join(chunks).decode('utf-8')
+            except UnicodeDecodeError:
+                html_content = b''.join(chunks).decode(response.encoding or 'utf-8', errors='replace')
+
         soup = BeautifulSoup(html_content, "html.parser")
 
         for script in soup(["script", "style", "nav", "footer", "header"]):
