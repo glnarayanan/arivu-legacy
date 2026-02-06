@@ -6,8 +6,10 @@ import BookmarkDetailPage from './pages/BookmarkDetailPage';
 import DuplicatesPage from './pages/DuplicatesPage';
 import SettingsPage from './pages/SettingsPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
+import AcceptInvitePage from './pages/AcceptInvitePage';
 import KnowledgeGraphPage from './pages/KnowledgeGraphPage';
 import AnalyticsPage from './pages/AnalyticsPage';
+import AdminPage from './pages/AdminPage';
 import { Toaster } from './components/ui/sonner';
 import axiosInstance from './utils/axiosConfig';
 import './App.css';
@@ -123,6 +125,10 @@ function App() {
             element={<ResetPasswordPage />}
           />
           <Route
+            path="/accept-invite"
+            element={<AcceptInvitePage />}
+          />
+          <Route
             path="/knowledge-graph"
             element={
               isAuthenticated ? (
@@ -137,6 +143,16 @@ function App() {
             element={
               isAuthenticated ? (
                 <AnalyticsPage onLogout={handleLogout} />
+              ) : (
+                <Navigate to="/auth" replace />
+              )
+            }
+          />
+          <Route
+            path="/admin"
+            element={
+              isAuthenticated ? (
+                <AdminPage onLogout={handleLogout} />
               ) : (
                 <Navigate to="/auth" replace />
               )
