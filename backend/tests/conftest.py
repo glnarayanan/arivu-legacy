@@ -15,6 +15,7 @@ from app.core.database import get_database
 from app.core.dependencies import get_current_user
 from app.routers.collections import router as collections_router
 from app.routers.analytics import router as analytics_router
+from app.routers.resurfacing import router as resurfacing_router
 
 MOCK_USER = {
     "id": "test-user-id",
@@ -60,6 +61,7 @@ def app(mock_db):
     api_router = APIRouter(prefix="/api")
     api_router.include_router(collections_router)
     api_router.include_router(analytics_router)
+    api_router.include_router(resurfacing_router)
     test_app.include_router(api_router)
 
     # Override auth dependency
