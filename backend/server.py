@@ -34,6 +34,7 @@ import re
 import google.generativeai as genai
 import ipaddress
 import socket
+import sys
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -259,6 +260,10 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60  # 1 hour for access tokens
 REFRESH_TOKEN_EXPIRE_DAYS = 30  # 30 days for refresh tokens
 PASSWORD_RESET_TOKEN_EXPIRE_HOURS = 1  # 1 hour for password reset tokens
+
+SERVER_START_TIME = datetime.now(timezone.utc)
+
+ADMIN_EMAILS = [e.strip().lower() for e in os.environ.get("ADMIN_EMAILS", "").split(",") if e.strip()]
 
 # Account lockout configuration (SEC-04)
 LOCKOUT_THRESHOLD = 5  # Failed attempts before lockout
@@ -664,6 +669,13 @@ async def login(request: Request, login_data: UserLogin, response: Response):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     user = await db.users.find_one({"email": login_data.email})
+    if user and user.get("banned"):
+        raise HTTPException(status_code=403, detail="Account has been suspended")
+    if user and user.get("invite_pending"):
+        raise HTTPException(
+            status_code=403,
+            detail="Please complete your account setup using the invite link sent to your email."
+        )
     if not user or not pwd_context.verify(login_data.password, user["password_hash"]):
         await record_failed_login(email_lower)
         logger.warning(f"Login failed: invalid credentials for {login_data.email}")
@@ -730,6 +742,8 @@ async def get_current_user(request: Request):
         user = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
         if user is None:
             raise HTTPException(status_code=401, detail="User not found")
+        if user.get("banned"):
+            raise HTTPException(status_code=403, detail="Account has been suspended")
         return user
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
@@ -815,6 +829,56 @@ async def send_password_reset_email(email: str, reset_token: str):
         return False
 
 
+async def send_invite_email(email: str, name: str, invite_token: str):
+    """Send account setup invite email via Resend"""
+    if not RESEND_API_KEY:
+        logger.error("Cannot send invite email - RESEND_API_KEY not configured")
+        return False
+
+    setup_url = f"{APP_URL}/accept-invite?token={invite_token}"
+
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <style>
+            body {{ font-family: 'DM Sans', Arial, sans-serif; background: #F7F7F7; padding: 40px 20px; }}
+            .container {{ max-width: 500px; margin: 0 auto; background: #fff; border: 2px solid #0F0F0F; padding: 40px; }}
+            h1 {{ font-family: 'Bebas Neue', Arial, sans-serif; font-size: 28px; letter-spacing: 2px; text-transform: uppercase; margin: 0 0 20px 0; }}
+            p {{ color: #333; line-height: 1.6; margin: 0 0 20px 0; }}
+            .button {{ display: inline-block; background: #F97316; color: #fff; text-decoration: none; padding: 14px 28px; border: 2px solid #0F0F0F; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; }}
+            .footer {{ margin-top: 30px; padding-top: 20px; border-top: 2px solid #0F0F0F; font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 1px; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>YOU'RE INVITED TO ARIVU</h1>
+            <p>Hi {name},</p>
+            <p>You've been invited to join Arivu - your AI-powered second brain. Click the button below to set up your password and get started.</p>
+            <p><a href="{setup_url}" class="button">SET UP YOUR ACCOUNT</a></p>
+            <p>This link will expire in 7 days.</p>
+            <p>If you weren't expecting this, you can safely ignore this email.</p>
+            <div class="footer">ARIVU - YOUR AI-POWERED SECOND BRAIN</div>
+        </div>
+    </body>
+    </html>
+    """
+
+    try:
+        params = {
+            "from": RESEND_FROM_EMAIL,
+            "to": [email],
+            "subject": "You're Invited to Arivu",
+            "html": html_content,
+        }
+        resend.Emails.send(params)
+        logger.info(f"Invite email sent to {email}")
+        return True
+    except Exception as e:
+        logger.exception(f"Failed to send invite email")
+        return False
+
+
 @api_router.post("/auth/forgot-password")
 @limiter.limit("3/hour")
 async def forgot_password(request: Request, reset_request: PasswordResetRequest):
@@ -880,6 +944,50 @@ async def reset_password(request: Request, reset_confirm: PasswordResetConfirm):
 
     logger.info(f"Password reset completed for user: {token_doc['user_id']}")
     return {"message": "Password reset successfully. You can now log in with your new password."}
+
+
+class AcceptInviteRequest(BaseModel):
+    token: str
+    password: str
+
+
+@api_router.post("/auth/accept-invite")
+async def accept_invite(request: Request, accept: AcceptInviteRequest):
+    """Accept invite and set password"""
+    token_doc = await db.invite_tokens.find_one({"token": accept.token})
+    if not token_doc:
+        raise HTTPException(status_code=400, detail="Invalid or expired invite link")
+
+    expires_at = datetime.fromisoformat(token_doc["expires_at"])
+    if datetime.now(timezone.utc) > expires_at:
+        await db.invite_tokens.delete_one({"token": accept.token})
+        raise HTTPException(status_code=400, detail="Invite link has expired. Please ask the admin to resend your invite.")
+
+    user = await db.users.find_one({"id": token_doc["user_id"]})
+    if not user:
+        raise HTTPException(status_code=400, detail="User account not found")
+
+    if not user.get("invite_pending"):
+        raise HTTPException(status_code=400, detail="Account has already been set up")
+
+    is_valid, error_msg = validate_password_strength(accept.password)
+    if not is_valid:
+        raise HTTPException(status_code=400, detail=error_msg)
+
+    new_hash = pwd_context.hash(accept.password)
+    await db.users.update_one(
+        {"id": token_doc["user_id"]},
+        {"$set": {
+            "password_hash": new_hash,
+            "invite_pending": False,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }}
+    )
+
+    await db.invite_tokens.delete_one({"token": accept.token})
+
+    logger.info(f"Invite accepted, password set for user: {token_doc['user_id']}")
+    return {"message": "Account set up successfully. You can now log in."}
 
 
 @api_router.post("/auth/change-password")
@@ -3930,6 +4038,467 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         )
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         return response
+
+
+# --- Admin Pydantic Models ---
+
+class AdminUserInvite(BaseModel):
+    email: EmailStr
+    name: str
+
+
+class AdminPasswordReset(BaseModel):
+    new_password: str
+
+
+# --- Admin Auth Dependency ---
+
+async def get_admin_user(request: Request):
+    user = await get_current_user(request)
+    if user["email"].lower() not in ADMIN_EMAILS:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return user
+
+
+# --- Admin Endpoints ---
+
+@api_router.get("/admin/overview")
+async def admin_overview(admin: dict = Depends(get_admin_user)):
+    logger.info(f"Admin action: overview requested by {admin['email']}")
+    now = datetime.now(timezone.utc)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    week_start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+
+    total_users = await db.users.count_documents({})
+    total_bookmarks = await db.bookmarks.count_documents({})
+    total_collections = await db.collections.count_documents({})
+    total_ai_summaries = await db.ai_summaries.count_documents({})
+
+    bookmarks_today = await db.bookmarks.count_documents({"created_at": {"$gte": today_start}})
+    bookmarks_week = await db.bookmarks.count_documents({"created_at": {"$gte": week_start}})
+    bookmarks_month = await db.bookmarks.count_documents({"created_at": {"$gte": month_start}})
+
+    users_today = await db.users.count_documents({"created_at": {"$gte": today_start}})
+    users_week = await db.users.count_documents({"created_at": {"$gte": week_start}})
+    users_month = await db.users.count_documents({"created_at": {"$gte": month_start}})
+
+    avg_bookmarks = total_bookmarks / total_users if total_users > 0 else 0
+
+    try:
+        db_stats = await db.command("dbStats")
+        mongo_stats = {
+            "data_size": db_stats.get("dataSize", 0),
+            "storage_size": db_stats.get("storageSize", 0),
+            "index_size": db_stats.get("indexSize", 0),
+            "collections": db_stats.get("collections", 0),
+            "objects": db_stats.get("objects", 0),
+        }
+    except Exception as e:
+        logger.exception("Failed to get dbStats")
+        mongo_stats = {"error": str(e)}
+
+    uptime_seconds = (now - SERVER_START_TIME).total_seconds()
+
+    return {
+        "users": {
+            "total": total_users,
+            "today": users_today,
+            "this_week": users_week,
+            "this_month": users_month,
+        },
+        "bookmarks": {
+            "total": total_bookmarks,
+            "today": bookmarks_today,
+            "this_week": bookmarks_week,
+            "this_month": bookmarks_month,
+            "avg_per_user": round(avg_bookmarks, 2),
+        },
+        "collections": {"total": total_collections},
+        "ai_summaries": {"total": total_ai_summaries},
+        "mongodb": mongo_stats,
+        "server": {
+            "uptime_seconds": round(uptime_seconds),
+            "started_at": SERVER_START_TIME.isoformat(),
+        },
+    }
+
+
+@api_router.get("/admin/api-usage")
+async def admin_api_usage(admin: dict = Depends(get_admin_user)):
+    logger.info(f"Admin action: api-usage requested by {admin['email']}")
+    current_rpm = len(gemini_rate_limiter.rpm_bucket)
+    current_tpm = sum(t for _, t in gemini_rate_limiter.tpm_bucket)
+    rpm_util = (current_rpm / gemini_rate_limiter.max_rpm * 100) if gemini_rate_limiter.max_rpm else 0
+    tpm_util = (current_tpm / gemini_rate_limiter.max_tpm * 100) if gemini_rate_limiter.max_tpm else 0
+    daily_util = (gemini_rate_limiter.total_requests_today / gemini_rate_limiter.max_daily * 100) if gemini_rate_limiter.max_daily else 0
+
+    return {
+        "requests_today": gemini_rate_limiter.total_requests_today,
+        "tokens_today": gemini_rate_limiter.total_tokens_today,
+        "current_rpm": current_rpm,
+        "current_tpm": current_tpm,
+        "rpm_utilization_pct": round(rpm_util, 2),
+        "tpm_utilization_pct": round(tpm_util, 2),
+        "daily_utilization_pct": round(daily_util, 2),
+        "limits": {
+            "max_rpm": gemini_rate_limiter.max_rpm,
+            "max_tpm": gemini_rate_limiter.max_tpm,
+            "max_daily": gemini_rate_limiter.max_daily,
+        },
+        "current_date": gemini_rate_limiter.current_date,
+    }
+
+
+@api_router.get("/admin/users")
+async def admin_list_users(
+    sort: str = "created_at",
+    order: str = "desc",
+    admin: dict = Depends(get_admin_user),
+):
+    logger.info(f"Admin action: list users by {admin['email']}")
+    users = await db.users.find(
+        {}, {"_id": 0, "password_hash": 0}
+    ).to_list(None)
+
+    user_ids = [u["id"] for u in users]
+
+    bookmark_pipeline = [
+        {"$match": {"user_id": {"$in": user_ids}}},
+        {"$group": {
+            "_id": "$user_id",
+            "count": {"$sum": 1},
+            "last_created": {"$max": "$created_at"},
+        }},
+    ]
+    bookmark_stats = {
+        doc["_id"]: doc
+        async for doc in db.bookmarks.aggregate(bookmark_pipeline)
+    }
+
+    collection_pipeline = [
+        {"$match": {"user_id": {"$in": user_ids}}},
+        {"$group": {"_id": "$user_id", "count": {"$sum": 1}}},
+    ]
+    collection_stats = {
+        doc["_id"]: doc["count"]
+        async for doc in db.collections.aggregate(collection_pipeline)
+    }
+
+    enriched = []
+    for u in users:
+        uid = u["id"]
+        bstats = bookmark_stats.get(uid, {})
+        u["bookmark_count"] = bstats.get("count", 0)
+        u["collection_count"] = collection_stats.get(uid, 0)
+        u["last_bookmark_at"] = bstats.get("last_created")
+        u["banned"] = u.get("banned", False)
+        u["is_admin"] = u["email"].lower() in ADMIN_EMAILS
+        enriched.append(u)
+
+    sort_key_map = {
+        "bookmarks": "bookmark_count",
+        "created_at": "created_at",
+        "name": "name",
+        "email": "email",
+    }
+    key = sort_key_map.get(sort, "created_at")
+    reverse = order != "asc"
+    enriched.sort(key=lambda x: (x.get(key) or ""), reverse=reverse)
+
+    return enriched
+
+
+@api_router.get("/admin/users/{user_id}")
+async def admin_get_user(user_id: str, admin: dict = Depends(get_admin_user)):
+    logger.info(f"Admin action: get user {user_id} by {admin['email']}")
+    user = await db.users.find_one(
+        {"id": user_id}, {"_id": 0, "password_hash": 0}
+    )
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    bookmark_count = await db.bookmarks.count_documents({"user_id": user_id})
+    collection_count = await db.collections.count_documents({"user_id": user_id})
+    recent_bookmarks = await db.bookmarks.find(
+        {"user_id": user_id},
+        {"_id": 0, "id": 1, "title": 1, "url": 1, "domain": 1, "created_at": 1},
+    ).sort("created_at", -1).limit(10).to_list(10)
+
+    user["bookmark_count"] = bookmark_count
+    user["collection_count"] = collection_count
+    user["recent_bookmarks"] = recent_bookmarks
+    user["banned"] = user.get("banned", False)
+    user["is_admin"] = user["email"].lower() in ADMIN_EMAILS
+
+    return user
+
+
+@api_router.post("/admin/users/invite")
+async def admin_invite_user(
+    invite: AdminUserInvite, admin: dict = Depends(get_admin_user)
+):
+    logger.info(f"Admin action: invite user {invite.email} by {admin['email']}")
+
+    existing = await db.users.find_one(
+        {"email": invite.email}, {"_id": 0, "id": 1}
+    )
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already registered")
+
+    user_id = str(uuid.uuid4())
+    user = {
+        "id": user_id,
+        "email": invite.email,
+        "name": invite.name,
+        "password_hash": None,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "invite_pending": True,
+    }
+    await db.users.insert_one(user)
+
+    invite_token = secrets.token_urlsafe(32)
+    expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+    await db.invite_tokens.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": user_id,
+        "token": invite_token,
+        "expires_at": expires_at.isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+    await send_invite_email(invite.email, invite.name, invite_token)
+
+    logger.info(f"Admin invited new user: {user_id} ({invite.email})")
+
+    return {
+        "id": user_id,
+        "email": invite.email,
+        "name": invite.name,
+        "created_at": user["created_at"],
+        "invite_sent": True,
+    }
+
+
+@api_router.post("/admin/users/{user_id}/ban")
+async def admin_ban_user(user_id: str, admin: dict = Depends(get_admin_user)):
+    if user_id == admin["id"]:
+        raise HTTPException(status_code=400, detail="Cannot ban yourself")
+
+    user = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {"banned": True, "banned_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    logger.info(f"Admin action: user {user_id} banned by {admin['email']}")
+    return {"status": "banned", "user_id": user_id}
+
+
+@api_router.post("/admin/users/{user_id}/unban")
+async def admin_unban_user(user_id: str, admin: dict = Depends(get_admin_user)):
+    user = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {"banned": False, "unbanned_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    logger.info(f"Admin action: user {user_id} unbanned by {admin['email']}")
+    return {"status": "unbanned", "user_id": user_id}
+
+
+@api_router.post("/admin/users/{user_id}/reset-password")
+async def admin_reset_password(
+    user_id: str,
+    body: AdminPasswordReset,
+    admin: dict = Depends(get_admin_user),
+):
+    user = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    hashed = pwd_context.hash(body.new_password)
+    await db.users.update_one({"id": user_id}, {"$set": {"password_hash": hashed}})
+    logger.info(f"Admin action: password reset for user {user_id} by {admin['email']}")
+    return {"status": "password_reset", "user_id": user_id}
+
+
+@api_router.delete("/admin/users/{user_id}")
+async def admin_delete_user(user_id: str, admin: dict = Depends(get_admin_user)):
+    if user_id == admin["id"]:
+        raise HTTPException(status_code=400, detail="Cannot delete yourself")
+
+    user = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    del_user = await db.users.delete_one({"id": user_id})
+    del_bookmarks = await db.bookmarks.delete_many({"user_id": user_id})
+    del_summaries = await db.ai_summaries.delete_many({"user_id": user_id})
+    del_collections = await db.collections.delete_many({"user_id": user_id})
+
+    logger.info(
+        f"Admin action: deleted user {user_id} and all data by {admin['email']}"
+    )
+    return {
+        "status": "deleted",
+        "user_id": user_id,
+        "deleted_counts": {
+            "users": del_user.deleted_count,
+            "bookmarks": del_bookmarks.deleted_count,
+            "ai_summaries": del_summaries.deleted_count,
+            "collections": del_collections.deleted_count,
+        },
+    }
+
+
+@api_router.get("/admin/system")
+async def admin_system_health(admin: dict = Depends(get_admin_user)):
+    logger.info(f"Admin action: system health by {admin['email']}")
+
+    try:
+        server_status = await db.command("serverStatus")
+        mongo_info = {
+            "connections": {
+                "current": server_status.get("connections", {}).get("current"),
+                "available": server_status.get("connections", {}).get("available"),
+            },
+            "opcounters": server_status.get("opcounters", {}),
+            "mem": server_status.get("mem", {}),
+            "uptime": server_status.get("uptime"),
+        }
+    except Exception as e:
+        logger.exception("Failed to get serverStatus")
+        mongo_info = {"error": str(e)}
+
+    try:
+        db_stats = await db.command("dbStats")
+    except Exception as e:
+        db_stats = {"error": str(e)}
+
+    redis_info = None
+    try:
+        if redis_client is not None:
+            info = await redis_client.info()
+            redis_info = {
+                "used_memory_human": info.get("used_memory_human"),
+                "connected_clients": info.get("connected_clients"),
+                "uptime_in_seconds": info.get("uptime_in_seconds"),
+            }
+    except Exception as e:
+        redis_info = {"error": str(e)}
+
+    collection_stats = {}
+    for coll_name in ["users", "bookmarks", "ai_summaries", "collections"]:
+        try:
+            stats = await db.command("collStats", coll_name)
+            collection_stats[coll_name] = {
+                "count": stats.get("count", 0),
+                "size": stats.get("size", 0),
+                "storage_size": stats.get("storageSize", 0),
+            }
+        except Exception:
+            count = await db[coll_name].count_documents({})
+            collection_stats[coll_name] = {"count": count}
+
+    try:
+        import psutil
+        process = psutil.Process()
+        cpu_percent = psutil.cpu_percent(interval=0.1)
+        mem = psutil.virtual_memory()
+        proc_mem = process.memory_info()
+        system_stats = {
+            "cpu_percent": cpu_percent,
+            "memory_total": mem.total,
+            "memory_available": mem.available,
+            "memory_percent": mem.percent,
+            "process_rss": proc_mem.rss,
+        }
+    except ImportError:
+        system_stats = {
+            "cpu_percent": None,
+            "memory_total": None,
+            "memory_available": None,
+            "memory_percent": None,
+            "process_rss": None,
+        }
+
+    return {
+        "mongodb": {
+            "connections_current": mongo_info.get("connections", {}).get("current") if isinstance(mongo_info, dict) and "error" not in mongo_info else None,
+            "connections_available": mongo_info.get("connections", {}).get("available") if isinstance(mongo_info, dict) and "error" not in mongo_info else None,
+            "uptime_seconds": mongo_info.get("uptime") if isinstance(mongo_info, dict) and "error" not in mongo_info else None,
+            "opcounters": mongo_info.get("opcounters") if isinstance(mongo_info, dict) and "error" not in mongo_info else None,
+            "mem": mongo_info.get("mem") if isinstance(mongo_info, dict) and "error" not in mongo_info else None,
+        },
+        "redis": redis_info,
+        "python_version": sys.version.split()[0],
+        "environment": "production" if IS_PRODUCTION else "development",
+        "collections": collection_stats,
+        "db_stats": {
+            "dataSize": db_stats.get("dataSize", 0) if isinstance(db_stats, dict) and "error" not in db_stats else 0,
+            "storageSize": db_stats.get("storageSize", 0) if isinstance(db_stats, dict) and "error" not in db_stats else 0,
+            "indexSize": db_stats.get("indexSize", 0) if isinstance(db_stats, dict) and "error" not in db_stats else 0,
+        },
+        "system": system_stats,
+    }
+
+
+@api_router.get("/admin/activity")
+async def admin_activity(admin: dict = Depends(get_admin_user)):
+    logger.info(f"Admin action: activity feed by {admin['email']}")
+
+    recent_bookmarks = await db.bookmarks.find(
+        {},
+        {"_id": 0, "user_id": 1, "title": 1, "url": 1, "domain": 1, "created_at": 1},
+    ).sort("created_at", -1).limit(50).to_list(50)
+
+    bm_user_ids = list({b["user_id"] for b in recent_bookmarks})
+    user_emails = {}
+    if bm_user_ids:
+        users = await db.users.find(
+            {"id": {"$in": bm_user_ids}},
+            {"_id": 0, "id": 1, "email": 1},
+        ).to_list(None)
+        user_emails = {u["id"]: u["email"] for u in users}
+
+    for b in recent_bookmarks:
+        b["user_email"] = user_emails.get(b.get("user_id"), "unknown")
+
+    recent_users = await db.users.find(
+        {},
+        {"_id": 0, "id": 1, "email": 1, "name": 1, "created_at": 1},
+    ).sort("created_at", -1).limit(10).to_list(10)
+
+    return {
+        "recent_bookmarks": recent_bookmarks,
+        "recent_registrations": recent_users,
+    }
+
+
+@api_router.get("/admin/collections-stats")
+async def admin_collections_stats(admin: dict = Depends(get_admin_user)):
+    logger.info(f"Admin action: collections-stats by {admin['email']}")
+    collection_names = await db.list_collection_names()
+    stats = {}
+    for name in collection_names:
+        try:
+            coll_stats = await db.command("collStats", name)
+            stats[name] = {
+                "count": coll_stats.get("count", 0),
+                "size": coll_stats.get("size", 0),
+                "storage_size": coll_stats.get("storageSize", 0),
+                "index_size": coll_stats.get("totalIndexSize", 0),
+                "avg_obj_size": coll_stats.get("avgObjSize", 0),
+            }
+        except Exception as e:
+            count = await db[name].count_documents({})
+            stats[name] = {"count": count, "error": str(e)}
+    return stats
 
 
 app.include_router(api_router)
