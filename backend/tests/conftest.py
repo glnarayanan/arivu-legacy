@@ -14,6 +14,7 @@ from httpx import ASGITransport, AsyncClient
 from app.core.database import get_database
 from app.core.dependencies import get_current_user
 from app.routers.collections import router as collections_router
+from app.routers.analytics import router as analytics_router
 
 MOCK_USER = {
     "id": "test-user-id",
@@ -58,6 +59,7 @@ def app(mock_db):
     test_app = FastAPI()
     api_router = APIRouter(prefix="/api")
     api_router.include_router(collections_router)
+    api_router.include_router(analytics_router)
     test_app.include_router(api_router)
 
     # Override auth dependency
