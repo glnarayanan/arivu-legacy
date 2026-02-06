@@ -60,6 +60,7 @@ from analytics import (
 import resend
 import secrets
 import redis.asyncio as aioredis
+from app.routers.collections import router as collections_router
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -226,6 +227,9 @@ db = client[db_name]
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
+
+# Extracted routers (Phase 4)
+api_router.include_router(collections_router)
 
 # Initialize rate limiter
 limiter = Limiter(key_func=get_remote_address)
@@ -546,33 +550,6 @@ class AISummary(BaseModel):
     suggested_tags: List[str] = []
     processing_status: str = "pending"
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-
-
-class Collection(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    user_id: str
-    name: str
-    bookmark_ids: List[str] = []
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-
-
-class CollectionCreate(BaseModel):
-    name: str
-
-    @validator("name")
-    def validate_name(cls, v):
-        if not v or len(v.strip()) == 0:
-            raise ValueError("Collection name cannot be empty")
-        if len(v) > 100:
-            raise ValueError("Collection name too long (max 100 characters)")
-        if not re.match(r"^[\w\s\-\.]+$", v):
-            raise ValueError("Collection name contains invalid characters")
-        return v.strip()
-
-
-class AddToCollection(BaseModel):
-    bookmark_id: str
 
 
 class ImportJob(BaseModel):
@@ -3928,47 +3905,6 @@ async def merge_bookmarks(
     await db.ai_summaries.delete_many({"bookmark_id": {"$in": delete_ids}})
 
     return {"message": "Bookmarks merged", "kept_bookmark": keep_bookmark}
-
-
-@api_router.post("/collections", response_model=Collection)
-async def create_collection(
-    collection_data: CollectionCreate,
-    current_user: dict = Depends(get_current_user_info),
-):
-    collection = {
-        "id": str(uuid.uuid4()),
-        "user_id": current_user["id"],
-        "name": collection_data.name,
-        "bookmark_ids": [],
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
-    await db.collections.insert_one(collection)
-    return Collection(**collection)
-
-
-@api_router.get("/collections", response_model=List[Collection])
-async def get_collections(current_user: dict = Depends(get_current_user_info)):
-    collections = (
-        await db.collections.find({"user_id": current_user["id"]}, {"_id": 0})
-        .limit(100)
-        .to_list(None)
-    )
-    return [Collection(**c) for c in collections]
-
-
-@api_router.post("/collections/{collection_id}/add")
-async def add_to_collection(
-    collection_id: str,
-    data: AddToCollection,
-    current_user: dict = Depends(get_current_user_info),
-):
-    result = await db.collections.update_one(
-        {"id": collection_id, "user_id": current_user["id"]},
-        {"$addToSet": {"bookmark_ids": data.bookmark_id}},
-    )
-    if result.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Collection not found")
-    return {"message": "Bookmark added to collection"}
 
 
 @api_router.post("/bookmarks/import")
