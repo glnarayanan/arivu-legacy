@@ -1,9 +1,9 @@
 # Arivu Deployment Guide
 ## Complete Setup for Local Development & Production
 
-**Version:** 2.1 (Updated with Marketing Site Integration)
-**Last Updated:** January 5, 2026
-**Platforms:** Local (Docker), Coolify (Production), Cloudflare (CDN)
+**Version:** 2.2 (Updated with Marketing Site Integration)
+**Last Updated:** February 6, 2026
+**Platforms:** Local (Docker), VPS (Production), Cloudflare (CDN)
 
 ---
 
@@ -11,7 +11,7 @@
 
 1. [Overview](#overview)
 2. [Local Development Setup](#local-development-setup)
-3. [Production Deployment (Coolify)](#production-deployment-coolify)
+3. [Production Deployment (VPS)](#production-deployment-vps)
 4. [Cloudflare Configuration](#cloudflare-configuration)
 5. [Environment Variables Reference](#environment-variables-reference)
 6. [Post-Deployment Verification](#post-deployment-verification)
@@ -35,11 +35,11 @@
                      │
                      ▼
 ┌─────────────────────────────────────────────────────────┐
-│              Production VPS (Coolify)                   │
+│                  Production VPS                         │
 │                                                         │
 │  ┌─────────────────────────────────────────────────┐   │
-│  │           Coolify + Traefik Proxy               │   │
-│  │              (Ports 80, 443)                    │   │
+│  │           nginx (Ports 80, 443)                 │   │
+│  │                                                  │   │
 │  └──────────────────┬──────────────────────────────┘   │
 │                     │                                   │
 │  ┌──────────────────▼──────────────────────────────┐   │
@@ -278,12 +278,12 @@ xdg-open http://localhost:3000  # Linux
 
 ---
 
-## Production Deployment (Coolify)
+## Production Deployment (VPS)
 
 ### Prerequisites
 
-- ✅ Coolify instance (self-hosted or cloud)
 - ✅ VPS with 4GB+ RAM, 2+ CPU cores
+- ✅ Docker and Docker Compose installed on VPS
 - ✅ Domain name (optional but recommended)
 - ✅ Gemini API Key from [Google AI Studio](https://makersuite.google.com/app/apikey)
 
@@ -302,21 +302,26 @@ ls frontend/Dockerfile      # Frontend image
 ls frontend/nginx.conf      # Nginx proxy config
 ```
 
-### Step 2: Create Application in Coolify
+### Step 2: Set Up Application on VPS
 
-1. **Login to Coolify Dashboard**
-2. **Click "New Resource" → "Application"**
-3. **Source Configuration:**
-   - Git Provider: GitHub
-   - Repository: `glnarayanan/arivu.app`
-   - Branch: `main` (or your production branch)
-4. **Build Configuration:**
-   - Build Pack: **Docker Compose**
-   - Docker Compose File: `docker-compose.prod.yml`
+```bash
+# SSH into your VPS
+ssh user@your-vps-ip
+
+# Clone the repository
+git clone https://github.com/glnarayanan/arivu.app.git
+cd arivu-app
+
+# Copy the example environment file
+cp .env.example .env
+
+# Edit with your production values (see Step 3 below)
+nano .env
+```
 
 ### Step 3: Configure Environment Variables
 
-In Coolify's Environment Variables section, add:
+Add the following to your `.env` file on the server:
 
 ```bash
 # ===================================
@@ -358,7 +363,7 @@ GEMINI_API_KEY=AIzaSy_YOUR_GEMINI_API_KEY_HERE
 # Frontend Configuration
 # ===================================
 # CRITICAL: Must match your frontend domain (nginx proxies /api to backend)
-# Example: https://arivu.app or https://arivu.coolify.app
+# Example: https://arivu.app
 REACT_APP_BACKEND_URL=https://arivu.app
 
 # ===================================
@@ -369,7 +374,6 @@ LOG_LEVEL=info
 
 **Important Notes:**
 - Replace ALL `<placeholder>` values with actual values
-- Do NOT include quotes around values in Coolify UI
 - `REACT_APP_BACKEND_URL` must be set BEFORE build (it's baked into the React bundle)
 - Use the same domain for both `CORS_ORIGINS` and `REACT_APP_BACKEND_URL`
 
@@ -389,50 +393,56 @@ openssl rand -base64 24
 
 ### Step 4: Configure Domain & Networking
 
-**Domain Configuration:**
+**Port Configuration:**
+- Frontend nginx listens on port 80
+- Backend on port 8001 (internal only)
+- MongoDB on port 27017 (internal only)
+- Only the marketing/frontend container needs to be publicly accessible
 
-1. **In Coolify UI:**
-   - Go to your application → "Domains"
-   - Add domain: `arivu.app` (or your domain)
-   - Format: `arivu.app:80` (with port) or just `arivu.app`
-   - Enable HTTPS: ❌ **DISABLED** (Cloudflare handles SSL)
+**Firewall:**
+```bash
+# Open HTTP/HTTPS ports
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
 
-2. **Port Configuration:**
-   - Coolify manages port 80 internally
-   - Frontend nginx listens on port 80
-   - Backend on port 8001 (internal only)
-   - MongoDB on port 27017 (internal only)
-   - Only frontend needs to be publicly accessible
-
-**Traefik Configuration:**
-
-The `docker-compose.prod.yml` has Traefik disabled for all services:
-```yaml
-labels:
-  - "traefik.enable=false"  # Coolify manages routing via UI
+# Block MongoDB from public access
+sudo ufw deny 27017/tcp
 ```
 
-This prevents Traefik variable substitution errors and SSL conflicts with Cloudflare.
+**Optional: Set up a host-level nginx reverse proxy** if you need SSL termination on the server (instead of Cloudflare Flexible mode):
+
+```nginx
+server {
+    listen 80;
+    server_name arivu.app;
+
+    location / {
+        proxy_pass http://127.0.0.1:80;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+For SSL with Let's Encrypt:
+```bash
+sudo apt install certbot python3-certbot-nginx
+sudo certbot --nginx -d arivu.app
+```
 
 ### Step 5: Deploy
 
-1. **Click "Deploy" in Coolify**
-2. **Monitor Build Logs:**
+```bash
+# Build and start all services
+docker-compose -f docker-compose.prod.yml up -d --build
 
-```
-📦 Cloning repository from GitHub...
-🔨 Building backend image...
-🔨 Building frontend image...
-📥 Pulling MongoDB image...
-🚀 Starting containers...
-⏳ Waiting for health checks...
-✅ mongodb: healthy
-✅ backend: healthy
-✅ frontend: healthy
-🎉 Deployment successful!
+# Monitor build progress
+docker-compose -f docker-compose.prod.yml logs -f
 ```
 
-3. **Verify Deployment:**
+**Verify Deployment:**
 
 ```bash
 # Check container status
@@ -445,16 +455,15 @@ docker ps --format "table {{.Names}}\t{{.Status}}"
 # arivu-mongodb     Up (healthy)
 ```
 
-### Step 6: Configure Coolify Port Mapping
+### Step 6: Update Deployments
 
-Since Traefik is disabled, configure port mapping in Coolify UI:
+To deploy updates from the repository:
 
-1. **Go to: Application → Network/Ports**
-2. **Add Port Mapping:**
-   - Public Port: `80` (or `8080` if 80 is taken)
-   - Container Port: `80`
-   - Service: `frontend`
-   - Protocol: `HTTP` (not HTTPS - Cloudflare terminates SSL)
+```bash
+cd arivu-app
+git pull origin main
+docker-compose -f docker-compose.prod.yml up -d --build
+```
 
 ---
 
@@ -483,7 +492,7 @@ dig arivu.app
 1. **Navigate to:** SSL/TLS Settings in Cloudflare
 2. **Encryption Mode:** Set to **Flexible**
    - **Flexible:** Cloudflare → Server = HTTP (recommended for this setup)
-   - **Full:** Requires SSL on server (needs Coolify Let's Encrypt)
+   - **Full:** Requires SSL on server (needs Let's Encrypt on server)
    - **Full (Strict):** Requires valid certificate on server
 
 3. **Recommended: Use Flexible Mode**
@@ -520,7 +529,7 @@ User Browser
 Cloudflare Edge Network
 (SSL Termination, DDoS Protection, CDN)
     ↓ (HTTP - Flexible SSL mode)
-Coolify Server (Your VPS)
+Your VPS
     ↓
 Docker: arivu-frontend (Port 80)
     ↓ (proxies /api/* to backend:8001)
@@ -697,9 +706,7 @@ ab -n 100 -c 10 https://arivu.app/api/health
 
 **Check Container Logs:**
 ```bash
-# In Coolify UI: Application → Logs
-
-# Or via SSH to server:
+# Via SSH to server:
 docker logs arivu-backend --tail 50
 docker logs arivu-frontend --tail 50
 docker logs arivu-mongodb --tail 50
@@ -963,7 +970,7 @@ sudo logrotate -f /etc/logrotate.d/arivu
 - ✅ **MongoDB:** Authentication enabled, not exposed to public internet
 - ✅ **CORS:** Whitelisted to specific domain (not `*` in production)
 - ✅ **HTTPS:** Enabled via Cloudflare
-- ✅ **Environment Variables:** Not committed to Git, only in Coolify/server
+- ✅ **Environment Variables:** Not committed to Git, only on server
 - ✅ **MongoDB User:** Has minimum required permissions (readWrite only)
 - ✅ **Firewall:** MongoDB port (27017) blocked from internet
 - ✅ **Passwords:** All default passwords changed
@@ -979,7 +986,7 @@ sudo logrotate -f /etc/logrotate.d/arivu
 # Allow SSH
 sudo ufw allow 22/tcp
 
-# Allow HTTP/HTTPS (for Coolify/Traefik)
+# Allow HTTP/HTTPS
 sudo ufw allow 80/tcp
 sudo ufw allow 443/tcp
 
@@ -1083,7 +1090,7 @@ See detailed troubleshooting guide: [troubleshooting.md](troubleshooting.md)
 
 1. Check container logs: `docker logs <container-name>`
 2. Review [troubleshooting.md](troubleshooting.md)
-3. Check Coolify deployment logs
+3. Check Docker container logs: `docker-compose logs -f`
 4. Verify environment variables
 5. Test health endpoints
 
@@ -1102,11 +1109,10 @@ See detailed troubleshooting guide: [troubleshooting.md](troubleshooting.md)
 - [ ] Backend health check passes
 
 **Production Deployment:**
-- [ ] Coolify application created
-- [ ] Repository connected
-- [ ] `docker-compose.prod.yml` selected
-- [ ] All environment variables set in Coolify
-- [ ] Domain configured in Coolify
+- [ ] VPS provisioned with Docker and Docker Compose
+- [ ] Repository cloned on server
+- [ ] `.env` file configured with production values
+- [ ] `docker-compose -f docker-compose.prod.yml up -d --build` executed
 - [ ] Cloudflare DNS A record created
 - [ ] Cloudflare SSL mode set to Flexible
 - [ ] Deployed successfully
@@ -1126,7 +1132,6 @@ See detailed troubleshooting guide: [troubleshooting.md](troubleshooting.md)
 
 ### External Documentation
 
-- **Coolify Docs:** https://coolify.io/docs
 - **Cloudflare Docs:** https://developers.cloudflare.com
 - **FastAPI Docs:** https://fastapi.tiangolo.com
 - **MongoDB Docs:** https://docs.mongodb.com
@@ -1142,4 +1147,4 @@ See detailed troubleshooting guide: [troubleshooting.md](troubleshooting.md)
 
 ---
 
-*End of Deployment Guide - Version 2.0*
+*End of Deployment Guide - Version 2.2*

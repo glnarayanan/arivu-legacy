@@ -111,7 +111,7 @@ Historical documentation and verbose guides.
 - Container restart loops
 - Network connectivity
 - Volume permission issues
-**Benefit:** Help users debug without obsolete Coolify/Traefik references
+**Benefit:** Help users debug common Docker issues
 
 ---
 
