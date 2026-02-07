@@ -12,6 +12,22 @@ The integration will add seamless support for X bookmarks, allowing users to aut
 - Enable fetching and display of X bookmarks alongside blog/article bookmarks.  
 - Provide unified AI summaries across all bookmark sources.  
 
+## Implementation Review (2026-02-07)
+
+Summary of gaps and recommended fixes found in the current implementation:
+
+- OAuth URL building should URL-encode `redirect_uri` and `scope` values to avoid query-string truncation when `redirect_uri` includes its own `?`.
+- Sync status can remain stuck in `syncing` when X API requests raise HTTP exceptions (auth expired, rate limit). Ensure the status is reset or marked `auth_expired`/`error` before re-raising.
+- Pagination is capped at 10 pages (1,000 bookmarks). Add continuation support (store `next_token` or allow resume) so large libraries can fully sync.
+- Dedup uses raw URL string matching only. Add URL normalization (strip UTM, normalize trailing slashes) and consider a unique index on `(user_id, x_tweet_id)` to prevent race-condition duplicates.
+- Add tests covering OAuth flow, sync pagination, error-state handling, and dedup logic.
+
+### Implementation Notes (2026-02-07)
+
+- OAuth authorization URLs are now built with encoded query parameters to handle `redirect_uri` values that include their own query strings.
+- X bookmark sync resumes using a stored `next_cursor` and respects `X_MAX_BOOKMARK_PAGES` per run.
+- Deduplication normalizes URLs by removing fragments and common tracking parameters.
+
 **Assumptions:**  
 
 - The existing app is a React (JS/TS) project with user authentication, bookmark storage (e.g., database or local state), and AI summary generation already implemented.  

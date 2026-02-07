@@ -40,6 +40,7 @@ import { OnboardingChecklist } from './onboarding';
 const SETTINGS_SECTIONS = [
   { id: 'profile', label: 'Profile', icon: User },
   { id: 'account', label: 'Account', icon: Lock },
+  { id: 'connections', label: 'Connections', icon: Link2 },
   { id: 'import', label: 'Import', icon: Upload },
   { id: 'backup', label: 'Backup', icon: Download },
   { id: 'duplicates', label: 'Duplicates', icon: Copy },

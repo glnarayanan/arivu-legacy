@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { Settings as SettingsIcon } from 'lucide-react';
 import ProfileSection from '../components/settings/ProfileSection';
 import AccountSection from '../components/settings/AccountSection';
+import ConnectionsSection from '../components/settings/ConnectionsSection';
 import ImportSection from '../components/settings/ImportSection';
 import BackupSection from '../components/settings/BackupSection';
 import DuplicatesSection from '../components/settings/DuplicatesSection';
@@ -11,6 +12,7 @@ import AppLayout from '../components/AppLayout';
 const SECTIONS = [
   { id: 'profile', label: 'Profile' },
   { id: 'account', label: 'Account' },
+  { id: 'connections', label: 'Connections' },
   { id: 'import', label: 'Import' },
   { id: 'backup', label: 'Backup' },
   { id: 'duplicates', label: 'Duplicates' },
@@ -38,6 +40,8 @@ const SettingsPage = ({ onLogout }) => {
         return <ProfileSection />;
       case 'account':
         return <AccountSection />;
+      case 'connections':
+        return <ConnectionsSection />;
       case 'import':
         return <ImportSection />;
       case 'backup':

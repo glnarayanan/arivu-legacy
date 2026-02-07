@@ -6,7 +6,7 @@ import { Input } from '../components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { toast } from 'sonner';
-import { BookmarkIcon, PlusIcon, SearchIcon, SparklesIcon, CheckSquare, Square, Trash2, CheckCircle, Circle, BookOpen, Grid3x3, List, Clock } from 'lucide-react';
+import { BookmarkIcon, PlusIcon, SearchIcon, SparklesIcon, CheckSquare, Square, Trash2, CheckCircle, Circle, BookOpen, Grid3x3, List, Clock, Globe } from 'lucide-react';
 import { motion } from 'framer-motion';
 import KeyboardShortcutsModal from '../components/KeyboardShortcutsModal';
 import BookmarkCard from '../components/BookmarkCard';
@@ -47,6 +47,7 @@ const DashboardPage = ({ onLogout }) => {
   const [resurfacingSuggestions, setResurfacingSuggestions] = useState([]);
   const [memoryJogger, setMemoryJogger] = useState(null);
   const [memoryJoggerDismissed, setMemoryJoggerDismissed] = useState(false);
+  const [sourceFilter, setSourceFilter] = useState('all');
   const [showConfetti, setShowConfetti] = useState(false);
   const [showWelcome, setShowWelcome] = useState(false);
   const [firstBookmarkId, setFirstBookmarkId] = useState(null);
@@ -68,6 +69,7 @@ const DashboardPage = ({ onLogout }) => {
       if (filterDomain) params.append('domain', filterDomain);
       if (filterCollection) params.append('collection_id', filterCollection);
       if (readFilter !== 'all') params.append('read_status', readFilter);
+      if (sourceFilter !== 'all') params.append('source', sourceFilter);
       if (sortBy) params.append('sort_by', sortBy);
 
       const response = await axiosInstance.get(`/bookmarks?${params.toString()}`);
@@ -191,7 +193,7 @@ const DashboardPage = ({ onLogout }) => {
     fetchAgedCount();
     fetchResurfacing();
     fetchMemoryJogger();
-  }, [searchQuery, filterTag, filterDomain, filterCollection, readFilter, sortBy]);
+  }, [searchQuery, filterTag, filterDomain, filterCollection, readFilter, sourceFilter, sortBy]);
 
   useEffect(() => {
     const hasPendingAI = bookmarks.some(b => b.ai_summary?.processing_status === 'pending');
@@ -567,6 +569,19 @@ const DashboardPage = ({ onLogout }) => {
                 </SelectContent>
               </Select>
 
+              {/* Source Filter */}
+              <Select value={sourceFilter} onValueChange={setSourceFilter}>
+                <SelectTrigger data-testid="source-filter" className="w-[140px] rounded-none border-2 border-foreground shadow-none font-mono text-xs uppercase tracking-wider bg-background">
+                  <Globe className="w-4 h-4 mr-2" />
+                  <SelectValue placeholder="Source" />
+                </SelectTrigger>
+                <SelectContent className="rounded-none border-2 border-foreground shadow-brutal">
+                  <SelectItem value="all">All Sources</SelectItem>
+                  <SelectItem value="web">Web Only</SelectItem>
+                  <SelectItem value="x">X Only</SelectItem>
+                </SelectContent>
+              </Select>
+
               {/* Bulk Mode Toggle */}
               <Button
                 data-testid="bulk-mode-btn"
@@ -581,7 +596,7 @@ const DashboardPage = ({ onLogout }) => {
           </div>
 
           {/* Clear Filters */}
-          {(filterTag || filterDomain || filterCollection || readFilter !== 'all' || sortBy !== 'created_at') && (
+          {(filterTag || filterDomain || filterCollection || readFilter !== 'all' || sourceFilter !== 'all' || sortBy !== 'created_at') && (
             <div className="mb-4">
               <Button
                 data-testid="clear-filters-btn"
@@ -593,6 +608,7 @@ const DashboardPage = ({ onLogout }) => {
                   setFilterDomain('');
                   setFilterCollection('');
                   setReadFilter('all');
+                  setSourceFilter('all');
                   setSortBy('created_at');
                 }}
               >
