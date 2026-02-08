@@ -192,3 +192,55 @@ async def auth_client(auth_app):
         transport=ASGITransport(app=auth_app), base_url="http://test"
     ) as ac:
         yield ac
+
+
+# ---------------------------------------------------------------------------
+# Integration test fixtures (real MongoDB via testcontainers)
+# Requires Docker daemon running. Skipped automatically if unavailable.
+# Usage: pytest -m integration tests/
+# Skip:  pytest -m "not integration" tests/
+# ---------------------------------------------------------------------------
+try:
+    from testcontainers.mongodb import MongoDbContainer
+    from motor.motor_asyncio import AsyncIOMotorClient as _RealMotorClient
+
+    _TESTCONTAINERS_AVAILABLE = True
+except ImportError:
+    _TESTCONTAINERS_AVAILABLE = False
+
+if _TESTCONTAINERS_AVAILABLE:
+
+    @pytest.fixture(scope="session")
+    def mongo_container():
+        """Spin up MongoDB 7.0 container for the entire test session."""
+        with MongoDbContainer("mongo:7.0") as mongo:
+            yield mongo
+
+    @pytest.fixture
+    async def real_db(mongo_container):
+        """Per-test async database connected to real MongoDB.
+
+        Creates production-matching indexes and drops all collections after each test.
+        """
+        client = _RealMotorClient(mongo_container.get_connection_url())
+        db = client["test_arivu"]
+
+        # Create indexes matching production (Phase 2 ESR pattern)
+        await db.bookmarks.create_index(
+            [("user_id", 1), ("created_at", -1)],
+            name="idx_user_created",
+            background=True,
+        )
+        await db.bookmarks.create_index(
+            [("user_id", 1), ("url", 1)],
+            unique=True,
+            name="idx_user_url_unique",
+            background=True,
+        )
+
+        yield db
+
+        # Cleanup: drop all collections after each test
+        for name in await db.list_collection_names():
+            await db[name].drop()
+        client.close()
