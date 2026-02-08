@@ -1,12 +1,15 @@
 """Search domain router -- hybrid BM25 + semantic + entity search."""
 
+import logging
 import math
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+logger = logging.getLogger(__name__)
+
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.core.database import get_database
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_user, get_user_identifier, limiter
 from app.services.ai_service import generate_embedding
 from app.services.search_utils import (
     tokenize_text,
@@ -21,7 +24,10 @@ router = APIRouter(tags=["search"])
 
 
 @router.get("/search")
+@limiter.limit("30/minute")  # IP-based rate limiting
+@limiter.limit("10/minute", key_func=get_user_identifier)  # User-based rate limiting (PERF-04)
 async def hybrid_search(
+    request: Request,  # Required for slowapi rate limiting
     query: str,
     limit: int = 20,
     use_semantic: bool = True,
@@ -49,6 +55,13 @@ async def hybrid_search(
         raise HTTPException(
             status_code=400, detail="Query must be at least 2 characters"
         )
+    if len(query.encode("utf-8")) > 10240:  # PERF-01: 10KB max query
+        raise HTTPException(
+            status_code=400, detail="Query too large (max 10KB)"
+        )
+
+    # Cap limit parameter
+    limit = min(limit, 100)  # PERF-01: Cap at 100 results
 
     query_lower = query.lower().strip()
     query_tokens = tokenize_text(query)
@@ -159,6 +172,11 @@ async def hybrid_search(
         query_embedding = await generate_embedding(
             query, min_length=3, task_type="retrieval_query"
         )
+        if not query_embedding:
+            logger.warning(
+                f"Semantic embedding failed for query, falling back to keyword-only"
+            )
+            use_semantic = False  # Graceful degradation (REL-03)
 
     if query_embedding:
         def dot_product_similarity(vec1, vec2):

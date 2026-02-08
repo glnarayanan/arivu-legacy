@@ -209,9 +209,10 @@ async def test_bulk_delete_bookmarks(client, mock_db):
 @pytest.mark.anyio
 async def test_update_read_status(client, mock_db):
     """PATCH /api/bookmarks/{id}/read-status toggles read status."""
-    mock_result = MagicMock()
-    mock_result.matched_count = 1
-    mock_db.bookmarks.update_one = AsyncMock(return_value=mock_result)
+    # find_one_and_update returns the updated document on success
+    mock_db.bookmarks.find_one_and_update = AsyncMock(
+        return_value={**SAMPLE_BOOKMARK, "read_status": True, "version": 2}
+    )
 
     response = await client.patch(
         "/api/bookmarks/bm-1/read-status",
@@ -219,15 +220,18 @@ async def test_update_read_status(client, mock_db):
     )
 
     assert response.status_code == 200
-    assert response.json()["message"] == "Read status updated"
+    data = response.json()
+    assert data["message"] == "Read status updated"
+    assert data["version"] == 2
 
 
 @pytest.mark.anyio
 async def test_update_read_status_not_found(client, mock_db):
     """PATCH /api/bookmarks/{id}/read-status returns 404 when not found."""
-    mock_result = MagicMock()
-    mock_result.matched_count = 0
-    mock_db.bookmarks.update_one = AsyncMock(return_value=mock_result)
+    # find_one_and_update returns None when query doesn't match
+    mock_db.bookmarks.find_one_and_update = AsyncMock(return_value=None)
+    # find_one also returns None (bookmark doesn't exist at all)
+    mock_db.bookmarks.find_one = AsyncMock(return_value=None)
 
     response = await client.patch(
         "/api/bookmarks/nonexistent/read-status",
@@ -235,6 +239,23 @@ async def test_update_read_status_not_found(client, mock_db):
     )
 
     assert response.status_code == 404
+
+
+@pytest.mark.anyio
+async def test_update_read_status_version_conflict(client, mock_db):
+    """PATCH /api/bookmarks/{id}/read-status returns 409 on version mismatch."""
+    # find_one_and_update returns None (version mismatch)
+    mock_db.bookmarks.find_one_and_update = AsyncMock(return_value=None)
+    # But bookmark exists (just wrong version)
+    mock_db.bookmarks.find_one = AsyncMock(return_value=SAMPLE_BOOKMARK)
+
+    response = await client.patch(
+        "/api/bookmarks/bm-1/read-status",
+        params={"read_status": True, "version": 99},
+    )
+
+    assert response.status_code == 409
+    assert "modified by another request" in response.json()["detail"]
 
 
 # ============================================

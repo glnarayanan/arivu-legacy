@@ -10,10 +10,10 @@ import math
 from datetime import datetime, timezone
 from typing import Dict, List
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 
 from app.core.database import get_database
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_user, get_user_identifier, limiter
 from app.services.ai_service import (
     extract_entities_and_concepts,
     generate_embedding,
@@ -183,8 +183,13 @@ async def explore_knowledge_graph(
 
 
 @router.get("/knowledge-graph/search")
+@limiter.limit("30/minute")  # IP-based rate limiting
+@limiter.limit("10/minute", key_func=get_user_identifier)  # User-based rate limiting (PERF-04)
 async def semantic_search(
-    query: str, limit: int = 10, current_user: dict = Depends(get_current_user)
+    request: Request,  # Required for slowapi rate limiting
+    query: str,
+    limit: int = 10,
+    current_user: dict = Depends(get_current_user),
 ):
     """
     Enhanced semantic search using adaptive thresholds and entity boosting.
@@ -198,6 +203,13 @@ async def semantic_search(
         raise HTTPException(
             status_code=400, detail="Query must be at least 3 characters"
         )
+    if len(query.encode("utf-8")) > 10240:  # PERF-01: 10KB max query
+        raise HTTPException(
+            status_code=400, detail="Query too large (max 10KB)"
+        )
+
+    # Cap limit parameter
+    limit = min(limit, 50)  # PERF-01: Cap at 50 results
 
     # Generate embedding for the search query
     query_embedding = await generate_embedding(
@@ -205,9 +217,8 @@ async def semantic_search(
     )
 
     if not query_embedding:
-        raise HTTPException(
-            status_code=500, detail="Failed to generate query embedding"
-        )
+        logger.warning(f"Failed to generate query embedding for: {query[:100]}")
+        return {"results": [], "message": "Semantic search temporarily unavailable"}
 
     # Get all user's bookmarks with embeddings
     all_bookmarks = await db.bookmarks.find(
@@ -348,6 +359,10 @@ async def expand_query(
         raise HTTPException(
             status_code=400, detail="Query must be at least 2 characters"
         )
+    if len(query.encode("utf-8")) > 10240:  # PERF-01: 10KB max query
+        raise HTTPException(
+            status_code=400, detail="Query too large (max 10KB)"
+        )
 
     query_lower = query.lower().strip()
     query_tokens = set(tokenize_text(query))
@@ -478,7 +493,10 @@ async def expand_query(
 
 
 @router.post("/knowledge-graph/regenerate-embeddings")
+@limiter.limit("3/hour")  # Very expensive batch operation
+@limiter.limit("1/hour", key_func=get_user_identifier)  # User-based rate limiting (PERF-04)
 async def regenerate_embeddings(
+    request: Request,  # Required for slowapi rate limiting
     background_tasks: BackgroundTasks,
     current_user: dict = Depends(get_current_user),
 ):

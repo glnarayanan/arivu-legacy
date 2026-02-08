@@ -448,6 +448,8 @@ class Bookmark(BaseModel):
     x_author_name: Optional[str] = None
     x_tweet_url: Optional[str] = None
     x_metrics: Optional[Dict] = None
+    # Optimistic locking version (REL-03)
+    version: int = 1
 
 
 class QuickConnection(BaseModel):
@@ -1845,6 +1847,22 @@ async def create_x_indexes():
         logger.info("X integration indexes created successfully")
     except Exception as e:
         logger.warning(f"Index creation skipped (may already exist): {e}")
+
+
+@app.on_event("startup")
+async def migrate_bookmark_version_field():
+    """Migrate existing bookmarks to include version field (REL-03)."""
+    try:
+        migrated = await db.bookmarks.update_many(
+            {"version": {"$exists": False}},
+            {"$set": {"version": 1}},
+        )
+        if migrated.modified_count > 0:
+            logger.info(
+                f"Migrated {migrated.modified_count} bookmarks to include version field"
+            )
+    except Exception as e:
+        logger.warning(f"Version field migration skipped: {e}")
 
 
 @app.on_event("shutdown")

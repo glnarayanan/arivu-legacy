@@ -121,6 +121,8 @@ class Bookmark(BaseModel):
     x_author_name: Optional[str] = None
     x_tweet_url: Optional[str] = None
     x_metrics: Optional[Dict] = None
+    # Optimistic locking version (REL-03)
+    version: int = 1
 
 
 class QuickConnection(BaseModel):

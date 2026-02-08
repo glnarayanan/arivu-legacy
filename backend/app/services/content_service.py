@@ -14,6 +14,7 @@ import html2text
 import requests
 from bs4 import BeautifulSoup
 from readability import Document
+from tenacity import RetryError
 
 from app.core.database import get_database
 from app.models.bookmark import is_safe_url
@@ -21,6 +22,7 @@ from app.services.ai_service import (
     extract_entities_and_concepts,
     generate_ai_summaries,
     generate_embedding,
+    has_substantial_change,
 )
 
 logger = logging.getLogger(__name__)
@@ -178,19 +180,31 @@ async def process_bookmark_content(
     try:
         db = get_database()
         logger.info(f"Processing bookmark content: {bookmark_id}")
+
+        # Fetch existing content for change detection (PERF-02)
+        existing_bookmark = await db.bookmarks.find_one(
+            {"id": bookmark_id},
+            {"_id": 0, "text_content": 1, "title": 1, "embedding": 1}
+        )
+        old_text_content = existing_bookmark.get("text_content", "") if existing_bookmark else ""
+        old_title = existing_bookmark.get("title", "") if existing_bookmark else ""
+        had_embedding = bool(existing_bookmark.get("embedding")) if existing_bookmark else False
+
         content = await fetch_webpage_content(url)
-        reading_time = calculate_reading_time(content.get("text_content", ""))
+        new_text_content = content.get("text_content", "")
+        new_title = content.get("title", "")
+        reading_time = calculate_reading_time(new_text_content)
 
         await db.bookmarks.update_one(
             {"id": bookmark_id},
             {
                 "$set": {
-                    "title": content.get("title"),
+                    "title": new_title,
                     "description": content.get("description"),
                     "favicon": content.get("favicon"),
                     "thumbnail": content.get("thumbnail"),
                     "html_content": content.get("html_content"),
-                    "text_content": content.get("text_content"),
+                    "text_content": new_text_content,
                     "domain": content.get("domain"),
                     "reading_time": reading_time,
                     "updated_at": datetime.now(timezone.utc).isoformat(),
@@ -198,24 +212,51 @@ async def process_bookmark_content(
             },
         )
 
-        # Generate AI summaries
-        await generate_ai_summaries(content.get("text_content", ""), bookmark_id)
+        # Generate AI summaries with retry and error classification
+        # (always run regardless of content change magnitude)
+        try:
+            await generate_ai_summaries(new_text_content, bookmark_id)
+        except RetryError:
+            logger.error(f"AI summary failed after all retries for bookmark {bookmark_id}")
+            await db.ai_summaries.update_one(
+                {"bookmark_id": bookmark_id},
+                {"$set": {
+                    "processing_status": "failed",
+                    "one_sentence": "AI processing temporarily unavailable. Will retry later.",
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }},
+            )
 
-        # Generate embedding for semantic search (Phase 1: Semantic Knowledge Graph)
-        text_content = content.get("text_content", "")
-        title = content.get("title", "")
+        # Generate embedding only if content changed substantially (PERF-02)
+        text_content = new_text_content
+        title = new_title
         description = content.get("description", "")
 
-        if text_content and len(text_content.strip()) >= 50:
-            embedding = await generate_embedding(text_content, title, description)
+        # Determine if embedding regeneration is needed
+        content_changed = has_substantial_change(old_text_content, text_content)
+        title_changed = has_substantial_change(old_title, title)
+        needs_embedding = not had_embedding or content_changed or title_changed
+
+        if text_content and len(text_content.strip()) >= 50 and needs_embedding:
+            logger.info(f"Regenerating embedding for bookmark {bookmark_id} (content_changed={content_changed}, title_changed={title_changed})")
+            try:
+                embedding = await generate_embedding(text_content, title, description)
+            except RetryError:
+                logger.error(f"Embedding generation failed after all retries for bookmark {bookmark_id}")
+                embedding = None
 
             # Get AI summary data for entity/concept extraction
             ai_summary = await db.ai_summaries.find_one(
                 {"bookmark_id": bookmark_id}, {"_id": 0}
             )
-            entities, concepts = await extract_entities_and_concepts(
-                text_content, ai_summary
-            )
+
+            try:
+                entities, concepts = await extract_entities_and_concepts(
+                    text_content, ai_summary
+                )
+            except RetryError:
+                logger.error(f"Entity extraction failed after all retries for bookmark {bookmark_id}")
+                entities, concepts = [], []
 
             # Update bookmark with embedding and semantic data
             update_data = {"updated_at": datetime.now(timezone.utc).isoformat()}
@@ -234,6 +275,8 @@ async def process_bookmark_content(
             logger.info(
                 f"Generated embedding and semantic data for bookmark {bookmark_id}"
             )
+        elif text_content and len(text_content.strip()) >= 50 and not needs_embedding:
+            logger.info(f"Skipping embedding regeneration for bookmark {bookmark_id} (change below 10% threshold)")
 
         logger.info(f"Successfully processed bookmark: {bookmark_id}")
     except Exception as e:

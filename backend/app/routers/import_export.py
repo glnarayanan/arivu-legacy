@@ -352,6 +352,7 @@ async def import_bookmarks(
                     "read_status": False,
                     "created_at": datetime.now(timezone.utc).isoformat(),
                     "updated_at": datetime.now(timezone.utc).isoformat(),
+                    "version": 1,  # Optimistic locking (REL-03)
                 }
 
                 await db.bookmarks.insert_one(bookmark)

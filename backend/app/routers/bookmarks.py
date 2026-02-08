@@ -5,6 +5,7 @@ Manages bookmark CRUD, read status, access tracking, duplicate detection,
 and related bookmarks via embedding similarity.
 """
 
+import logging
 import re
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -22,6 +23,8 @@ from app.models.bookmark import (
     QuickConnection,
 )
 from app.services.content_service import process_bookmark_content
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["bookmarks"])
 
@@ -106,6 +109,7 @@ async def create_bookmark(
         "read_status": False,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "updated_at": datetime.now(timezone.utc).isoformat(),
+        "version": 1,  # Optimistic locking (REL-03)
     }
 
     await db.bookmarks.insert_one(bookmark)
@@ -213,6 +217,7 @@ async def get_bookmarks(
         "x_author_name": 1,
         "x_tweet_url": 1,
         "x_metrics": 1,
+        "version": 1,  # Optimistic locking (REL-03)
     }
 
     bookmarks = (
@@ -260,7 +265,14 @@ async def get_bookmarks(
                 continue
 
         bookmark_with_summary = {**bookmark}
-        if summary:
+        # Graceful degradation for AI summary (REL-03)
+        if summary and summary.get("processing_status") == "failed":
+            bookmark_with_summary["ai_summary"] = {
+                "processing_status": "failed",
+                "one_sentence": summary.get("one_sentence", "AI summary temporarily unavailable"),
+                "suggested_tags": summary.get("suggested_tags", []),
+            }
+        elif summary:
             bookmark_with_summary["ai_summary"] = summary
         result.append(bookmark_with_summary)
 
@@ -313,17 +325,20 @@ async def get_aged_bookmarks(
 
 @router.get("/bookmarks/duplicates/detect")
 async def detect_duplicates(current_user: dict = Depends(get_current_user)):
+    """Detect duplicate bookmarks using URL matching and embedding similarity (PERF-03)."""
+    import numpy as np
+
     db = get_database()
     projection = {
         "_id": 0,
         "id": 1,
         "url": 1,
         "title": 1,
-        "text_content": 1,
         "domain": 1,
         "created_at": 1,
         "thumbnail": 1,
         "favicon": 1,
+        "embedding": 1,  # Fetch embeddings instead of text_content
     }
     bookmarks = (
         await db.bookmarks.find({"user_id": current_user["id"]}, projection)
@@ -331,6 +346,7 @@ async def detect_duplicates(current_user: dict = Depends(get_current_user)):
         .to_list(None)
     )
 
+    # URL-based exact duplicates (preserve existing logic)
     url_groups = {}
     for bookmark in bookmarks:
         normalized_url = re.sub(r"(\?|#).*$", "", bookmark["url"]).lower().strip("/")
@@ -341,32 +357,37 @@ async def detect_duplicates(current_user: dict = Depends(get_current_user)):
     duplicates = []
     for url, group in url_groups.items():
         if len(group) > 1:
-            duplicates.append({"type": "exact_url", "bookmarks": group})
+            # Strip embeddings from response (large arrays, not needed in output)
+            clean_group = [{k: v for k, v in b.items() if k != "embedding"} for b in group]
+            duplicates.append({"type": "exact_url", "bookmarks": clean_group})
 
-    texts = [
-        b.get("text_content", "")[:1000] for b in bookmarks if b.get("text_content")
-    ]
-    if len(texts) > 1:
+    # Embedding-based similarity detection (replaces TF-IDF) (PERF-03)
+    embeddings = []
+    indexed_bookmarks = []
+    for b in bookmarks:
+        if b.get("embedding"):
+            embeddings.append(b["embedding"])
+            indexed_bookmarks.append(b)
+
+    if len(embeddings) > 1:
         try:
-            from sklearn.feature_extraction.text import TfidfVectorizer
-            from sklearn.metrics.pairwise import cosine_similarity
+            matrix = np.array(embeddings)
+            # Dot product = cosine similarity (embeddings are L2-normalized)
+            similarity_matrix = np.dot(matrix, matrix.T)
 
-            vectorizer = TfidfVectorizer(max_features=100)
-            tfidf_matrix = vectorizer.fit_transform(texts)
-            similarities = cosine_similarity(tfidf_matrix)
-
-            for i in range(len(bookmarks)):
-                for j in range(i + 1, len(bookmarks)):
-                    if similarities[i][j] > 0.85:
-                        duplicates.append(
-                            {
-                                "type": "similar_content",
-                                "similarity": float(similarities[i][j]),
-                                "bookmarks": [bookmarks[i], bookmarks[j]],
-                            }
-                        )
+            for i in range(len(indexed_bookmarks)):
+                for j in range(i + 1, len(indexed_bookmarks)):
+                    if similarity_matrix[i][j] > 0.85:
+                        # Strip embeddings from response
+                        b_i = {k: v for k, v in indexed_bookmarks[i].items() if k != "embedding"}
+                        b_j = {k: v for k, v in indexed_bookmarks[j].items() if k != "embedding"}
+                        duplicates.append({
+                            "type": "similar_content",
+                            "similarity": float(similarity_matrix[i][j]),
+                            "bookmarks": [b_i, b_j],
+                        })
         except Exception:
-            pass
+            logger.exception("Error in embedding-based duplicate detection")
 
     return {"duplicates": duplicates}
 
@@ -385,7 +406,22 @@ async def get_bookmark(
     summary = await db.ai_summaries.find_one({"bookmark_id": bookmark_id}, {"_id": 0})
 
     result = {**bookmark}
-    if summary:
+    # Graceful degradation for AI summary (REL-03)
+    if not summary:
+        result["ai_summary"] = {
+            "processing_status": "pending",
+            "one_sentence": "Processing...",
+            "suggested_tags": [],
+        }
+    elif summary.get("processing_status") == "failed":
+        result["ai_summary"] = {
+            "processing_status": "failed",
+            "one_sentence": summary.get("one_sentence", "AI summary temporarily unavailable"),
+            "exec_summary": summary.get("exec_summary", ""),
+            "highlights": summary.get("highlights", []),
+            "suggested_tags": summary.get("suggested_tags", []),
+        }
+    else:
         result["ai_summary"] = summary
 
     # Phase 1: Auto-track detail page view
@@ -525,21 +561,44 @@ async def bulk_delete_bookmarks(
 async def update_read_status(
     bookmark_id: str,
     read_status: bool,
+    version: Optional[int] = None,
     current_user: dict = Depends(get_current_user),
 ):
     db = get_database()
-    result = await db.bookmarks.update_one(
-        {"id": bookmark_id, "user_id": current_user["id"]},
+    query = {"id": bookmark_id, "user_id": current_user["id"]}
+
+    # If client sends version, enforce optimistic locking
+    if version is not None:
+        query["$or"] = [
+            {"version": version},
+            {"version": {"$exists": False}},  # Backward compat for pre-migration docs
+        ]
+
+    result = await db.bookmarks.find_one_and_update(
+        query,
         {
             "$set": {
                 "read_status": read_status,
                 "updated_at": datetime.now(timezone.utc).isoformat(),
-            }
+            },
+            "$inc": {"version": 1},
         },
+        return_document=True,
     )
-    if result.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Bookmark not found")
-    return {"message": "Read status updated"}
+
+    if result is None:
+        # Check if bookmark exists at all
+        exists = await db.bookmarks.find_one(
+            {"id": bookmark_id, "user_id": current_user["id"]},
+            {"_id": 0, "id": 1},
+        )
+        if not exists:
+            raise HTTPException(status_code=404, detail="Bookmark not found")
+        raise HTTPException(
+            status_code=409,
+            detail="Bookmark was modified by another request. Please refresh and retry.",
+        )
+    return {"message": "Read status updated", "version": result.get("version", 1)}
 
 
 @router.post("/bookmarks/bulk-mark-read")
@@ -558,7 +617,8 @@ async def bulk_mark_read(
             "$set": {
                 "read_status": read_status,
                 "updated_at": datetime.now(timezone.utc).isoformat(),
-            }
+            },
+            "$inc": {"version": 1},
         },
     )
     return {
@@ -595,7 +655,7 @@ async def track_bookmark_access(
         {"id": bookmark_id},
         {
             "$set": {"last_accessed": now},
-            "$inc": {"view_count": 1},
+            "$inc": {"view_count": 1, "version": 1},
             "$push": {
                 "access_history": {
                     "$each": [{"timestamp": now, "source": source}],

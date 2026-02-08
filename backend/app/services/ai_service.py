@@ -15,10 +15,36 @@ from datetime import datetime, timezone
 from typing import List, Optional
 
 import google.generativeai as genai
+from google.api_core.exceptions import (
+    DeadlineExceeded,
+    InternalServerError as GoogleInternalServerError,
+    ResourceExhausted,
+    ServiceUnavailable,
+)
+from tenacity import (
+    RetryError,
+    before_sleep_log,
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential_jitter,
+)
 
 from app.core.database import get_database
 
 logger = logging.getLogger(__name__)
+
+# Error classification for AI retry logic (Phase 7, Plan 01)
+# Only transient errors are retried; permanent errors (InvalidArgument,
+# PermissionDenied) fail fast without retry.
+RETRIABLE_AI_EXCEPTIONS = (
+    ResourceExhausted,          # 429 - Rate limit / quota
+    DeadlineExceeded,           # 504 - Timeout
+    ServiceUnavailable,         # 503 - Temporary unavailable
+    GoogleInternalServerError,  # 500 - Server error
+    ConnectionError,            # Network issues
+    TimeoutError,               # Python timeout
+)
 
 
 # Enhanced Rate limiter for Gemini API with multi-dimensional tracking
@@ -162,6 +188,81 @@ def normalize_embedding(embedding: List[float]) -> List[float]:
     return embedding
 
 
+def has_substantial_change(old_content: str, new_content: str, threshold: float = 0.10) -> bool:
+    """Check if content changed by more than threshold (default 10%) by character count.
+
+    Used to skip expensive embedding regeneration when content changes are minor.
+    PERF-02: Embeddings only regenerate when text_content or title changes substantially.
+    """
+    if not old_content and new_content:
+        return True  # New content where none existed
+    if not new_content:
+        return False  # No new content to embed
+    if not old_content:
+        return True  # Had no content, now has some
+
+    old_len = len(old_content)
+    if old_len == 0:
+        return True
+
+    # Character count difference ratio
+    diff_ratio = abs(len(new_content) - old_len) / old_len
+    return diff_ratio > threshold
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential_jitter(initial=1, max=10, jitter=1),
+    retry=retry_if_exception_type(RETRIABLE_AI_EXCEPTIONS),
+    before_sleep=before_sleep_log(logger, logging.WARNING),
+    reraise=True,
+)
+async def call_gemini_with_retry(model, prompt_text, generation_config=None):
+    """Call Gemini generate_content with retry for transient errors only.
+
+    Non-retriable errors (InvalidArgument, PermissionDenied) propagate immediately.
+    Retries up to 3 times with exponential backoff + jitter for transient errors.
+    """
+    await gemini_rate_limiter.acquire(estimated_tokens=1500)
+    if generation_config:
+        response = await asyncio.to_thread(
+            model.generate_content, prompt_text,
+            generation_config=generation_config
+        )
+    else:
+        response = await asyncio.to_thread(model.generate_content, prompt_text)
+    if hasattr(response, "usage_metadata") and hasattr(
+        response.usage_metadata, "total_token_count"
+    ):
+        await gemini_rate_limiter.record_actual_tokens(
+            response.usage_metadata.total_token_count
+        )
+    return response
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential_jitter(initial=1, max=10, jitter=1),
+    retry=retry_if_exception_type(RETRIABLE_AI_EXCEPTIONS),
+    before_sleep=before_sleep_log(logger, logging.WARNING),
+    reraise=True,
+)
+async def call_embed_with_retry(content, model_name, task_type):
+    """Call Gemini embed_content with retry for transient errors only.
+
+    Non-retriable errors (InvalidArgument, PermissionDenied) propagate immediately.
+    Retries up to 3 times with exponential backoff + jitter for transient errors.
+    """
+    await gemini_rate_limiter.acquire(estimated_tokens=500)
+    result = await asyncio.to_thread(
+        genai.embed_content,
+        model=model_name,
+        content=content,
+        task_type=task_type,
+    )
+    return result
+
+
 async def generate_embedding(
     text_content: str,
     title: str = "",
@@ -204,12 +305,10 @@ async def generate_embedding(
         # Use first 10,000 characters of content to avoid token limits
         combined_text += text_content[:10000].strip()
 
-        # Use Google's embedding model with correct task type
-        await gemini_rate_limiter.acquire(estimated_tokens=500)
-        result = await asyncio.to_thread(
-            genai.embed_content,
-            model="models/text-embedding-004",
+        # Use Google's embedding model with retry for transient errors
+        result = await call_embed_with_retry(
             content=combined_text,
+            model_name="models/text-embedding-004",
             task_type=task_type,
         )
 
@@ -335,22 +434,9 @@ ARTICLE:
 TAGS:""",
         }
 
-        # Estimated tokens per prompt - higher for longer content
-        estimated_tokens_per_call = 1500
-
-        # Parallel API call function
+        # Parallel API call function (rate limiting + retry handled by call_gemini_with_retry)
         async def call_gemini(prompt_type, prompt_text):
-            await gemini_rate_limiter.acquire(
-                estimated_tokens=estimated_tokens_per_call
-            )
-            response = await asyncio.to_thread(model.generate_content, prompt_text)
-            # Record actual tokens if available
-            if hasattr(response, "usage_metadata") and hasattr(
-                response.usage_metadata, "total_token_count"
-            ):
-                actual_tokens = response.usage_metadata.total_token_count
-                await gemini_rate_limiter.record_actual_tokens(actual_tokens)
-
+            response = await call_gemini_with_retry(model, prompt_text)
             return prompt_type, response
 
         # Execute all 4 calls in parallel (removed bullets and long_form, added exec_summary)
@@ -497,11 +583,9 @@ Rules:
 - Use canonical/full names when possible
 - No duplicates"""
 
-        await gemini_rate_limiter.acquire(estimated_tokens=800)
         model = genai.GenerativeModel("gemini-2.5-flash")
-        response = await asyncio.to_thread(
-            model.generate_content,
-            extraction_prompt,
+        response = await call_gemini_with_retry(
+            model, extraction_prompt,
             generation_config=genai.types.GenerationConfig(
                 temperature=0.1,  # Low temperature for consistent extraction
                 max_output_tokens=1000,
