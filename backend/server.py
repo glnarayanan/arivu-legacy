@@ -56,6 +56,7 @@ import base64
 from app.routers.collections import router as collections_router
 from app.routers.analytics import router as analytics_router
 from app.routers.resurfacing import router as resurfacing_router
+from app.routers.auth import router as auth_router
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -227,6 +228,7 @@ api_router = APIRouter(prefix="/api")
 api_router.include_router(collections_router)
 api_router.include_router(analytics_router)
 api_router.include_router(resurfacing_router)
+api_router.include_router(auth_router)
 
 # Initialize rate limiter
 limiter = Limiter(key_func=get_remote_address)
@@ -506,73 +508,6 @@ def is_safe_url(url: str) -> tuple[bool, str]:
         return False, "Invalid URL format"
 
 
-class UserSignup(BaseModel):
-    email: EmailStr
-    password: str
-    name: str
-
-    @validator("name")
-    def validate_name(cls, v):
-        if not v or len(v.strip()) == 0:
-            raise ValueError("Name cannot be empty")
-        if len(v) > 100:
-            raise ValueError("Name too long (max 100 characters)")
-        if not re.match(r"^[\w\s\-\.]+$", v):
-            raise ValueError("Name contains invalid characters")
-        return v.strip()
-
-
-class UserLogin(BaseModel):
-    email: EmailStr
-    password: str
-
-
-class TokenResponse(BaseModel):
-    access_token: Optional[str] = None  # Optional for cookie-based auth
-    refresh_token: Optional[str] = None  # Optional for cookie-based auth
-    token_type: str = "bearer"
-    user: Optional[dict] = None  # Optional for cookie-based auth
-
-
-class RefreshTokenRequest(BaseModel):
-    refresh_token: str
-
-
-class PasswordResetRequest(BaseModel):
-    email: EmailStr
-
-
-class PasswordResetConfirm(BaseModel):
-    token: str
-    new_password: str
-
-
-class ChangePasswordRequest(BaseModel):
-    current_password: str
-    new_password: str
-
-
-class ProfileUpdate(BaseModel):
-    name: Optional[str] = None
-    email: Optional[EmailStr] = None
-
-    @validator("name")
-    def validate_name(cls, v):
-        if v is not None:
-            if len(v.strip()) == 0:
-                raise ValueError("Name cannot be empty")
-            if len(v) > 100:
-                raise ValueError("Name too long (max 100 characters)")
-            if not re.match(r"^[\w\s\-\.]+$", v):
-                raise ValueError("Name contains invalid characters")
-            return v.strip()
-        return v
-
-
-class AvatarUpload(BaseModel):
-    avatar_data: str  # Base64 encoded image data
-
-
 class BackupRequest(BaseModel):
     format: str = "html"  # "html" | "json" | "csv"
     include_notes: bool = True
@@ -719,115 +654,6 @@ async def health_check():
         raise HTTPException(status_code=503, detail=f"Service unhealthy: {str(e)}")
 
 
-@api_router.post("/auth/signup", response_model=TokenResponse)
-@limiter.limit("3/hour")  # Limit signups to prevent abuse
-async def signup(request: Request, user_data: UserSignup):
-    """Register a new user with password validation"""
-    # SIGNUPS DISABLED: Only existing users can login
-    # To re-enable signups, remove or comment out the following block
-    logger.info(f"Signup attempt blocked (signups disabled): {user_data.email}")
-    raise HTTPException(
-        status_code=403,
-        detail="Signups are currently disabled. Only existing users can log in.",
-    )
-
-    # Validate password strength
-    is_valid, error_msg = validate_password_strength(user_data.password)
-    if not is_valid:
-        logger.info(f"Signup failed: weak password for email {user_data.email}")
-        raise HTTPException(status_code=400, detail=error_msg)
-
-    # Check if email already exists
-    existing_user = await db.users.find_one({"email": user_data.email})
-    if existing_user:
-        logger.info(f"Signup failed: email already registered {user_data.email}")
-        raise HTTPException(status_code=400, detail="Email already registered")
-
-    # Create new user
-    user = {
-        "id": str(uuid.uuid4()),
-        "email": user_data.email,
-        "name": user_data.name,
-        "password_hash": pwd_context.hash(user_data.password),
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
-    await db.users.insert_one(user)
-
-    # Create tokens
-    access_token = create_access_token(data={"sub": user["id"]})
-    refresh_token = create_refresh_token(data={"sub": user["id"]})
-
-    user_response = {"id": user["id"], "email": user["email"], "name": user["name"]}
-    logger.info(f"User registered successfully: {user['id']}")
-
-    return {
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "token_type": "bearer",
-        "user": user_response,
-    }
-
-
-@api_router.post("/auth/login")
-@limiter.limit("5/minute")  # Prevent brute force attacks
-async def login(request: Request, login_data: UserLogin, response: Response):
-    """Authenticate user and return tokens as HTTP-only cookies"""
-    # Normalize email for lockout tracking
-    email_lower = login_data.email.lower()
-
-    # Check lockout BEFORE credential validation (prevents enumeration)
-    if await is_account_locked(email_lower):
-        logger.warning(f"Login attempt on locked account: {email_lower}")
-        # Same message as invalid credentials to prevent enumeration
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-
-    user = await db.users.find_one({"email": login_data.email})
-    if user and user.get("banned"):
-        raise HTTPException(status_code=403, detail="Account has been suspended")
-    if user and user.get("invite_pending"):
-        raise HTTPException(
-            status_code=403,
-            detail="Please complete your account setup using the invite link sent to your email."
-        )
-    if not user or not pwd_context.verify(login_data.password, user["password_hash"]):
-        await record_failed_login(email_lower)
-        logger.warning(f"Login failed: invalid credentials for {login_data.email}")
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-
-    # Clear failed attempts on successful login
-    await clear_failed_logins(email_lower)
-
-    # Create tokens
-    access_token = create_access_token(data={"sub": user["id"]})
-    refresh_token = create_refresh_token(data={"sub": user["id"]})
-
-    user_response = {"id": user["id"], "email": user["email"], "name": user["name"]}
-    logger.info(f"User logged in successfully: {user['id']}")
-
-    # Set HTTP-only cookies
-    response.set_cookie(
-        key="access_token",
-        value=access_token,
-        httponly=True,
-        secure=IS_PRODUCTION,
-        samesite="lax",
-        max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-        path="/",
-    )
-
-    response.set_cookie(
-        key="refresh_token",
-        value=refresh_token,
-        httponly=True,
-        secure=IS_PRODUCTION,
-        samesite="lax",
-        max_age=REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
-        path="/",
-    )
-
-    return {"token_type": "bearer", "user": user_response}
-
-
 async def get_current_user(request: Request):
     """Dependency function to get current authenticated user info from cookies"""
     token = request.cookies.get("access_token")
@@ -862,84 +688,6 @@ async def get_current_user(request: Request):
         raise HTTPException(status_code=401, detail="Token expired")
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid token")
-
-
-@api_router.get("/auth/me")
-async def get_current_user_info(current_user: dict = Depends(get_current_user)):
-    """Get current authenticated user info from cookies"""
-    return current_user
-
-
-@api_router.post("/auth/logout")
-async def logout(request: Request, response: Response):
-    """Logout user by clearing cookies"""
-    response.delete_cookie(key="access_token", path="/")
-    response.delete_cookie(key="refresh_token", path="/")
-
-    return {"message": "Logged out successfully"}
-
-
-@api_router.post("/auth/refresh")
-async def refresh_token_endpoint(request: Request):
-    """Simple refresh endpoint - client's axios interceptor handles rotation"""
-    # This endpoint is kept for backwards compatibility
-    # The actual refresh logic is handled by client-side axios interceptor
-    pass
-
-
-# ============================================
-# Password Reset Endpoints
-# ============================================
-
-
-async def send_password_reset_email(email: str, reset_token: str):
-    """Send password reset email via Resend"""
-    if not RESEND_API_KEY:
-        logger.error("Cannot send password reset email - RESEND_API_KEY not configured")
-        return False
-
-    reset_url = f"{APP_URL}/reset-password?token={reset_token}"
-
-    # Minimal brutalist email template
-    html_content = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <style>
-            body {{ font-family: 'DM Sans', Arial, sans-serif; background: #F7F7F7; padding: 40px 20px; }}
-            .container {{ max-width: 500px; margin: 0 auto; background: #fff; border: 2px solid #0F0F0F; padding: 40px; }}
-            h1 {{ font-family: 'Bebas Neue', Arial, sans-serif; font-size: 28px; letter-spacing: 2px; text-transform: uppercase; margin: 0 0 20px 0; }}
-            p {{ color: #333; line-height: 1.6; margin: 0 0 20px 0; }}
-            .button {{ display: inline-block; background: #F97316; color: #fff; text-decoration: none; padding: 14px 28px; border: 2px solid #0F0F0F; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; }}
-            .footer {{ margin-top: 30px; padding-top: 20px; border-top: 2px solid #0F0F0F; font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 1px; }}
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <h1>RESET YOUR PASSWORD</h1>
-            <p>You requested a password reset for your Arivu account. Click the button below to set a new password.</p>
-            <p><a href="{reset_url}" class="button">RESET PASSWORD</a></p>
-            <p>This link will expire in 1 hour.</p>
-            <p>If you didn't request this, you can safely ignore this email.</p>
-            <div class="footer">ARIVU — YOUR AI-POWERED SECOND BRAIN</div>
-        </div>
-    </body>
-    </html>
-    """
-
-    try:
-        params = {
-            "from": RESEND_FROM_EMAIL,
-            "to": [email],
-            "subject": "Reset Your Arivu Password",
-            "html": html_content,
-        }
-        resend.Emails.send(params)
-        logger.info(f"Password reset email sent to {email}")
-        return True
-    except Exception as e:
-        logger.exception(f"Failed to send password reset email")
-        return False
 
 
 async def send_invite_email(email: str, name: str, invite_token: str):
@@ -992,73 +740,6 @@ async def send_invite_email(email: str, name: str, invite_token: str):
         return False
 
 
-@api_router.post("/auth/forgot-password")
-@limiter.limit("3/hour")
-async def forgot_password(request: Request, reset_request: PasswordResetRequest):
-    """Request a password reset email"""
-    email = reset_request.email.lower()
-
-    # Always return success to prevent email enumeration attacks
-    user = await db.users.find_one({"email": email})
-    if not user:
-        logger.info(f"Password reset requested for non-existent email: {email}")
-        return {"message": "If an account exists with this email, you will receive a reset link."}
-
-    # Generate secure reset token
-    reset_token = secrets.token_urlsafe(32)
-    expires_at = datetime.now(timezone.utc) + timedelta(hours=PASSWORD_RESET_TOKEN_EXPIRE_HOURS)
-
-    # Store token in database
-    await db.password_reset_tokens.delete_many({"user_id": user["id"]})  # Remove old tokens
-    await db.password_reset_tokens.insert_one({
-        "id": str(uuid.uuid4()),
-        "user_id": user["id"],
-        "token": reset_token,
-        "expires_at": expires_at.isoformat(),
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    })
-
-    # Send email
-    await send_password_reset_email(email, reset_token)
-
-    logger.info(f"Password reset token generated for user: {user['id']}")
-    return {"message": "If an account exists with this email, you will receive a reset link."}
-
-
-@api_router.post("/auth/reset-password")
-@limiter.limit("5/hour")
-async def reset_password(request: Request, reset_confirm: PasswordResetConfirm):
-    """Reset password using token from email"""
-    # Find valid token
-    token_doc = await db.password_reset_tokens.find_one({"token": reset_confirm.token})
-    if not token_doc:
-        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
-
-    # Check expiry
-    expires_at = datetime.fromisoformat(token_doc["expires_at"])
-    if datetime.now(timezone.utc) > expires_at:
-        await db.password_reset_tokens.delete_one({"token": reset_confirm.token})
-        raise HTTPException(status_code=400, detail="Reset token has expired")
-
-    # Validate new password strength
-    is_valid, error_msg = validate_password_strength(reset_confirm.new_password)
-    if not is_valid:
-        raise HTTPException(status_code=400, detail=error_msg)
-
-    # Update password
-    new_hash = pwd_context.hash(reset_confirm.new_password)
-    await db.users.update_one(
-        {"id": token_doc["user_id"]},
-        {"$set": {"password_hash": new_hash, "updated_at": datetime.now(timezone.utc).isoformat()}}
-    )
-
-    # Delete used token
-    await db.password_reset_tokens.delete_one({"token": reset_confirm.token})
-
-    logger.info(f"Password reset completed for user: {token_doc['user_id']}")
-    return {"message": "Password reset successfully. You can now log in with your new password."}
-
-
 class AcceptInviteRequest(BaseModel):
     token: str
     password: str
@@ -1101,33 +782,6 @@ async def accept_invite(request: Request, accept: AcceptInviteRequest):
 
     logger.info(f"Invite accepted, password set for user: {token_doc['user_id']}")
     return {"message": "Account set up successfully. You can now log in."}
-
-
-@api_router.post("/auth/change-password")
-async def change_password(
-    change_request: ChangePasswordRequest,
-    current_user: dict = Depends(get_current_user)
-):
-    """Change password while logged in (requires current password)"""
-    # Verify current password
-    user = await db.users.find_one({"id": current_user["id"]})
-    if not user or not pwd_context.verify(change_request.current_password, user["password_hash"]):
-        raise HTTPException(status_code=400, detail="Current password is incorrect")
-
-    # Validate new password strength
-    is_valid, error_msg = validate_password_strength(change_request.new_password)
-    if not is_valid:
-        raise HTTPException(status_code=400, detail=error_msg)
-
-    # Update password
-    new_hash = pwd_context.hash(change_request.new_password)
-    await db.users.update_one(
-        {"id": current_user["id"]},
-        {"$set": {"password_hash": new_hash, "updated_at": datetime.now(timezone.utc).isoformat()}}
-    )
-
-    logger.info(f"Password changed for user: {current_user['id']}")
-    return {"message": "Password changed successfully"}
 
 
 # ============================================
@@ -1741,108 +1395,6 @@ async def process_x_bookmarks_batch(bookmark_ids: list, user_id: str):
 # ============================================
 # User Profile Endpoints
 # ============================================
-
-
-@api_router.get("/user/profile")
-async def get_profile(current_user: dict = Depends(get_current_user)):
-    """Get current user profile"""
-    user = await db.users.find_one(
-        {"id": current_user["id"]},
-        {"_id": 0, "password_hash": 0}
-    )
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    return user
-
-
-@api_router.put("/user/profile")
-async def update_profile(
-    profile_update: ProfileUpdate,
-    current_user: dict = Depends(get_current_user)
-):
-    """Update user profile (name, email)"""
-    update_data = {}
-
-    if profile_update.name is not None:
-        update_data["name"] = profile_update.name
-
-    if profile_update.email is not None:
-        # Check if email is already taken by another user
-        new_email = profile_update.email.lower()
-        existing = await db.users.find_one({"email": new_email, "id": {"$ne": current_user["id"]}})
-        if existing:
-            raise HTTPException(status_code=400, detail="Email already in use")
-        update_data["email"] = new_email
-
-    if not update_data:
-        raise HTTPException(status_code=400, detail="No fields to update")
-
-    update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
-
-    await db.users.update_one(
-        {"id": current_user["id"]},
-        {"$set": update_data}
-    )
-
-    logger.info(f"Profile updated for user: {current_user['id']}")
-
-    # Return updated user
-    user = await db.users.find_one(
-        {"id": current_user["id"]},
-        {"_id": 0, "password_hash": 0}
-    )
-    return user
-
-
-@api_router.post("/user/avatar")
-async def upload_avatar(
-    avatar_upload: AvatarUpload,
-    current_user: dict = Depends(get_current_user)
-):
-    """Upload user avatar (base64 encoded, max 1.5MB)"""
-    import base64
-
-    avatar_data = avatar_upload.avatar_data
-
-    # Remove data URL prefix if present
-    if avatar_data.startswith("data:"):
-        # Extract base64 part after the comma
-        if "," in avatar_data:
-            avatar_data = avatar_data.split(",", 1)[1]
-
-    # Validate size (1.5MB limit after base64 encoding ~= 2MB base64 string)
-    try:
-        decoded = base64.b64decode(avatar_data)
-        if len(decoded) > 1.5 * 1024 * 1024:  # 1.5MB
-            raise HTTPException(status_code=400, detail="Avatar image too large (max 1.5MB)")
-    except Exception as e:
-        if isinstance(e, HTTPException):
-            raise
-        raise HTTPException(status_code=400, detail="Invalid image data")
-
-    # Store as data URL
-    await db.users.update_one(
-        {"id": current_user["id"]},
-        {"$set": {
-            "avatar_url": avatar_upload.avatar_data,  # Store original with data URL prefix
-            "updated_at": datetime.now(timezone.utc).isoformat()
-        }}
-    )
-
-    logger.info(f"Avatar uploaded for user: {current_user['id']}")
-    return {"message": "Avatar uploaded successfully"}
-
-
-@api_router.delete("/user/avatar")
-async def delete_avatar(current_user: dict = Depends(get_current_user)):
-    """Remove user avatar"""
-    await db.users.update_one(
-        {"id": current_user["id"]},
-        {"$unset": {"avatar_url": ""}, "$set": {"updated_at": datetime.now(timezone.utc).isoformat()}}
-    )
-
-    logger.info(f"Avatar removed for user: {current_user['id']}")
-    return {"message": "Avatar removed successfully"}
 
 
 async def fetch_webpage_content(url: str):

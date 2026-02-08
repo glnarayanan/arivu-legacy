@@ -57,6 +57,13 @@ class Settings(BaseSettings):
     # CORS
     CORS_ORIGINS: str = "*"
 
+    # Redis
+    REDIS_URL: str = "redis://localhost:6379/0"
+
+    # Account lockout
+    LOCKOUT_THRESHOLD: int = 5
+    LOCKOUT_DURATION_SECONDS: int = 900  # 15 minutes
+
     @field_validator("SECRET_KEY")
     @classmethod
     def validate_secret_key(cls, v: str) -> str:
