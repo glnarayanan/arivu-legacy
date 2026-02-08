@@ -1,1 +1,1 @@
-"""Service modules for external integrations (email, Redis lockout)."""
+"""Service modules for shared business logic across routers."""

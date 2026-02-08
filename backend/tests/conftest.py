@@ -13,10 +13,15 @@ from httpx import ASGITransport, AsyncClient
 
 from app.core.database import get_database
 from app.core.dependencies import get_current_user
+from app.routers.bookmarks import router as bookmarks_router
 from app.routers.collections import router as collections_router
 from app.routers.analytics import router as analytics_router
+from app.routers.content import router as content_router
+from app.routers.import_export import router as import_export_router
+from app.routers.knowledge_graph import router as knowledge_graph_router
 from app.routers.resurfacing import router as resurfacing_router
 from app.routers.auth import router as auth_router
+from app.routers.search import router as search_router
 
 @pytest.fixture(autouse=True)
 def reset_rate_limiter():
@@ -49,18 +54,27 @@ def mock_db():
     db.collections = MagicMock()
     db.collections.insert_one = AsyncMock()
     db.collections.find = MagicMock()  # .find() returns cursor, needs chaining
+    db.collections.find_one = AsyncMock()
     db.collections.update_one = AsyncMock()
+    db.collections.update_many = AsyncMock()
 
-    # Bookmarks (for resurfacing/memory-jogger tests in Plan 02)
+    # Bookmarks (for bookmarks router + resurfacing tests)
     db.bookmarks = MagicMock()
     db.bookmarks.find = MagicMock()
     db.bookmarks.find_one = AsyncMock()
+    db.bookmarks.insert_one = AsyncMock()
     db.bookmarks.update_one = AsyncMock()
+    db.bookmarks.update_many = AsyncMock()
+    db.bookmarks.delete_one = AsyncMock()
+    db.bookmarks.delete_many = AsyncMock()
 
-    # AI summaries (for resurfacing tests in Plan 02)
+    # AI summaries (for bookmarks router + resurfacing tests)
     db.ai_summaries = MagicMock()
     db.ai_summaries.find = MagicMock()
     db.ai_summaries.find_one = AsyncMock()
+    db.ai_summaries.insert_one = AsyncMock()
+    db.ai_summaries.delete_one = AsyncMock()
+    db.ai_summaries.delete_many = AsyncMock()
 
     # Users (for auth tests in Phase 5)
     db.users = MagicMock()
@@ -75,6 +89,18 @@ def mock_db():
     db.password_reset_tokens.delete_one = AsyncMock()
     db.password_reset_tokens.delete_many = AsyncMock()
 
+    # Import jobs (for import/export router)
+    db.import_jobs = MagicMock()
+    db.import_jobs.find = MagicMock()
+    db.import_jobs.find_one = AsyncMock()
+    db.import_jobs.insert_one = AsyncMock()
+    db.import_jobs.update_one = AsyncMock()
+    db.import_jobs.count_documents = AsyncMock(return_value=0)
+
+    # Notes (for backup endpoint)
+    db.notes = MagicMock()
+    db.notes.find = MagicMock()
+
     return db
 
 
@@ -83,10 +109,18 @@ def app(mock_db):
     """Create test FastAPI app with collections router and mock dependencies."""
     test_app = FastAPI()
     api_router = APIRouter(prefix="/api")
+    # import_export_router MUST be before bookmarks_router because
+    # /bookmarks/import, /bookmarks/export, /bookmarks/backup must match
+    # before the bookmarks router's /bookmarks/{bookmark_id} catch-all.
+    api_router.include_router(import_export_router)
+    api_router.include_router(content_router)
+    api_router.include_router(bookmarks_router)
     api_router.include_router(collections_router)
     api_router.include_router(analytics_router)
+    api_router.include_router(knowledge_graph_router)
     api_router.include_router(resurfacing_router)
     api_router.include_router(auth_router)
+    api_router.include_router(search_router)
     test_app.include_router(api_router)
 
     # Set up rate limiter (required for auth router's slowapi decorators)
