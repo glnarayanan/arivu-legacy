@@ -6,7 +6,7 @@ chrome.commands.onCommand.addListener((command) => {
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'saveTokens') {
-    chrome.storage.local.set({
+    chrome.storage.session.set({
       accessToken: request.accessToken,
       refreshToken: request.refreshToken
     });
@@ -14,7 +14,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
   // Legacy support for old token format
   if (request.action === 'saveToken') {
-    chrome.storage.local.set({
+    chrome.storage.session.set({
       accessToken: request.token,
       refreshToken: request.token  // Fallback
     });

@@ -8,10 +8,11 @@ let accessToken = null;
 let refreshToken = null;
 
 async function init() {
-  const result = await chrome.storage.local.get(['accessToken', 'refreshToken', 'apiUrl']);
-  accessToken = result.accessToken;
-  refreshToken = result.refreshToken;
-  const apiUrl = result.apiUrl || API_URL;
+  const tokenResult = await chrome.storage.session.get(['accessToken', 'refreshToken']);
+  const configResult = await chrome.storage.local.get(['apiUrl']);
+  accessToken = tokenResult.accessToken;
+  refreshToken = tokenResult.refreshToken;
+  const apiUrl = configResult.apiUrl || API_URL;
 
   if (!accessToken || !refreshToken) {
     document.getElementById('loginPrompt').style.display = 'block';

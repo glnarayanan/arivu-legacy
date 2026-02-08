@@ -15,6 +15,7 @@ import requests
 from bs4 import BeautifulSoup
 from readability import Document
 from tenacity import RetryError
+from trafilatura import extract as trafilatura_extract
 
 from app.core.database import get_database
 from app.models.bookmark import is_safe_url
@@ -122,6 +123,22 @@ async def fetch_webpage_content(url: str):
         h.body_width = 0
         text_content = h.handle(summary_html)
         text_content = text_content.strip() if text_content else ""
+
+        # Fallback: try trafilatura when readability produces insufficient content (DEP-01)
+        if not text_content or len(text_content) < 100:
+            try:
+                trafilatura_text = trafilatura_extract(
+                    html_content,
+                    favor_recall=True,
+                    include_tables=True,
+                    include_comments=False,
+                    deduplicate=True,
+                )
+                if trafilatura_text and len(trafilatura_text) > len(text_content or ""):
+                    text_content = trafilatura_text
+                    logger.info(f"Trafilatura fallback extracted {len(text_content)} chars from {urlparse(url).netloc}")
+            except Exception as e:
+                logger.warning(f"Trafilatura fallback failed for {urlparse(url).netloc}: {e}")
 
         if not text_content or len(text_content) < 100:
             cleaned_soup = BeautifulSoup(summary_html, "html.parser")
