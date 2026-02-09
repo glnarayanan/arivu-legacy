@@ -156,6 +156,7 @@ else:
     logger.warning("RESEND_API_KEY not set - password reset emails will not work")
 
 # X (Twitter) Integration
+X_INTEGRATION_ENABLED = os.environ.get("X_INTEGRATION_ENABLED", "false").lower() in ("true", "1", "yes")
 X_CLIENT_ID = os.environ.get("X_CLIENT_ID")
 X_CLIENT_SECRET = os.environ.get("X_CLIENT_SECRET")
 X_REDIRECT_URI = os.environ.get("X_REDIRECT_URI") or f"{APP_URL}/settings?section=connections"
@@ -166,8 +167,10 @@ X_MAX_BOOKMARK_PAGES = None if _x_max_pages <= 0 else _x_max_pages
 _x_max_bookmarks = int(os.environ.get("X_MAX_BOOKMARKS", "300"))
 X_MAX_BOOKMARKS = None if _x_max_bookmarks <= 0 else _x_max_bookmarks
 
-if X_CLIENT_ID:
-    logger.info("X (Twitter) integration configured")
+if X_INTEGRATION_ENABLED and X_CLIENT_ID:
+    logger.info("X (Twitter) integration enabled and configured")
+elif X_INTEGRATION_ENABLED:
+    logger.warning("X (Twitter) integration enabled but X_CLIENT_ID not set")
 else:
     logger.info("X_CLIENT_ID not set - X bookmark integration disabled")
 
@@ -747,9 +750,21 @@ async def x_api_request(user_id: str, method: str, url: str, **kwargs) -> httpx.
     return response
 
 
+def require_x_enabled():
+    if not X_INTEGRATION_ENABLED:
+        raise HTTPException(status_code=404, detail="Not found")
+
+
+@api_router.get("/auth/x/enabled")
+async def x_enabled():
+    """Public endpoint: is X integration available?"""
+    return {"enabled": X_INTEGRATION_ENABLED}
+
+
 @api_router.get("/auth/x/connect")
 async def x_connect(current_user: dict = Depends(get_current_user)):
     """Generate X OAuth authorization URL with PKCE."""
+    require_x_enabled()
     if not X_CLIENT_ID:
         raise HTTPException(status_code=503, detail="X integration not configured")
 
@@ -790,6 +805,7 @@ async def x_callback(
     current_user: dict = Depends(get_current_user),
 ):
     """Exchange OAuth code for tokens, store encrypted connection."""
+    require_x_enabled()
     if not X_CLIENT_ID:
         raise HTTPException(status_code=503, detail="X integration not configured")
 
@@ -887,6 +903,7 @@ async def x_callback(
 @api_router.post("/auth/x/disconnect")
 async def x_disconnect(current_user: dict = Depends(get_current_user)):
     """Disconnect X account: revoke token (best-effort) and delete connection."""
+    require_x_enabled()
     connection = await db.x_connections.find_one({"user_id": current_user["id"]})
     if not connection:
         raise HTTPException(status_code=404, detail="X account not connected")
@@ -912,6 +929,7 @@ async def x_disconnect(current_user: dict = Depends(get_current_user)):
 @api_router.get("/auth/x/status")
 async def x_status(current_user: dict = Depends(get_current_user)):
     """Get X connection status (never returns encrypted tokens)."""
+    require_x_enabled()
     connection = await db.x_connections.find_one(
         {"user_id": current_user["id"]},
         {"_id": 0, "access_token_enc": 0, "refresh_token_enc": 0},
@@ -939,6 +957,7 @@ async def x_sync(
     current_user: dict = Depends(get_current_user),
 ):
     """Sync X bookmarks: fetch, deduplicate, store, and trigger AI processing."""
+    require_x_enabled()
     if not X_CLIENT_ID:
         raise HTTPException(status_code=503, detail="X integration not configured")
 

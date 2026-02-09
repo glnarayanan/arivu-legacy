@@ -50,6 +50,7 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: Optional[str] = None
 
     # X (Twitter) Integration
+    X_INTEGRATION_ENABLED: bool = False
     X_CLIENT_ID: Optional[str] = None
     X_CLIENT_SECRET: Optional[str] = None
     X_REDIRECT_URI: Optional[str] = None
