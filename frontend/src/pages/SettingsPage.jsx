@@ -8,26 +8,39 @@ import ImportSection from '../components/settings/ImportSection';
 import BackupSection from '../components/settings/BackupSection';
 import DuplicatesSection from '../components/settings/DuplicatesSection';
 import AppLayout from '../components/AppLayout';
+import axiosInstance from '../utils/axiosConfig';
 
-const SECTIONS = [
+const BASE_SECTIONS = [
   { id: 'profile', label: 'Profile' },
   { id: 'account', label: 'Account' },
-  { id: 'connections', label: 'Connections' },
   { id: 'import', label: 'Import' },
   { id: 'backup', label: 'Backup' },
   { id: 'duplicates', label: 'Duplicates' },
 ];
 
+const CONNECTIONS_SECTION = { id: 'connections', label: 'Connections' };
+
 const SettingsPage = ({ onLogout }) => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [activeSection, setActiveSection] = useState(searchParams.get('section') || 'profile');
+  const [xEnabled, setXEnabled] = useState(null);
+
+  useEffect(() => {
+    axiosInstance.get('/auth/x/enabled')
+      .then(res => setXEnabled(res.data.enabled))
+      .catch(() => setXEnabled(false));
+  }, []);
+
+  const sections = xEnabled
+    ? [BASE_SECTIONS[0], BASE_SECTIONS[1], CONNECTIONS_SECTION, ...BASE_SECTIONS.slice(2)]
+    : BASE_SECTIONS;
 
   useEffect(() => {
     const section = searchParams.get('section');
-    if (section && SECTIONS.some(s => s.id === section)) {
+    if (section && sections.some(s => s.id === section)) {
       setActiveSection(section);
     }
-  }, [searchParams]);
+  }, [searchParams, sections]);
 
   const handleSectionChange = (sectionId) => {
     setActiveSection(sectionId);
@@ -41,7 +54,7 @@ const SettingsPage = ({ onLogout }) => {
       case 'account':
         return <AccountSection />;
       case 'connections':
-        return <ConnectionsSection />;
+        return xEnabled ? <ConnectionsSection /> : <ProfileSection />;
       case 'import':
         return <ImportSection />;
       case 'backup':
@@ -53,7 +66,7 @@ const SettingsPage = ({ onLogout }) => {
     }
   };
 
-  const activeLabel = SECTIONS.find(s => s.id === activeSection)?.label || 'Profile';
+  const activeLabel = sections.find(s => s.id === activeSection)?.label || 'Profile';
 
   return (
     <AppLayout
@@ -61,6 +74,7 @@ const SettingsPage = ({ onLogout }) => {
       showSearch={false}
       settingsSection={activeSection}
       onSettingsSectionChange={handleSectionChange}
+      settingsSections={sections}
     >
       <div className="px-6 py-6">
         {/* Page Header */}

@@ -58,6 +58,7 @@ const Sidebar = ({
   // Settings page props
   settingsSection = '',
   onSettingsSectionChange = () => { },
+  settingsSections,
   // Resurfacing props
   resurfacingSuggestions = [],
   onResurfacingReadAgain,
@@ -182,15 +183,18 @@ const Sidebar = ({
                   Settings
                 </span>
               </div>
-              {SETTINGS_SECTIONS.map((section) => (
-                <NavItem
-                  key={section.id}
-                  icon={section.icon}
-                  label={section.label}
-                  onClick={() => onSettingsSectionChange(section.id)}
-                  isActive={settingsSection === section.id}
-                />
-              ))}
+              {(settingsSections || SETTINGS_SECTIONS).map((section) => {
+                const iconMap = { profile: User, account: Lock, connections: Link2, import: Upload, backup: Download, duplicates: Copy };
+                return (
+                  <NavItem
+                    key={section.id}
+                    icon={section.icon || iconMap[section.id]}
+                    label={section.label}
+                    onClick={() => onSettingsSectionChange(section.id)}
+                    isActive={settingsSection === section.id}
+                  />
+                );
+              })}
             </div>
           )}
 

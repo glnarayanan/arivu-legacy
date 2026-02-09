@@ -20,6 +20,7 @@ const AppLayout = ({
   // Settings page props
   settingsSection = '',
   onSettingsSectionChange = () => { },
+  settingsSections,
 }) => {
   const [collections, setCollections] = useState([]);
   const [allTags, setAllTags] = useState([]);
@@ -108,6 +109,7 @@ const AppLayout = ({
           showFilters={true}
           settingsSection={settingsSection}
           onSettingsSectionChange={onSettingsSectionChange}
+          settingsSections={settingsSections}
         />
 
         {/* Main Content */}
