@@ -1,26 +1,27 @@
-// Get API URL from environment or use the current deployment URL
-const API_URL = window.location.hostname.includes('localhost') 
-  ? 'http://localhost:8001/api'
-  : `${window.location.protocol}//${window.location.hostname}/api`;
+const DEFAULT_API_URL = 'https://arivu.app/api';
 
 let currentTab = null;
 let accessToken = null;
 let refreshToken = null;
+let apiUrl = DEFAULT_API_URL;
+
+async function getApiUrl() {
+  const result = await chrome.storage.local.get(['apiUrl']);
+  return result.apiUrl || DEFAULT_API_URL;
+}
 
 async function init() {
+  apiUrl = await getApiUrl();
+
   const tokenResult = await chrome.storage.session.get(['accessToken', 'refreshToken']);
-  const configResult = await chrome.storage.local.get(['apiUrl']);
   accessToken = tokenResult.accessToken;
   refreshToken = tokenResult.refreshToken;
-  const apiUrl = configResult.apiUrl || API_URL;
 
-  if (!accessToken || !refreshToken) {
+  if (!accessToken) {
     document.getElementById('loginPrompt').style.display = 'block';
-    // Update the link with current hostname
-    const loginLink = document.querySelector('.login-link');
-    if (loginLink) {
-      loginLink.href = `${window.location.protocol}//${window.location.hostname}/auth`;
-    }
+    const loginLink = document.getElementById('loginLink');
+    const baseUrl = apiUrl.replace('/api', '');
+    loginLink.href = `${baseUrl}/auth`;
     return;
   }
 
@@ -32,16 +33,15 @@ async function init() {
   document.getElementById('url').value = tab.url;
   document.getElementById('title').value = tab.title;
 
-  loadCollections(apiUrl);
+  loadCollections();
 }
 
-async function loadCollections(apiUrl) {
+async function loadCollections() {
   try {
     const response = await fetch(`${apiUrl}/collections`, {
-      headers: {
-        'Authorization': `Bearer ${accessToken}`
-      }
+      headers: { 'Authorization': `Bearer ${accessToken}` }
     });
+    if (!response.ok) return;
     const collections = await response.json();
 
     const select = document.getElementById('collection');
@@ -56,19 +56,17 @@ async function loadCollections(apiUrl) {
   }
 }
 
-document.getElementById('saveForm').addEventListener('submit', async (e) => {
+document.getElementById('bookmarkForm').addEventListener('submit', async (e) => {
   e.preventDefault();
-  
+
   const btn = document.getElementById('saveBtn');
   const status = document.getElementById('status');
-  
+
   btn.disabled = true;
   btn.textContent = 'Saving...';
   status.style.display = 'none';
 
   try {
-    const result = await chrome.storage.local.get(['apiUrl']);
-    const apiUrl = result.apiUrl || API_URL;
     const url = document.getElementById('url').value;
     const collectionId = document.getElementById('collection').value || null;
 
@@ -83,22 +81,49 @@ document.getElementById('saveForm').addEventListener('submit', async (e) => {
 
     if (response.ok) {
       status.className = 'status success';
-      status.textContent = '✓ Saved! AI is processing...';
+      status.textContent = 'Saved — AI is processing';
       status.style.display = 'block';
-      
-      setTimeout(() => {
-        window.close();
-      }, 1500);
+      setTimeout(() => window.close(), 1500);
+    } else if (response.status === 401) {
+      await chrome.storage.session.remove(['accessToken', 'refreshToken']);
+      status.className = 'status error';
+      status.textContent = 'Session expired — reopen Arivu to reconnect';
+      status.style.display = 'block';
     } else {
-      throw new Error('Failed to save bookmark');
+      throw new Error('Failed to save');
     }
   } catch (error) {
     status.className = 'status error';
-    status.textContent = '✗ Failed to save bookmark';
+    status.textContent = 'Failed to save bookmark';
     status.style.display = 'block';
   } finally {
     btn.disabled = false;
     btn.textContent = 'Save Bookmark';
+  }
+});
+
+// Settings toggle
+const settingsToggle = document.getElementById('settingsToggle');
+const settingsPanel = document.getElementById('settingsPanel');
+const apiUrlInput = document.getElementById('apiUrlInput');
+
+settingsToggle.addEventListener('click', async () => {
+  const isVisible = settingsPanel.style.display === 'block';
+  settingsPanel.style.display = isVisible ? 'none' : 'block';
+
+  if (!isVisible) {
+    apiUrlInput.value = await getApiUrl();
+  }
+});
+
+apiUrlInput.addEventListener('change', async () => {
+  const value = apiUrlInput.value.trim();
+  if (value) {
+    await chrome.storage.local.set({ apiUrl: value });
+    apiUrl = value;
+  } else {
+    await chrome.storage.local.remove(['apiUrl']);
+    apiUrl = DEFAULT_API_URL;
   }
 });
 

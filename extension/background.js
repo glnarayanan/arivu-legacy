@@ -8,15 +8,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'saveTokens') {
     chrome.storage.session.set({
       accessToken: request.accessToken,
-      refreshToken: request.refreshToken
-    });
-    sendResponse({ success: true });
-  }
-  // Legacy support for old token format
-  if (request.action === 'saveToken') {
-    chrome.storage.session.set({
-      accessToken: request.token,
-      refreshToken: request.token  // Fallback
+      refreshToken: request.refreshToken,
     });
     sendResponse({ success: true });
   }

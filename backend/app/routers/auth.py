@@ -233,6 +233,21 @@ async def get_current_user_info(current_user: dict = Depends(get_current_user)):
     return current_user
 
 
+@router.post("/auth/extension-token")
+async def get_extension_token(request: Request, current_user: dict = Depends(get_current_user)):
+    """Generate a bearer token for the browser extension.
+
+    This endpoint is called from the web app (authenticated via cookies)
+    to generate tokens that can be passed to the browser extension.
+    """
+    access_token = create_access_token(data={"sub": current_user["id"]})
+    refresh_token = create_refresh_token(data={"sub": current_user["id"]})
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+    }
+
+
 @router.post("/auth/logout")
 async def logout(request: Request, response: Response):
     """Logout user by clearing cookies"""
