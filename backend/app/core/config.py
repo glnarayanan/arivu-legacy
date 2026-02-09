@@ -11,8 +11,8 @@ from typing import Optional
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Compute project root (3 levels up from config.py: core -> app -> backend -> nagoya)
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+# Compute project root (backend dir): core -> app -> backend
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 ENV_FILE = PROJECT_ROOT / ".env"
 
 

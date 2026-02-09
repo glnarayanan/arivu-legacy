@@ -29,9 +29,9 @@ import re
 import ipaddress
 import socket
 import sys
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from app.core.dependencies import limiter
 import time
 import resend
 import secrets
@@ -40,6 +40,7 @@ import httpx
 from cryptography.fernet import Fernet
 import hashlib
 import base64
+from app.core.database import init_db as init_core_db, close_db as close_core_db
 from app.routers.bookmarks import router as bookmarks_router
 from app.routers.collections import router as collections_router
 from app.routers.analytics import router as analytics_router
@@ -94,6 +95,8 @@ client = AsyncIOMotorClient(
 db_name = os.environ.get("DB_NAME", "arivu_db")
 db = client[db_name]
 
+init_core_db()
+
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
 
@@ -111,27 +114,9 @@ api_router.include_router(auth_router)
 api_router.include_router(search_router)
 api_router.include_router(knowledge_graph_router)
 
-# Initialize rate limiter
-limiter = Limiter(key_func=get_remote_address)
+# Initialize rate limiter (single instance from app.core.dependencies)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-
-
-# Custom key function for user-based rate limiting
-def get_user_identifier(request: Request) -> str:
-    """Get user ID from auth token, fallback to IP if not authenticated"""
-    try:
-        auth_header = request.headers.get("Authorization", "")
-        if auth_header.startswith("Bearer "):
-            token = auth_header.split(" ")[1]
-            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-            user_id = payload.get("sub")
-            if user_id:
-                return f"user:{user_id}"
-    except Exception:
-        pass
-    # Fallback to IP-based rate limiting
-    return f"ip:{get_remote_address(request)}"
 
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -1867,4 +1852,5 @@ async def migrate_bookmark_version_field():
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
+    close_core_db()
     client.close()
