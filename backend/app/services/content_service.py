@@ -201,33 +201,40 @@ async def process_bookmark_content(
         # Fetch existing content for change detection (PERF-02)
         existing_bookmark = await db.bookmarks.find_one(
             {"id": bookmark_id},
-            {"_id": 0, "text_content": 1, "title": 1, "embedding": 1}
+            {"_id": 0, "text_content": 1, "title": 1, "embedding": 1, "source": 1}
         )
         old_text_content = existing_bookmark.get("text_content", "") if existing_bookmark else ""
         old_title = existing_bookmark.get("title", "") if existing_bookmark else ""
         had_embedding = bool(existing_bookmark.get("embedding")) if existing_bookmark else False
 
-        content = await fetch_webpage_content(url)
-        new_text_content = content.get("text_content", "")
-        new_title = content.get("title", "")
-        reading_time = calculate_reading_time(new_text_content)
+        is_tweet = existing_bookmark and existing_bookmark.get("source") == "x"
 
-        await db.bookmarks.update_one(
-            {"id": bookmark_id},
-            {
-                "$set": {
-                    "title": new_title,
-                    "description": content.get("description"),
-                    "favicon": content.get("favicon"),
-                    "thumbnail": content.get("thumbnail"),
-                    "html_content": content.get("html_content"),
-                    "text_content": new_text_content,
-                    "domain": content.get("domain"),
-                    "reading_time": reading_time,
-                    "updated_at": datetime.now(timezone.utc).isoformat(),
-                }
-            },
-        )
+        if is_tweet:
+            new_text_content = old_text_content
+            new_title = old_title
+            reading_time = calculate_reading_time(new_text_content)
+        else:
+            content = await fetch_webpage_content(url)
+            new_text_content = content.get("text_content", "")
+            new_title = content.get("title", "")
+            reading_time = calculate_reading_time(new_text_content)
+
+            await db.bookmarks.update_one(
+                {"id": bookmark_id},
+                {
+                    "$set": {
+                        "title": new_title,
+                        "description": content.get("description"),
+                        "favicon": content.get("favicon"),
+                        "thumbnail": content.get("thumbnail"),
+                        "html_content": content.get("html_content"),
+                        "text_content": new_text_content,
+                        "domain": content.get("domain"),
+                        "reading_time": reading_time,
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                },
+            )
 
         # Generate AI summaries with retry and error classification
         # (always run regardless of content change magnitude)
@@ -247,7 +254,7 @@ async def process_bookmark_content(
         # Generate embedding only if content changed substantially (PERF-02)
         text_content = new_text_content
         title = new_title
-        description = content.get("description", "")
+        description = content.get("description", "") if not is_tweet else ""
 
         # Determine if embedding regeneration is needed
         content_changed = has_substantial_change(old_text_content, text_content)
