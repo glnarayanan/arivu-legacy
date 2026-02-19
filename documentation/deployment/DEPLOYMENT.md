@@ -2,8 +2,17 @@
 ## Complete Setup for Local Development & Production
 
 **Version:** 2.2 (Updated with Marketing Site Integration)
-**Last Updated:** February 6, 2026
+**Last Updated:** February 19, 2026
 **Platforms:** Local (Docker), VPS (Production), Cloudflare (CDN)
+
+---
+
+## Open-Source / Self-Hosted Quick Links
+
+- Public docs hub: `/documentation/` (marketing site route)
+- Self-hosting guide: `marketing/content/documentation/self-hosting-arivu.md`
+- Extension self-hosting guide: `marketing/content/documentation/extension-self-hosted-setup.md`
+- X API setup guide: `marketing/content/documentation/x-bookmarks-api-setup.md`
 
 ---
 

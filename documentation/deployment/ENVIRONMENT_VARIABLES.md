@@ -1,6 +1,6 @@
 # Environment Variables Guide
 
-**Last Updated:** January 12, 2026
+**Last Updated:** February 19, 2026
 **Purpose:** Comprehensive guide to all Arivu environment variables
 
 ---
@@ -221,6 +221,68 @@ WDS_SOCKET_PORT=3000
 
 ### Optional Configuration
 
+### X Integration Configuration
+
+#### `X_INTEGRATION_ENABLED` (Optional)
+**Purpose:** Master feature flag for X bookmark OAuth + sync endpoints
+**Default:** `false`
+
+```bash
+X_INTEGRATION_ENABLED=true
+```
+
+---
+
+#### `X_CLIENT_ID` (Required when X integration enabled)
+**Purpose:** OAuth client ID from X Developer Portal
+
+```bash
+X_CLIENT_ID=your_x_client_id
+```
+
+---
+
+#### `X_CLIENT_SECRET` (Required when X integration enabled)
+**Purpose:** OAuth client secret from X Developer Portal
+
+```bash
+X_CLIENT_SECRET=your_x_client_secret
+```
+
+---
+
+#### `X_REDIRECT_URI` (Optional)
+**Purpose:** OAuth redirect override
+**Default:** `{APP_URL}/settings?section=connections`
+
+```bash
+X_REDIRECT_URI=https://your-domain.example/settings?section=connections
+```
+
+---
+
+#### `X_MAX_BOOKMARK_PAGES` (Optional)
+**Purpose:** Max X API pages fetched per sync
+**Default:** `10`
+**Special value:** `0` means unlimited pages
+
+```bash
+X_MAX_BOOKMARK_PAGES=10
+```
+
+---
+
+#### `X_MAX_BOOKMARKS` (Optional)
+**Purpose:** Max bookmarks imported per sync run
+**Default:** `300`
+**Special value:** `0` means unlimited bookmarks
+
+```bash
+X_MAX_BOOKMARKS=300
+```
+
+---
+
 #### `LOG_LEVEL` (Optional)
 **Purpose:** Application logging verbosity
 **Default:** `info`
@@ -233,6 +295,23 @@ LOG_LEVEL=debug
 
 # Production (minimal)
 LOG_LEVEL=warning
+```
+
+### Production with X Integration
+```bash
+MONGO_URL=mongodb+srv://user:pass@cluster.mongodb.net/
+DB_NAME=arivu_production
+SECRET_KEY=a1b2c3...long-secure-key...x4y5z6
+CORS_ORIGINS=https://your-domain.example
+GEMINI_API_KEY=AIza...your-key...
+REACT_APP_BACKEND_URL=https://your-domain.example/api
+X_INTEGRATION_ENABLED=true
+X_CLIENT_ID=your_x_client_id
+X_CLIENT_SECRET=your_x_client_secret
+X_REDIRECT_URI=https://your-domain.example/settings?section=connections
+X_MAX_BOOKMARK_PAGES=10
+X_MAX_BOOKMARKS=300
+LOG_LEVEL=info
 ```
 
 **Impact:**

@@ -2,7 +2,7 @@
 
 **Base URL:** `/api`
 **Authentication:** HTTP-only cookies (access_token, refresh_token)
-**Last Updated:** January 12, 2026
+**Last Updated:** February 19, 2026
 
 ---
 
@@ -22,16 +22,17 @@ The frontend automatically sends cookies with each request via `axios.defaults.w
 
 ## API Categories
 
-1. [Authentication](#authentication-endpoints) - Signup, login, logout, token refresh
-2. [Bookmarks](#bookmarks-endpoints) - CRUD operations for bookmarks
-3. [Search](#search-endpoints) - Hybrid keyword + semantic search
-4. [Knowledge Graph](#knowledge-graph-endpoints) - Semantic AI knowledge graph
-5. [Resurfacing](#resurfacing-endpoints) - Intelligent resurfacing engine
-6. [Analytics](#analytics-endpoints) - Reading statistics and insights
-7. [Duplicates](#duplicates-endpoints) - Duplicate detection and merging
-8. [Collections](#collections-endpoints) - Bookmark collections
-9. [Import/Export](#importexport-endpoints) - Data migration
-10. [Content Intelligence](#content-intelligence-endpoints) - Content evaluation
+1. [Authentication](#authentication-endpoints) - Login, logout, token refresh, profile
+2. [X Integration](#x-integration-endpoints) - OAuth connect, sync, status, disconnect
+3. [Bookmarks](#bookmarks-endpoints) - CRUD operations for bookmarks
+4. [Search](#search-endpoints) - Hybrid keyword + semantic search
+5. [Knowledge Graph](#knowledge-graph-endpoints) - Semantic AI knowledge graph
+6. [Resurfacing](#resurfacing-endpoints) - Intelligent resurfacing engine
+7. [Analytics](#analytics-endpoints) - Reading statistics and insights
+8. [Duplicates](#duplicates-endpoints) - Duplicate detection and merging
+9. [Collections](#collections-endpoints) - Bookmark collections
+10. [Import/Export](#importexport-endpoints) - Data migration
+11. [Content Intelligence](#content-intelligence-endpoints) - Content evaluation
 
 ---
 
@@ -39,6 +40,8 @@ The frontend automatically sends cookies with each request via `axios.defaults.w
 
 ### POST /api/auth/signup
 Create a new user account.
+
+**Note:** Signups are currently disabled in the running application and return `403` unless re-enabled in backend configuration.
 
 **Request Body:**
 ```json
@@ -129,6 +132,109 @@ Refresh access token using refresh token.
 {
   "access_token": "new_token",
   "token_type": "bearer"
+}
+```
+
+---
+
+## X Integration Endpoints
+
+These endpoints are available only when `X_INTEGRATION_ENABLED=true`.
+
+### GET /api/auth/x/enabled
+Returns whether X integration is enabled.
+
+**Response:** `200 OK`
+```json
+{
+  "enabled": true
+}
+```
+
+---
+
+### GET /api/auth/x/connect
+Starts OAuth by generating and returning the X authorization URL.
+
+**Authentication:** Required
+
+**Response:** `200 OK`
+```json
+{
+  "auth_url": "https://twitter.com/i/oauth2/authorize?..."
+}
+```
+
+---
+
+### POST /api/auth/x/callback
+Completes OAuth exchange and stores the X connection.
+
+**Authentication:** Required
+
+**Request Body:**
+```json
+{
+  "code": "oauth_code",
+  "state": "oauth_state"
+}
+```
+
+**Response:** `200 OK`
+```json
+{
+  "connected": true,
+  "x_username": "example_user",
+  "x_name": "Example User"
+}
+```
+
+---
+
+### GET /api/auth/x/status
+Returns connection metadata and sync status.
+
+**Authentication:** Required
+
+**Response:** `200 OK`
+```json
+{
+  "connected": true,
+  "x_username": "example_user",
+  "x_name": "Example User",
+  "last_sync_at": "2026-02-19T12:00:00Z",
+  "sync_status": "idle",
+  "total_synced": 240
+}
+```
+
+---
+
+### POST /api/auth/x/sync
+Fetches bookmarks from X and imports new ones into Arivu.
+
+**Authentication:** Required
+
+**Response:** `200 OK`
+```json
+{
+  "total_fetched": 100,
+  "new_bookmarks": 32,
+  "duplicates_skipped": 68
+}
+```
+
+---
+
+### POST /api/auth/x/disconnect
+Revokes and removes X connection metadata.
+
+**Authentication:** Required
+
+**Response:** `200 OK`
+```json
+{
+  "disconnected": true
 }
 ```
 
@@ -996,6 +1102,6 @@ Future versions will use explicit versioning: `/api/v2`
 
 ---
 
-**Last Updated:** January 12, 2026
+**Last Updated:** February 19, 2026
 **API Version:** 1.0
 **Questions?** See main documentation at `/documentation/`
