@@ -112,21 +112,6 @@ async def create_bookmark(
         "version": 1,  # Optimistic locking (REL-03)
     }
 
-    # If this is a tweet saved via extension, add tweet metadata
-    if bookmark_data.source == "x":
-        bookmark["source"] = "x"
-        bookmark["x_tweet_id"] = bookmark_data.x_tweet_id
-        bookmark["x_author_username"] = bookmark_data.x_author_username
-        bookmark["x_author_name"] = bookmark_data.x_author_name
-        bookmark["x_tweet_url"] = bookmark_data.x_tweet_url
-        bookmark["x_metrics"] = bookmark_data.x_metrics
-        if bookmark_data.text_content:
-            bookmark["text_content"] = bookmark_data.text_content
-            bookmark["title"] = bookmark_data.text_content[:100] + (
-                "..." if len(bookmark_data.text_content) > 100 else ""
-            )
-            bookmark["description"] = bookmark_data.text_content
-
     await db.bookmarks.insert_one(bookmark)
 
     ai_summary = {

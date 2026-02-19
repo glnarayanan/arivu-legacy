@@ -127,16 +127,7 @@ const AuthPage = ({ onLogin }) => {
             <div className="mb-6 border-b-2 border-foreground pb-4">
               <h2 className="font-heading text-xl font-bold text-center mb-2 uppercase tracking-wide">Log In</h2>
               <p className="font-mono text-xs text-muted-foreground text-center uppercase tracking-wider">
-                Arivu is currently invite-only.{' '}
-                <a
-                  href="https://arivu.app/#waitlist"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-primary hover:underline"
-                >
-                  Join the waitlist
-                </a>{' '}
-                to get early access.
+                Signups are currently closed. Only existing users can log in.
               </p>
             </div>
           )}
