@@ -15,12 +15,12 @@ Save bookmarks directly into Arivu from Chrome or Firefox.
 1. Open `chrome://extensions/`
 2. Enable `Developer mode`
 3. Click `Load unpacked`
-4. Select `/Users/tbl-gln/TBL/arivu-app/extension`
+4. Select the `extension/` directory in this repo
 
 ### Firefox
 1. Open `about:debugging#/runtime/this-firefox`
 2. Click `Load Temporary Add-on`
-3. Select `/Users/tbl-gln/TBL/arivu-app/extension/manifest.json`
+3. Select `extension/manifest.json`
 
 ## Default Endpoints
 
@@ -31,7 +31,7 @@ Save bookmarks directly into Arivu from Chrome or Firefox.
 
 ### 1. Update Host Permissions
 
-Edit `/Users/tbl-gln/TBL/arivu-app/extension/manifest.json` and add your domain:
+Edit `extension/manifest.json` and add your domain:
 
 ```json
 "host_permissions": [
