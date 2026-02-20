@@ -41,6 +41,7 @@ from cryptography.fernet import Fernet
 import hashlib
 import base64
 from app.core.database import init_db as init_core_db, close_db as close_core_db
+from app.core.instance_config import get_config_value, is_x_integration_enabled
 from app.routers.bookmarks import router as bookmarks_router
 from app.routers.collections import router as collections_router
 from app.routers.analytics import router as analytics_router
@@ -597,6 +598,9 @@ async def send_invite_email(email: str, name: str, invite_token: str):
     """
 
     try:
+        resend_key = await get_config_value("resend_api_key")
+        if resend_key:
+            resend.api_key = resend_key
         params = {
             "from": RESEND_FROM_EMAIL,
             "to": [email],
@@ -667,6 +671,8 @@ async def refresh_x_token(user_id: str) -> Optional[dict]:
         return None
 
     try:
+        x_client_id = await get_config_value("x_client_id")
+        x_client_secret = await get_config_value("x_client_secret")
         refresh_token = decrypt_token(connection["refresh_token_enc"])
         async with httpx.AsyncClient() as client_http:
             response = await client_http.post(
@@ -674,9 +680,9 @@ async def refresh_x_token(user_id: str) -> Optional[dict]:
                 data={
                     "grant_type": "refresh_token",
                     "refresh_token": refresh_token,
-                    "client_id": X_CLIENT_ID,
+                    "client_id": x_client_id,
                 },
-                auth=(X_CLIENT_ID, X_CLIENT_SECRET),
+                auth=(x_client_id, x_client_secret),
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
         if response.status_code != 200:
@@ -750,22 +756,23 @@ async def x_api_request(user_id: str, method: str, url: str, **kwargs) -> httpx.
     return response
 
 
-def require_x_enabled():
-    if not X_INTEGRATION_ENABLED:
+async def require_x_enabled():
+    if not await is_x_integration_enabled():
         raise HTTPException(status_code=404, detail="Not found")
 
 
 @api_router.get("/auth/x/enabled")
 async def x_enabled():
     """Public endpoint: is X integration available?"""
-    return {"enabled": X_INTEGRATION_ENABLED}
+    return {"enabled": await is_x_integration_enabled()}
 
 
 @api_router.get("/auth/x/connect")
 async def x_connect(current_user: dict = Depends(get_current_user)):
     """Generate X OAuth authorization URL with PKCE."""
-    require_x_enabled()
-    if not X_CLIENT_ID:
+    await require_x_enabled()
+    x_client_id = await get_config_value("x_client_id")
+    if not x_client_id:
         raise HTTPException(status_code=503, detail="X integration not configured")
 
     # Generate PKCE code verifier and challenge
@@ -782,10 +789,11 @@ async def x_connect(current_user: dict = Depends(get_current_user)):
     state_data = f"{current_user['id']}:{code_verifier}"
     await r.setex(f"x_oauth_state:{state}", 600, state_data)
 
+    x_redirect_uri = await get_config_value("x_redirect_uri") or f"{APP_URL}/settings?section=connections"
     scopes = "bookmark.read tweet.read users.read offline.access"
     auth_url = build_x_oauth_url(
-        client_id=X_CLIENT_ID,
-        redirect_uri=X_REDIRECT_URI,
+        client_id=x_client_id,
+        redirect_uri=x_redirect_uri,
         state=state,
         code_challenge=code_challenge,
         scopes=scopes,
@@ -805,8 +813,11 @@ async def x_callback(
     current_user: dict = Depends(get_current_user),
 ):
     """Exchange OAuth code for tokens, store encrypted connection."""
-    require_x_enabled()
-    if not X_CLIENT_ID:
+    await require_x_enabled()
+    x_client_id = await get_config_value("x_client_id")
+    x_client_secret = await get_config_value("x_client_secret")
+    x_redirect_uri = await get_config_value("x_redirect_uri") or f"{APP_URL}/settings?section=connections"
+    if not x_client_id:
         raise HTTPException(status_code=503, detail="X integration not configured")
 
     # Validate state from Redis
@@ -832,11 +843,11 @@ async def x_callback(
             data={
                 "grant_type": "authorization_code",
                 "code": callback.code,
-                "redirect_uri": X_REDIRECT_URI,
+                "redirect_uri": x_redirect_uri,
                 "code_verifier": code_verifier,
-                "client_id": X_CLIENT_ID,
+                "client_id": x_client_id,
             },
-            auth=(X_CLIENT_ID, X_CLIENT_SECRET),
+            auth=(x_client_id, x_client_secret),
             headers={"Content-Type": "application/x-www-form-urlencoded"},
         )
 
@@ -903,19 +914,21 @@ async def x_callback(
 @api_router.post("/auth/x/disconnect")
 async def x_disconnect(current_user: dict = Depends(get_current_user)):
     """Disconnect X account: revoke token (best-effort) and delete connection."""
-    require_x_enabled()
+    await require_x_enabled()
     connection = await db.x_connections.find_one({"user_id": current_user["id"]})
     if not connection:
         raise HTTPException(status_code=404, detail="X account not connected")
 
     # Best-effort token revocation
+    x_client_id = await get_config_value("x_client_id")
+    x_client_secret = await get_config_value("x_client_secret")
     try:
         access_token = decrypt_token(connection["access_token_enc"])
         async with httpx.AsyncClient() as client_http:
             await client_http.post(
                 "https://api.twitter.com/2/oauth2/revoke",
-                data={"token": access_token, "client_id": X_CLIENT_ID},
-                auth=(X_CLIENT_ID, X_CLIENT_SECRET),
+                data={"token": access_token, "client_id": x_client_id},
+                auth=(x_client_id, x_client_secret),
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
     except Exception as e:
@@ -929,7 +942,7 @@ async def x_disconnect(current_user: dict = Depends(get_current_user)):
 @api_router.get("/auth/x/status")
 async def x_status(current_user: dict = Depends(get_current_user)):
     """Get X connection status (never returns encrypted tokens)."""
-    require_x_enabled()
+    await require_x_enabled()
     connection = await db.x_connections.find_one(
         {"user_id": current_user["id"]},
         {"_id": 0, "access_token_enc": 0, "refresh_token_enc": 0},
@@ -957,8 +970,9 @@ async def x_sync(
     current_user: dict = Depends(get_current_user),
 ):
     """Sync X bookmarks: fetch, deduplicate, store, and trigger AI processing."""
-    require_x_enabled()
-    if not X_CLIENT_ID:
+    await require_x_enabled()
+    x_client_id = await get_config_value("x_client_id")
+    if not x_client_id:
         raise HTTPException(status_code=503, detail="X integration not configured")
 
     connection = await db.x_connections.find_one({"user_id": current_user["id"]})
