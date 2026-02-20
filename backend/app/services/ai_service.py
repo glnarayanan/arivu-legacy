@@ -8,13 +8,14 @@ and AI summary generation for bookmark content processing.
 import asyncio
 import json
 import logging
-import os
 import time
 from collections import deque
 from datetime import datetime, timezone
 from typing import List, Optional
 
 import google.generativeai as genai
+
+from app.core.instance_config import get_config_value
 from google.api_core.exceptions import (
     DeadlineExceeded,
     InternalServerError as GoogleInternalServerError,
@@ -290,7 +291,7 @@ async def generate_embedding(
             )
             return None
 
-        gemini_api_key = os.environ.get("GEMINI_API_KEY")
+        gemini_api_key = await get_config_value("gemini_api_key")
         if not gemini_api_key:
             logger.error("GEMINI_API_KEY not configured")
             return None
@@ -361,7 +362,7 @@ async def _generate_ai_summaries_impl(text_content: str, bookmark_id: str):
             )
             raise ValueError("Insufficient content for AI processing")
 
-        gemini_api_key = os.environ.get("GEMINI_API_KEY")
+        gemini_api_key = await get_config_value("gemini_api_key")
         if not gemini_api_key:
             logger.error("GEMINI_API_KEY not configured")
             raise ValueError("GEMINI_API_KEY not found in environment variables")
@@ -559,7 +560,7 @@ async def extract_entities_with_gemini(text_content: str) -> List[dict]:
         if not text_content or len(text_content.strip()) < 100:
             return []
 
-        gemini_api_key = os.environ.get("GEMINI_API_KEY")
+        gemini_api_key = await get_config_value("gemini_api_key")
         if not gemini_api_key:
             return []
 
