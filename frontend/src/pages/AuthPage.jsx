@@ -1,27 +1,32 @@
-import { useState } from 'react';
-import axios from 'axios';
-import { Button } from '../components/ui/button';
-import { Input } from '../components/ui/input';
-import { Label } from '../components/ui/label';
-import { toast } from 'sonner';
-import { BookmarkIcon, Loader2 } from 'lucide-react';
-import { motion } from 'framer-motion';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
+import { useState } from "react";
+import axios from "axios";
+import { Button } from "../components/ui/button";
+import { Input } from "../components/ui/input";
+import { Label } from "../components/ui/label";
+import { toast } from "sonner";
+import { BookmarkIcon, Loader2 } from "lucide-react";
+import { motion } from "framer-motion";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "../components/ui/dialog";
 
-const API = '/api';
+const API = "/api";
 
-const SIGNUPS_ENABLED = false;
+const SIGNUPS_ENABLED = import.meta.env.VITE_SIGNUPS_ENABLED !== "false";
 
 const AuthPage = ({ onLogin }) => {
   const [isLogin, setIsLogin] = useState(true);
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
-    email: '',
-    password: '',
-    name: ''
+    email: "",
+    password: "",
+    name: "",
   });
   const [forgotPasswordOpen, setForgotPasswordOpen] = useState(false);
-  const [forgotPasswordEmail, setForgotPasswordEmail] = useState('');
+  const [forgotPasswordEmail, setForgotPasswordEmail] = useState("");
   const [forgotPasswordLoading, setForgotPasswordLoading] = useState(false);
 
   const handleSubmit = async (e) => {
@@ -30,7 +35,7 @@ const AuthPage = ({ onLogin }) => {
 
     try {
       const effectiveIsLogin = !SIGNUPS_ENABLED || isLogin;
-      const endpoint = effectiveIsLogin ? '/auth/login' : '/auth/signup';
+      const endpoint = effectiveIsLogin ? "/auth/login" : "/auth/signup";
       const payload = effectiveIsLogin
         ? { email: formData.email, password: formData.password }
         : formData;
@@ -40,9 +45,11 @@ const AuthPage = ({ onLogin }) => {
       });
 
       onLogin(response.data.user);
-      toast.success(effectiveIsLogin ? 'Welcome back!' : 'Account created successfully!');
+      toast.success(
+        effectiveIsLogin ? "Welcome back!" : "Account created successfully!",
+      );
     } catch (error) {
-      const errorMsg = error.response?.data?.detail || 'Authentication failed';
+      const errorMsg = error.response?.data?.detail || "Authentication failed";
       toast.error(errorMsg);
     } finally {
       setLoading(false);
@@ -57,17 +64,21 @@ const AuthPage = ({ onLogin }) => {
 
     try {
       await axios.post(`${API}/auth/forgot-password`, {
-        email: forgotPasswordEmail
+        email: forgotPasswordEmail,
       });
 
-      toast.success('If an account exists with this email, you will receive a reset link.');
+      toast.success(
+        "If an account exists with this email, you will receive a reset link.",
+      );
       setForgotPasswordOpen(false);
-      setForgotPasswordEmail('');
+      setForgotPasswordEmail("");
     } catch (error) {
       // Still show success to prevent email enumeration
-      toast.success('If an account exists with this email, you will receive a reset link.');
+      toast.success(
+        "If an account exists with this email, you will receive a reset link.",
+      );
       setForgotPasswordOpen(false);
-      setForgotPasswordEmail('');
+      setForgotPasswordEmail("");
     } finally {
       setForgotPasswordLoading(false);
     }
@@ -108,7 +119,7 @@ const AuthPage = ({ onLogin }) => {
             <div className="flex gap-2 mb-6">
               <Button
                 data-testid="login-tab"
-                variant={isLogin ? 'default' : 'outline'}
+                variant={isLogin ? "default" : "outline"}
                 className="flex-1"
                 onClick={() => setIsLogin(true)}
               >
@@ -116,7 +127,7 @@ const AuthPage = ({ onLogin }) => {
               </Button>
               <Button
                 data-testid="signup-tab"
-                variant={!isLogin ? 'default' : 'outline'}
+                variant={!isLogin ? "default" : "outline"}
                 className="flex-1"
                 onClick={() => setIsLogin(false)}
               >
@@ -125,9 +136,12 @@ const AuthPage = ({ onLogin }) => {
             </div>
           ) : (
             <div className="mb-6 border-b-2 border-foreground pb-4">
-              <h2 className="font-heading text-xl font-bold text-center mb-2 uppercase tracking-wide">Log In</h2>
+              <h2 className="font-heading text-xl font-bold text-center mb-2 uppercase tracking-wide">
+                Log In
+              </h2>
               <p className="font-mono text-xs text-muted-foreground text-center uppercase tracking-wider">
-                Signups are currently closed. Only existing users can log in.
+                New account registration is disabled. Only existing users can
+                log in.
               </p>
             </div>
           )}
@@ -135,14 +149,21 @@ const AuthPage = ({ onLogin }) => {
           <form onSubmit={handleSubmit} className="space-y-4">
             {SIGNUPS_ENABLED && !isLogin && (
               <div className="space-y-2">
-                <Label htmlFor="name" className="font-mono text-xs uppercase tracking-wider">Name</Label>
+                <Label
+                  htmlFor="name"
+                  className="font-mono text-xs uppercase tracking-wider"
+                >
+                  Name
+                </Label>
                 <Input
                   id="name"
                   data-testid="name-input"
                   type="text"
                   placeholder="JOHN DOE"
                   value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  onChange={(e) =>
+                    setFormData({ ...formData, name: e.target.value })
+                  }
                   required={!isLogin}
                   maxLength={100}
                   disabled={loading}
@@ -151,14 +172,21 @@ const AuthPage = ({ onLogin }) => {
             )}
 
             <div className="space-y-2">
-              <Label htmlFor="email" className="font-mono text-xs uppercase tracking-wider">Email</Label>
+              <Label
+                htmlFor="email"
+                className="font-mono text-xs uppercase tracking-wider"
+              >
+                Email
+              </Label>
               <Input
                 id="email"
                 data-testid="email-input"
                 type="email"
                 placeholder="YOU@EXAMPLE.COM"
                 value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, email: e.target.value })
+                }
                 required
                 maxLength={254}
                 disabled={loading}
@@ -167,7 +195,12 @@ const AuthPage = ({ onLogin }) => {
 
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label htmlFor="password" className="font-mono text-xs uppercase tracking-wider">Password</Label>
+                <Label
+                  htmlFor="password"
+                  className="font-mono text-xs uppercase tracking-wider"
+                >
+                  Password
+                </Label>
                 <button
                   type="button"
                   onClick={() => setForgotPasswordOpen(true)}
@@ -182,7 +215,9 @@ const AuthPage = ({ onLogin }) => {
                 type="password"
                 placeholder="••••••••"
                 value={formData.password}
-                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, password: e.target.value })
+                }
                 required
                 maxLength={128}
                 disabled={loading}
@@ -195,7 +230,11 @@ const AuthPage = ({ onLogin }) => {
               className="w-full"
               disabled={loading}
             >
-              {loading ? 'PROCESSING...' : (!SIGNUPS_ENABLED || isLogin) ? 'LOG IN' : 'CREATE ACCOUNT'}
+              {loading
+                ? "PROCESSING..."
+                : !SIGNUPS_ENABLED || isLogin
+                  ? "LOG IN"
+                  : "CREATE ACCOUNT"}
             </Button>
           </form>
 
@@ -211,14 +250,22 @@ const AuthPage = ({ onLogin }) => {
       <Dialog open={forgotPasswordOpen} onOpenChange={setForgotPasswordOpen}>
         <DialogContent className="rounded-none border-2 border-foreground shadow-brutal">
           <DialogHeader>
-            <DialogTitle className="font-display text-xl uppercase tracking-wide">Reset Password</DialogTitle>
+            <DialogTitle className="font-display text-xl uppercase tracking-wide">
+              Reset Password
+            </DialogTitle>
           </DialogHeader>
           <form onSubmit={handleForgotPassword} className="space-y-4">
             <p className="font-mono text-sm text-muted-foreground">
-              Enter your email address and we'll send you a link to reset your password.
+              Enter your email address and we'll send you a link to reset your
+              password.
             </p>
             <div className="space-y-2">
-              <Label htmlFor="forgot-email" className="font-mono text-xs uppercase tracking-wider">Email</Label>
+              <Label
+                htmlFor="forgot-email"
+                className="font-mono text-xs uppercase tracking-wider"
+              >
+                Email
+              </Label>
               <Input
                 id="forgot-email"
                 type="email"
@@ -242,7 +289,7 @@ const AuthPage = ({ onLogin }) => {
                   SENDING...
                 </>
               ) : (
-                'SEND RESET LINK'
+                "SEND RESET LINK"
               )}
             </Button>
           </form>
@@ -253,4 +300,3 @@ const AuthPage = ({ onLogin }) => {
 };
 
 export default AuthPage;
-
