@@ -1,7 +1,20 @@
 # Environment Variables Guide
 
-**Last Updated:** February 19, 2026
+**Last Updated:** February 20, 2026
 **Purpose:** Comprehensive guide to all Arivu environment variables
+
+---
+
+## Admin UI Configuration (Recommended for Self-Hosters)
+
+API keys for **Gemini AI**, **X (Twitter)**, and **Resend Email** can be configured through the **Settings → API Keys** panel in the web UI instead of editing `.env` files. This requires an admin account (set `ADMIN_EMAILS` in `.env`).
+
+- **DB overrides take precedence** over environment variables
+- Keys are **encrypted at rest** (Fernet) in MongoDB
+- Changes take effect **immediately** — no server restart required
+- Removing a DB override reverts to the `.env` value
+
+To use: set `ADMIN_EMAILS=your-email@example.com` in `.env`, then navigate to **Settings → API Keys** after logging in.
 
 ---
 
@@ -219,7 +232,30 @@ WDS_SOCKET_PORT=3000
 
 ---
 
-### Optional Configuration
+### Admin & Access Control
+
+#### `ADMIN_EMAILS` (Recommended)
+**Purpose:** Comma-separated list of email addresses with admin access
+**Default:** (empty — no admins)
+
+Admins can access the API Keys configuration UI and system health panel.
+
+```bash
+ADMIN_EMAILS=admin@example.com,ops@example.com
+```
+
+---
+
+#### `SIGNUPS_ENABLED` (Optional)
+**Purpose:** Enable or disable new user registration
+**Default:** `true`
+
+```bash
+# Disable public signups (invite-only mode)
+SIGNUPS_ENABLED=false
+```
+
+---
 
 ### X Integration Configuration
 
@@ -520,6 +556,6 @@ Before deploying to production:
 
 ---
 
-**Last Updated:** January 12, 2026
-**Version:** 1.0
+**Last Updated:** February 20, 2026
+**Version:** 1.1
 **Status:** Production Ready
