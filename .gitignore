@@ -130,3 +130,7 @@ dev-debug.log
 # Hugo build artifacts
 marketing/public/
 marketing/hugo_stats.json
+
+# Internal tooling / AI assistant configs
+.planning/
+.worktrees/
