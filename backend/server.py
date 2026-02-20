@@ -1337,6 +1337,15 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 # --- Admin Pydantic Models ---
 
+class ApiKeysUpdate(BaseModel):
+    gemini_api_key: Optional[str] = None
+    x_client_id: Optional[str] = None
+    x_client_secret: Optional[str] = None
+    x_redirect_uri: Optional[str] = None
+    x_integration_enabled: Optional[bool] = None
+    resend_api_key: Optional[str] = None
+
+
 class AdminUserInvite(BaseModel):
     email: EmailStr
     name: str
@@ -1649,6 +1658,153 @@ async def admin_delete_user(user_id: str, admin: dict = Depends(get_admin_user))
             "collections": del_collections.deleted_count,
         },
     }
+
+
+# --- Admin API Keys Management ---
+
+def _mask_key(key: Optional[str]) -> Optional[str]:
+    """Mask an API key, showing only the last 4 characters."""
+    if not key:
+        return None
+    if len(key) <= 4:
+        return "••••"
+    return "•" * (len(key) - 4) + key[-4:]
+
+
+@api_router.get("/admin/api-keys")
+async def admin_get_api_keys(admin: dict = Depends(get_admin_user)):
+    """Get current API key configuration (masked values)."""
+    logger.info(f"Admin action: get api-keys by {admin['email']}")
+
+    # Read DB overrides
+    db_settings = await db.instance_settings.find_one({"_id": "api_keys"}) or {}
+
+    def get_effective(db_key: str, env_key: str):
+        """Get the effective value and source for an API key."""
+        db_val = db_settings.get(db_key)
+        env_val = os.environ.get(env_key)
+
+        if db_val:
+            try:
+                decrypted = fernet.decrypt(db_val.encode()).decode()
+                return decrypted, "database"
+            except Exception:
+                return None, "none"
+        elif env_val:
+            return env_val, "environment"
+        return None, "none"
+
+    gemini_val, gemini_src = get_effective("gemini_api_key", "GEMINI_API_KEY")
+    x_id_val, x_id_src = get_effective("x_client_id", "X_CLIENT_ID")
+    x_secret_val, x_secret_src = get_effective("x_client_secret", "X_CLIENT_SECRET")
+    resend_val, resend_src = get_effective("resend_api_key", "RESEND_API_KEY")
+
+    # X redirect URI (not encrypted, just a URL)
+    db_redirect = db_settings.get("x_redirect_uri")
+    env_redirect = os.environ.get("X_REDIRECT_URI")
+    x_redirect = db_redirect or env_redirect or f"{APP_URL}/settings?section=connections"
+    x_redirect_src = "database" if db_redirect else ("environment" if env_redirect else "default")
+
+    # X integration enabled
+    db_x_enabled = db_settings.get("x_integration_enabled")
+    x_enabled = db_x_enabled if db_x_enabled is not None else X_INTEGRATION_ENABLED
+    x_enabled_src = "database" if db_x_enabled is not None else "environment"
+
+    return {
+        "gemini_api_key": {
+            "configured": gemini_val is not None,
+            "masked_value": _mask_key(gemini_val),
+            "source": gemini_src,
+        },
+        "x_client_id": {
+            "configured": x_id_val is not None,
+            "masked_value": _mask_key(x_id_val),
+            "source": x_id_src,
+        },
+        "x_client_secret": {
+            "configured": x_secret_val is not None,
+            "masked_value": _mask_key(x_secret_val),
+            "source": x_secret_src,
+        },
+        "x_redirect_uri": {
+            "value": x_redirect,
+            "source": x_redirect_src,
+        },
+        "x_integration_enabled": {
+            "value": x_enabled,
+            "source": x_enabled_src,
+        },
+        "resend_api_key": {
+            "configured": resend_val is not None,
+            "masked_value": _mask_key(resend_val),
+            "source": resend_src,
+        },
+    }
+
+
+@api_router.put("/admin/api-keys")
+async def admin_update_api_keys(
+    body: ApiKeysUpdate, admin: dict = Depends(get_admin_user)
+):
+    """Update API key configuration. Keys are encrypted at rest."""
+    logger.info(f"Admin action: update api-keys by {admin['email']}")
+
+    update_fields = {}
+    encrypted_keys = ["gemini_api_key", "x_client_id", "x_client_secret", "resend_api_key"]
+
+    for field in encrypted_keys:
+        value = getattr(body, field, None)
+        if value is not None:
+            update_fields[field] = encrypt_token(value)
+
+    # Non-encrypted fields
+    if body.x_redirect_uri is not None:
+        update_fields["x_redirect_uri"] = body.x_redirect_uri
+    if body.x_integration_enabled is not None:
+        update_fields["x_integration_enabled"] = body.x_integration_enabled
+
+    if not update_fields:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    update_fields["updated_at"] = datetime.now(timezone.utc).isoformat()
+    update_fields["updated_by"] = admin["email"]
+
+    await db.instance_settings.update_one(
+        {"_id": "api_keys"},
+        {"$set": update_fields},
+        upsert=True,
+    )
+
+    logger.info(f"API keys updated: {list(update_fields.keys())} by {admin['email']}")
+    return {"status": "updated", "fields": [k for k in update_fields if k not in ("updated_at", "updated_by")]}
+
+
+@api_router.delete("/admin/api-keys/{key_name}")
+async def admin_delete_api_key(key_name: str, admin: dict = Depends(get_admin_user)):
+    """Remove a DB-stored API key override, reverting to environment variable."""
+    logger.info(f"Admin action: delete api-key {key_name} by {admin['email']}")
+
+    valid_keys = ["gemini_api_key", "x_client_id", "x_client_secret", "x_redirect_uri", "x_integration_enabled", "resend_api_key"]
+    if key_name not in valid_keys:
+        raise HTTPException(status_code=400, detail=f"Invalid key name. Valid: {valid_keys}")
+
+    result = await db.instance_settings.update_one(
+        {"_id": "api_keys"},
+        {"$unset": {key_name: ""}, "$set": {"updated_at": datetime.now(timezone.utc).isoformat(), "updated_by": admin["email"]}},
+    )
+
+    # Check what the env fallback is
+    env_map = {
+        "gemini_api_key": "GEMINI_API_KEY",
+        "x_client_id": "X_CLIENT_ID",
+        "x_client_secret": "X_CLIENT_SECRET",
+        "x_redirect_uri": "X_REDIRECT_URI",
+        "x_integration_enabled": "X_INTEGRATION_ENABLED",
+        "resend_api_key": "RESEND_API_KEY",
+    }
+    has_env_fallback = bool(os.environ.get(env_map.get(key_name, "")))
+
+    return {"status": "removed", "key": key_name, "has_env_fallback": has_env_fallback}
 
 
 @api_router.get("/admin/system")

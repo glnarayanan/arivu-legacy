@@ -55,6 +55,9 @@ class Settings(BaseSettings):
     X_CLIENT_SECRET: Optional[str] = None
     X_REDIRECT_URI: Optional[str] = None
 
+    # Admin
+    ADMIN_EMAILS: str = ""
+
     # CORS
     CORS_ORIGINS: str = "*"
 
