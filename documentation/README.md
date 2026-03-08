@@ -45,8 +45,6 @@ Historical and verbose documents retained for reference.
 | Design rules | `documentation/design/DESIGN_SYSTEM.md` |
 | Deep architecture history | `documentation/archive/CLAUDE-verbose.md` |
 
-## Public Documentation Site
-
 The marketing site now includes a public docs section for self-hosting users:
 - `marketing/content/documentation/`
 
@@ -61,7 +59,7 @@ Use this for user-facing guides, and keep implementation/developer detail in thi
 
 ## AI Assistant Context
 
-1. Start with `/Users/tbl-gln/TBL/arivu-app/CLAUDE.md`.
+1. Start with `CLAUDE.md`.
 2. Load only relevant docs; avoid loading the full tree.
 3. Verify docs against code before trusting feature claims.
 4. Update docs after every task completion.
