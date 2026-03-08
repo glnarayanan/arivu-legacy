@@ -110,7 +110,7 @@ rich==14.2.0
 rpds-py==0.30.0
 rsa==4.9.1
 s3transfer==0.16.0
-s5cmd==0.2.0
+s5cmd==0.3.3
 shellingham==1.5.4
 six==1.17.0
 slowapi==0.1.9
