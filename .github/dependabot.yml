@@ -1,5 +1,6 @@
 version: 2
 updates:
+  # Python (pip) - backend
   - package-ecosystem: "pip"
     directory: "/backend"
     schedule:
@@ -9,6 +10,7 @@ updates:
       - "dependencies"
       - "backend"
 
+  # npm/yarn - frontend
   - package-ecosystem: "npm"
     directory: "/frontend"
     schedule:
@@ -18,6 +20,13 @@ updates:
       - "dependencies"
       - "frontend"
 
+  # Docker
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+
+  # GitHub Actions
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
