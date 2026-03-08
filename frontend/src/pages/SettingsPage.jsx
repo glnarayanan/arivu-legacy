@@ -1,33 +1,63 @@
-import { useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import { Settings as SettingsIcon } from 'lucide-react';
-import ProfileSection from '../components/settings/ProfileSection';
-import AccountSection from '../components/settings/AccountSection';
-import ConnectionsSection from '../components/settings/ConnectionsSection';
-import ImportSection from '../components/settings/ImportSection';
-import BackupSection from '../components/settings/BackupSection';
-import DuplicatesSection from '../components/settings/DuplicatesSection';
-import AppLayout from '../components/AppLayout';
+import { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
+import { Settings as SettingsIcon } from "lucide-react";
+import ProfileSection from "../components/settings/ProfileSection";
+import AccountSection from "../components/settings/AccountSection";
+import ConnectionsSection from "../components/settings/ConnectionsSection";
+import ApiKeysSection from "../components/settings/ApiKeysSection";
+import ImportSection from "../components/settings/ImportSection";
+import BackupSection from "../components/settings/BackupSection";
+import DuplicatesSection from "../components/settings/DuplicatesSection";
+import AppLayout from "../components/AppLayout";
+import axiosInstance from "../utils/axiosConfig";
 
-const SECTIONS = [
-  { id: 'profile', label: 'Profile' },
-  { id: 'account', label: 'Account' },
-  { id: 'connections', label: 'Connections' },
-  { id: 'import', label: 'Import' },
-  { id: 'backup', label: 'Backup' },
-  { id: 'duplicates', label: 'Duplicates' },
+const BASE_SECTIONS = [
+  { id: "profile", label: "Profile" },
+  { id: "account", label: "Account" },
+  { id: "import", label: "Import" },
+  { id: "backup", label: "Backup" },
+  { id: "duplicates", label: "Duplicates" },
 ];
+
+const CONNECTIONS_SECTION = { id: "connections", label: "Connections" };
+const API_KEYS_SECTION = { id: "api-keys", label: "API Keys" };
 
 const SettingsPage = ({ onLogout }) => {
   const [searchParams, setSearchParams] = useSearchParams();
-  const [activeSection, setActiveSection] = useState(searchParams.get('section') || 'profile');
+  const [activeSection, setActiveSection] = useState(
+    searchParams.get("section") || "profile",
+  );
+  const [xEnabled, setXEnabled] = useState(null);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
-    const section = searchParams.get('section');
-    if (section && SECTIONS.some(s => s.id === section)) {
+    axiosInstance
+      .get("/auth/x/enabled")
+      .then((res) => setXEnabled(res.data.enabled))
+      .catch(() => setXEnabled(false));
+    axiosInstance
+      .get("/auth/me")
+      .then((res) => setIsAdmin(res.data.is_admin || false))
+      .catch(() => setIsAdmin(false));
+  }, []);
+
+  const sections = (() => {
+    let s = [...BASE_SECTIONS];
+    if (xEnabled) {
+      s.splice(2, 0, CONNECTIONS_SECTION);
+    }
+    if (isAdmin) {
+      s.splice(xEnabled ? 3 : 2, 0, API_KEYS_SECTION);
+    }
+    return s;
+  })();
+
+  useEffect(() => {
+    const section = searchParams.get("section");
+    if (section && sections.some((s) => s.id === section)) {
       setActiveSection(section);
     }
-  }, [searchParams]);
+  }, [searchParams, sections]);
 
   const handleSectionChange = (sectionId) => {
     setActiveSection(sectionId);
@@ -36,24 +66,27 @@ const SettingsPage = ({ onLogout }) => {
 
   const renderContent = () => {
     switch (activeSection) {
-      case 'profile':
+      case "profile":
         return <ProfileSection />;
-      case 'account':
+      case "account":
         return <AccountSection />;
-      case 'connections':
-        return <ConnectionsSection />;
-      case 'import':
+      case "connections":
+        return xEnabled ? <ConnectionsSection /> : <ProfileSection />;
+      case "api-keys":
+        return isAdmin ? <ApiKeysSection /> : <ProfileSection />;
+      case "import":
         return <ImportSection />;
-      case 'backup':
+      case "backup":
         return <BackupSection />;
-      case 'duplicates':
+      case "duplicates":
         return <DuplicatesSection />;
       default:
         return <ProfileSection />;
     }
   };
 
-  const activeLabel = SECTIONS.find(s => s.id === activeSection)?.label || 'Profile';
+  const activeLabel =
+    sections.find((s) => s.id === activeSection)?.label || "Profile";
 
   return (
     <AppLayout
@@ -61,7 +94,7 @@ const SettingsPage = ({ onLogout }) => {
       showSearch={false}
       settingsSection={activeSection}
       onSettingsSectionChange={handleSectionChange}
-      settingsSections={SECTIONS}
+      settingsSections={sections}
     >
       <div className="px-6 py-6">
         {/* Page Header */}
@@ -70,7 +103,9 @@ const SettingsPage = ({ onLogout }) => {
             <SettingsIcon className="w-5 h-5" />
           </div>
           <div>
-            <h2 className="font-heading text-xl font-bold uppercase tracking-wide">Settings</h2>
+            <h2 className="font-heading text-xl font-bold uppercase tracking-wide">
+              Settings
+            </h2>
             <p className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
               Manage your account and preferences
             </p>
@@ -81,7 +116,9 @@ const SettingsPage = ({ onLogout }) => {
         <div className="bg-card border-2 border-foreground p-6 shadow-brutal">
           {/* Section Header */}
           <div className="mb-6 pb-4 border-b-2 border-foreground">
-            <h3 className="font-heading font-bold uppercase tracking-wide">{activeLabel}</h3>
+            <h3 className="font-heading font-bold uppercase tracking-wide">
+              {activeLabel}
+            </h3>
           </div>
           {renderContent()}
         </div>

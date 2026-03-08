@@ -73,13 +73,6 @@ def is_safe_url(url: str) -> tuple:
 class BookmarkCreate(BaseModel):
     url: str
     collection_id: Optional[str] = None
-    source: Optional[str] = None
-    x_tweet_id: Optional[str] = None
-    x_author_username: Optional[str] = None
-    x_author_name: Optional[str] = None
-    x_tweet_url: Optional[str] = None
-    x_metrics: Optional[Dict[str, int]] = None
-    text_content: Optional[str] = None
 
     @validator("url")
     def validate_url(cls, v):
@@ -88,41 +81,12 @@ class BookmarkCreate(BaseModel):
         if len(v) > 2048:
             raise ValueError("URL too long (max 2048 characters)")
 
+        # Validate URL is safe (SSRF protection)
         safe, error_msg = is_safe_url(v)
         if not safe:
             raise ValueError(error_msg)
 
         return v.strip()
-
-    @validator("source")
-    def validate_source(cls, v):
-        if v is not None and v not in ("web", "x"):
-            raise ValueError("source must be 'web' or 'x'")
-        return v
-
-    @validator("x_author_username")
-    def validate_x_author_username(cls, v):
-        if v is not None and len(v) > 50:
-            raise ValueError("x_author_username too long (max 50)")
-        return v
-
-    @validator("x_author_name")
-    def validate_x_author_name(cls, v):
-        if v is not None and len(v) > 200:
-            raise ValueError("x_author_name too long (max 200)")
-        return v
-
-    @validator("x_tweet_id")
-    def validate_x_tweet_id(cls, v):
-        if v is not None and (len(v) > 30 or not v.isdigit()):
-            raise ValueError("x_tweet_id must be a numeric string (max 30 digits)")
-        return v
-
-    @validator("text_content")
-    def validate_text_content(cls, v):
-        if v is not None and len(v) > 50000:
-            raise ValueError("text_content too long (max 50000 characters)")
-        return v
 
 
 class Bookmark(BaseModel):

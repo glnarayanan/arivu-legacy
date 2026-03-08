@@ -1,91 +1,69 @@
 # Arivu Documentation
 
-This folder contains all project documentation organized by category.
-
----
+This folder is the canonical project documentation for contributors, operators, and AI assistants.
 
 ## Folder Structure
 
-### `/api/` ⭐ NEW
-API reference documentation for all endpoints.
-- `README.md` - Complete API reference (35+ endpoints across 9 categories)
+### `api/`
+API reference for application endpoints.
+- `README.md`: endpoint catalog, auth model, request and response examples
 
-### `/features/` ⭐ NEW
-Feature guides and implementation documentation.
-- `README.md` - Feature overview and status matrix
-- `knowledge-graph.md` - Semantic AI Knowledge Graph (Roadmap Item 1)
-- `resurfacing-engine.md` - Intelligent Resurfacing Engine (Roadmap Item 2)
+### `features/`
+Implementation and behavior docs for product features.
+- Includes Knowledge Graph, Resurfacing, Analytics, Collections, Import/Export, Duplicates, and X integration
 
-### `/deployment/`
-Production deployment, infrastructure, and operations documentation.
-- `DEPLOYMENT.md` - Complete production deployment guide
-- `RESTORATION.md` - Backup restoration and disaster recovery procedures
-- `ENVIRONMENT_VARIABLES.md` - Comprehensive environment variables reference
+### `deployment/`
+Infrastructure and operations documentation.
+- `DEPLOYMENT.md`: local and production deployment
+- `ENVIRONMENT_VARIABLES.md`: environment variable reference
+- `RESTORATION.md`: backup and restore procedures
 
-### `/development/`
-Development patterns, architecture details, and security guidelines.
-- `SECURITY_IMPROVEMENTS.md` - Security enhancements and best practices
+### `development/`
+Engineering-focused implementation and security docs.
+- `SECURITY_IMPROVEMENTS.md`
 
-### `/design/`
-Design system specifications and guidelines.
-- `BRUTALIST_DESIGN_SYSTEM.md` - Complete brutalist design system specs
+### `design/`
+UI and design system guidance.
+- `DESIGN_SYSTEM.md`
 
-### `/roadmap/`
-Future features, planning, and product vision.
-- `2026-roadmap/` - Detailed feature roadmap for 2026 (14 initiatives)
+### `roadmap/`
+Planning documents and roadmap items.
 
-### `/archive/`
-Historical documentation and verbose guides.
-- `CLAUDE-verbose.md` - Complete architecture and patterns guide
-- `README-verbose.md` - Original comprehensive README
-
-### Other Documentation
-- `seo-claude.md` - SEO strategy and marketing analysis for arivu.app
-
----
+### `archive/`
+Historical and verbose documents retained for reference.
 
 ## Quick Reference
 
-| Need to know... | Check... |
-|----------------|----------|
-| **API endpoints** | `api/README.md` |
-| **Feature guides** | `features/` (Knowledge Graph, Resurfacing, Analytics) |
-| **How to deploy** | `deployment/DEPLOYMENT.md` |
-| **Environment vars** | `deployment/ENVIRONMENT_VARIABLES.md` |
-| **Backup/Recovery** | `deployment/RESTORATION.md` |
-| **Architecture details** | `archive/CLAUDE-verbose.md` |
-| **Design system** | `design/BRUTALIST_DESIGN_SYSTEM.md` |
-| **Security patterns** | `development/SECURITY_IMPROVEMENTS.md` |
-| **Future features** | `roadmap/2026-roadmap/` |
+| Need | Document |
+|------|----------|
+| API endpoints | `documentation/api/README.md` |
+| Feature behavior | `documentation/features/README.md` |
+| Self-hosting and deployment | `documentation/deployment/DEPLOYMENT.md` |
+| Environment configuration | `documentation/deployment/ENVIRONMENT_VARIABLES.md` |
+| Backup and restoration | `documentation/deployment/RESTORATION.md` |
+| Security patterns | `documentation/development/SECURITY_IMPROVEMENTS.md` |
+| Design rules | `documentation/design/DESIGN_SYSTEM.md` |
+| Deep architecture history | `documentation/archive/CLAUDE-verbose.md` |
 
----
+## Public Documentation Site
 
-## Documentation Health
+The marketing site now includes a public docs section for self-hosting users:
+- `marketing/content/documentation/`
 
-- **Total Files:** 40+ markdown files
-- **Total Size:** ~550 KB
-- **Last Major Update:** January 12, 2026
-- **Last Cleanup:** January 12, 2026 (removed 5 stale files, ~116 KB saved)
-- **Status:** ✅ Excellent
+Use this for user-facing guides, and keep implementation/developer detail in this `documentation/` directory.
 
-See `STALE_DOCUMENTATION.md` for cleanup history.
+## Documentation Maintenance Rules
 
----
+1. Update docs in the same PR/commit as behavior changes.
+2. Remove stale docs when a feature path is replaced.
+3. Prefer concrete examples and exact file paths.
+4. Keep root clean; add new docs under `documentation/` unless they are marketing-site content.
 
-## For AI Assistants
+## AI Assistant Context
 
-When working on this project:
-1. Check `/CLAUDE.md` first for critical rules (minimal, with references)
-2. Load specific documentation files as needed (don't load everything)
-3. Use references like `api/README.md` instead of verbose docs when possible
-4. Follow token optimization guidelines in `/documentation_guidelines.md`
+1. Start with `/Users/tbl-gln/TBL/arivu-app/CLAUDE.md`.
+2. Load only relevant docs; avoid loading the full tree.
+3. Verify docs against code before trusting feature claims.
+4. Update docs after every task completion.
 
-**Key Files for Context:**
-- Essential rules: `/CLAUDE.md`
-- API reference: `documentation/api/README.md`
-- Architecture: `documentation/archive/CLAUDE-verbose.md`
-- Features: `documentation/features/`
-
----
-
-**Last Updated:** January 12, 2026
+**Last Updated:** February 19, 2026

@@ -5,12 +5,20 @@ updates:
     directory: "/backend"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "backend"
 
   # npm/yarn - frontend
   - package-ecosystem: "npm"
     directory: "/frontend"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "frontend"
 
   # Docker
   - package-ecosystem: "docker"
@@ -18,8 +26,11 @@ updates:
     schedule:
       interval: "monthly"
 
-  # GitHub Actions (if you use them)
+  # GitHub Actions
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
+    labels:
+      - "dependencies"
+      - "ci"

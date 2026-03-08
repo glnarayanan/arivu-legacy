@@ -9,6 +9,7 @@ import logging
 import resend
 
 from app.core.config import settings
+from app.core.instance_config import get_config_value
 
 logger = logging.getLogger(__name__)
 
@@ -26,11 +27,13 @@ def init_email_service():
 
 async def send_password_reset_email(email: str, reset_token: str) -> bool:
     """Send password reset email via Resend."""
-    if not settings.RESEND_API_KEY:
+    resend_key = await get_config_value("resend_api_key")
+    if not resend_key:
         logger.error(
             "Cannot send password reset email - RESEND_API_KEY not configured"
         )
         return False
+    resend.api_key = resend_key
 
     reset_url = f"{settings.APP_URL}/reset-password?token={reset_token}"
 

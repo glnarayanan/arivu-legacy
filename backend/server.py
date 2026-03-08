@@ -23,7 +23,7 @@ from datetime import datetime, timezone, timedelta
 import jwt
 from passlib.context import CryptContext
 import asyncio
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlencode, parse_qsl, urlunparse, quote
 import requests
 import re
 import ipaddress
@@ -36,7 +36,12 @@ import time
 import resend
 import secrets
 import redis.asyncio as aioredis
+import httpx
+from cryptography.fernet import Fernet
+import hashlib
+import base64
 from app.core.database import init_db as init_core_db, close_db as close_core_db
+from app.core.instance_config import get_config_value, is_x_integration_enabled
 from app.routers.bookmarks import router as bookmarks_router
 from app.routers.collections import router as collections_router
 from app.routers.analytics import router as analytics_router
@@ -46,7 +51,16 @@ from app.routers.search import router as search_router
 from app.routers.knowledge_graph import router as knowledge_graph_router
 from app.routers.import_export import router as import_export_router
 from app.routers.content import router as content_router
-from app.services.ai_service import gemini_rate_limiter
+from app.services.ai_service import (
+    gemini_rate_limiter,
+    generate_ai_summaries,
+    generate_embedding,
+    extract_entities_and_concepts,
+)
+from app.services.content_service import (
+    fetch_webpage_content,
+    calculate_reading_time,
+)
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -141,6 +155,110 @@ if RESEND_API_KEY:
     logger.info("Resend email configured successfully")
 else:
     logger.warning("RESEND_API_KEY not set - password reset emails will not work")
+
+# X (Twitter) Integration
+X_INTEGRATION_ENABLED = os.environ.get("X_INTEGRATION_ENABLED", "false").lower() in ("true", "1", "yes")
+X_CLIENT_ID = os.environ.get("X_CLIENT_ID")
+X_CLIENT_SECRET = os.environ.get("X_CLIENT_SECRET")
+X_REDIRECT_URI = os.environ.get("X_REDIRECT_URI") or f"{APP_URL}/settings?section=connections"
+_x_max_pages = int(os.environ.get("X_MAX_BOOKMARK_PAGES", "10"))
+X_MAX_BOOKMARK_PAGES = None if _x_max_pages <= 0 else _x_max_pages
+# Cap total bookmarks fetched per sync. Set to 0 or remove to fetch all.
+# To remove: delete this line and the "total tweet cap" block in x_sync().
+_x_max_bookmarks = int(os.environ.get("X_MAX_BOOKMARKS", "300"))
+X_MAX_BOOKMARKS = None if _x_max_bookmarks <= 0 else _x_max_bookmarks
+
+if X_INTEGRATION_ENABLED and X_CLIENT_ID:
+    logger.info("X (Twitter) integration enabled and configured")
+elif X_INTEGRATION_ENABLED:
+    logger.warning("X (Twitter) integration enabled but X_CLIENT_ID not set")
+else:
+    logger.info("X_CLIENT_ID not set - X bookmark integration disabled")
+
+X_TRACKING_QUERY_PARAMS = {
+    "utm_source",
+    "utm_medium",
+    "utm_campaign",
+    "utm_term",
+    "utm_content",
+    "utm_id",
+    "gclid",
+    "fbclid",
+    "igshid",
+    "mc_cid",
+    "mc_eid",
+    "ref",
+}
+
+# Fernet encryption for storing OAuth tokens at rest
+_fernet_key = base64.urlsafe_b64encode(hashlib.sha256(SECRET_KEY.encode()).digest())
+fernet = Fernet(_fernet_key)
+
+
+def encrypt_token(token: str) -> str:
+    """Encrypt a token string using Fernet symmetric encryption."""
+    return fernet.encrypt(token.encode()).decode()
+
+
+def decrypt_token(encrypted: str) -> str:
+    """Decrypt a Fernet-encrypted token string."""
+    return fernet.decrypt(encrypted.encode()).decode()
+
+
+def normalize_url_for_dedup(url: str) -> str:
+    """Normalize URLs for deduplication by removing tracking params and fragments."""
+    if not url:
+        return ""
+    try:
+        parsed = urlparse(url)
+        if not parsed.netloc:
+            return url
+
+        scheme = parsed.scheme.lower() if parsed.scheme else "https"
+        netloc = parsed.netloc.lower()
+        path = parsed.path or "/"
+        if path != "/" and path.endswith("/"):
+            path = path.rstrip("/")
+
+        query_params = [
+            (key, value)
+            for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+            if key.lower() not in X_TRACKING_QUERY_PARAMS
+        ]
+        query = urlencode(query_params, doseq=True)
+
+        return urlunparse((scheme, netloc, path, "", query, ""))
+    except Exception:
+        return url
+
+
+def build_x_oauth_url(
+    client_id: str,
+    redirect_uri: str,
+    state: str,
+    code_challenge: str,
+    scopes: str,
+) -> str:
+    """Build a properly-encoded OAuth URL for X authorization."""
+    params = {
+        "response_type": "code",
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "scope": scopes,
+        "state": state,
+        "code_challenge": code_challenge,
+        "code_challenge_method": "S256",
+    }
+    return f"https://twitter.com/i/oauth2/authorize?{urlencode(params, quote_via=quote)}"
+
+
+def map_x_sync_error_status(status_code: int) -> str:
+    """Map X sync errors to connection sync_status values."""
+    if status_code == 401:
+        return "auth_expired"
+    if status_code == 429:
+        return "rate_limited"
+    return "error"
 
 
 # Redis client for account lockout tracking (SEC-04)
@@ -266,6 +384,25 @@ class BackupRequest(BaseModel):
     include_ai_summaries: bool = True
     date_from: Optional[datetime] = None
     date_to: Optional[datetime] = None
+
+
+class BookmarkCreate(BaseModel):
+    url: str
+    collection_id: Optional[str] = None
+
+    @validator("url")
+    def validate_url(cls, v):
+        if not v or len(v.strip()) == 0:
+            raise ValueError("URL cannot be empty")
+        if len(v) > 2048:
+            raise ValueError("URL too long (max 2048 characters)")
+
+        # Validate URL is safe (SSRF protection)
+        is_safe, error_msg = is_safe_url(v)
+        if not is_safe:
+            raise ValueError(error_msg)
+
+        return v.strip()
 
 
 class Bookmark(BaseModel):
@@ -461,6 +598,9 @@ async def send_invite_email(email: str, name: str, invite_token: str):
     """
 
     try:
+        resend_key = await get_config_value("resend_api_key")
+        if resend_key:
+            resend.api_key = resend_key
         params = {
             "from": RESEND_FROM_EMAIL,
             "to": [email],
@@ -517,6 +657,640 @@ async def accept_invite(request: Request, accept: AcceptInviteRequest):
 
     logger.info(f"Invite accepted, password set for user: {token_doc['user_id']}")
     return {"message": "Account set up successfully. You can now log in."}
+
+
+# ============================================
+# X (Twitter) Integration Endpoints
+# ============================================
+
+
+async def refresh_x_token(user_id: str) -> Optional[dict]:
+    """Refresh expired X access token using stored refresh_token."""
+    connection = await db.x_connections.find_one({"user_id": user_id})
+    if not connection or not connection.get("refresh_token_enc"):
+        return None
+
+    try:
+        x_client_id = await get_config_value("x_client_id")
+        x_client_secret = await get_config_value("x_client_secret")
+        refresh_token = decrypt_token(connection["refresh_token_enc"])
+        async with httpx.AsyncClient() as client_http:
+            response = await client_http.post(
+                "https://api.twitter.com/2/oauth2/token",
+                data={
+                    "grant_type": "refresh_token",
+                    "refresh_token": refresh_token,
+                    "client_id": x_client_id,
+                },
+                auth=(x_client_id, x_client_secret),
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+        if response.status_code != 200:
+            logger.error(f"X token refresh failed: {response.text}")
+            await db.x_connections.update_one(
+                {"user_id": user_id},
+                {"$set": {"sync_status": "auth_expired"}},
+            )
+            return None
+
+        data = response.json()
+        expires_at = datetime.now(timezone.utc) + timedelta(seconds=data.get("expires_in", 7200))
+        await db.x_connections.update_one(
+            {"user_id": user_id},
+            {
+                "$set": {
+                    "access_token_enc": encrypt_token(data["access_token"]),
+                    "refresh_token_enc": encrypt_token(data["refresh_token"]),
+                    "token_expires_at": expires_at.isoformat(),
+                    "sync_status": "idle",
+                }
+            },
+        )
+        return data
+    except Exception as e:
+        logger.exception(f"Error refreshing X token for user {user_id}")
+        return None
+
+
+async def x_api_request(user_id: str, method: str, url: str, **kwargs) -> httpx.Response:
+    """Make an authenticated X API request with auto-refresh on token expiry."""
+    connection = await db.x_connections.find_one({"user_id": user_id})
+    if not connection:
+        raise HTTPException(status_code=404, detail="X account not connected")
+
+    # Check if token is expired
+    expires_at = connection.get("token_expires_at")
+    if expires_at:
+        exp_dt = datetime.fromisoformat(expires_at)
+        if exp_dt.tzinfo is None:
+            exp_dt = exp_dt.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) >= exp_dt - timedelta(minutes=5):
+            refreshed = await refresh_x_token(user_id)
+            if not refreshed:
+                raise HTTPException(status_code=401, detail="X authentication expired. Please reconnect.")
+            connection = await db.x_connections.find_one({"user_id": user_id})
+
+    access_token = decrypt_token(connection["access_token_enc"])
+    headers = kwargs.pop("headers", {})
+    headers["Authorization"] = f"Bearer {access_token}"
+
+    async with httpx.AsyncClient() as client_http:
+        response = await client_http.request(method, url, headers=headers, **kwargs)
+
+    # Handle 401 with one retry after refresh
+    if response.status_code == 401:
+        refreshed = await refresh_x_token(user_id)
+        if not refreshed:
+            raise HTTPException(status_code=401, detail="X authentication expired. Please reconnect.")
+        connection = await db.x_connections.find_one({"user_id": user_id})
+        access_token = decrypt_token(connection["access_token_enc"])
+        headers["Authorization"] = f"Bearer {access_token}"
+        async with httpx.AsyncClient() as client_http:
+            response = await client_http.request(method, url, headers=headers, **kwargs)
+
+    # Handle rate limiting
+    if response.status_code == 429:
+        retry_after = response.headers.get("Retry-After", "60")
+        raise HTTPException(status_code=429, detail=f"X API rate limited. Retry after {retry_after}s.")
+
+    return response
+
+
+async def require_x_enabled():
+    if not await is_x_integration_enabled():
+        raise HTTPException(status_code=404, detail="Not found")
+
+
+@api_router.get("/auth/x/enabled")
+async def x_enabled():
+    """Public endpoint: is X integration available?"""
+    return {"enabled": await is_x_integration_enabled()}
+
+
+@api_router.get("/auth/x/connect")
+async def x_connect(current_user: dict = Depends(get_current_user)):
+    """Generate X OAuth authorization URL with PKCE."""
+    await require_x_enabled()
+    x_client_id = await get_config_value("x_client_id")
+    if not x_client_id:
+        raise HTTPException(status_code=503, detail="X integration not configured")
+
+    # Generate PKCE code verifier and challenge
+    code_verifier = secrets.token_urlsafe(64)
+    code_challenge = base64.urlsafe_b64encode(
+        hashlib.sha256(code_verifier.encode()).digest()
+    ).decode().rstrip("=")
+
+    # Generate state with user_id for CSRF protection
+    state = secrets.token_urlsafe(32)
+
+    # Store PKCE state in Redis (10 min TTL)
+    r = await get_redis()
+    state_data = f"{current_user['id']}:{code_verifier}"
+    await r.setex(f"x_oauth_state:{state}", 600, state_data)
+
+    x_redirect_uri = await get_config_value("x_redirect_uri") or f"{APP_URL}/settings?section=connections"
+    scopes = "bookmark.read tweet.read users.read offline.access"
+    auth_url = build_x_oauth_url(
+        client_id=x_client_id,
+        redirect_uri=x_redirect_uri,
+        state=state,
+        code_challenge=code_challenge,
+        scopes=scopes,
+    )
+
+    return {"auth_url": auth_url}
+
+
+class XCallbackRequest(BaseModel):
+    code: str
+    state: str
+
+
+@api_router.post("/auth/x/callback")
+async def x_callback(
+    callback: XCallbackRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Exchange OAuth code for tokens, store encrypted connection."""
+    await require_x_enabled()
+    x_client_id = await get_config_value("x_client_id")
+    x_client_secret = await get_config_value("x_client_secret")
+    x_redirect_uri = await get_config_value("x_redirect_uri") or f"{APP_URL}/settings?section=connections"
+    if not x_client_id:
+        raise HTTPException(status_code=503, detail="X integration not configured")
+
+    # Validate state from Redis
+    r = await get_redis()
+    state_data = await r.get(f"x_oauth_state:{callback.state}")
+    if not state_data:
+        raise HTTPException(status_code=400, detail="Invalid or expired OAuth state")
+
+    try:
+        stored_user_id, code_verifier = state_data.split(":", 1)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid OAuth state format")
+    if stored_user_id != current_user["id"]:
+        raise HTTPException(status_code=400, detail="OAuth state mismatch")
+
+    # Clean up used state
+    await r.delete(f"x_oauth_state:{callback.state}")
+
+    # Exchange code for tokens (Confidential Client auth)
+    async with httpx.AsyncClient() as client_http:
+        token_response = await client_http.post(
+            "https://api.twitter.com/2/oauth2/token",
+            data={
+                "grant_type": "authorization_code",
+                "code": callback.code,
+                "redirect_uri": x_redirect_uri,
+                "code_verifier": code_verifier,
+                "client_id": x_client_id,
+            },
+            auth=(x_client_id, x_client_secret),
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+
+    if token_response.status_code != 200:
+        logger.error(f"X token exchange failed: {token_response.text}")
+        raise HTTPException(status_code=400, detail="Failed to exchange authorization code")
+
+    token_data = token_response.json()
+    access_token = token_data.get("access_token")
+    if not access_token:
+        logger.error(f"X token response missing access_token: {token_data.keys()}")
+        raise HTTPException(status_code=502, detail="X API returned invalid token response")
+    refresh_token = token_data.get("refresh_token")
+
+    # Fetch X user profile
+    async with httpx.AsyncClient() as client_http:
+        profile_response = await client_http.get(
+            "https://api.twitter.com/2/users/me",
+            params={"user.fields": "profile_image_url,name,username"},
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+
+    if profile_response.status_code != 200:
+        logger.error(f"X profile fetch failed: {profile_response.text}")
+        raise HTTPException(status_code=400, detail="Failed to fetch X profile")
+
+    profile_data = profile_response.json().get("data", {})
+    expires_at = datetime.now(timezone.utc) + timedelta(seconds=token_data.get("expires_in", 7200))
+
+    connection_doc = {
+        "id": str(uuid.uuid4()),
+        "user_id": current_user["id"],
+        "x_user_id": profile_data.get("id"),
+        "x_username": profile_data.get("username"),
+        "x_name": profile_data.get("name"),
+        "x_profile_image": profile_data.get("profile_image_url"),
+        "access_token_enc": encrypt_token(access_token),
+        "refresh_token_enc": encrypt_token(refresh_token) if refresh_token else None,
+        "token_expires_at": expires_at.isoformat(),
+        "scopes": token_data.get("scope", "").split(),
+        "connected_at": datetime.now(timezone.utc).isoformat(),
+        "last_sync_at": None,
+        "sync_status": "idle",
+        "total_synced": 0,
+        "next_cursor": None,
+    }
+
+    # Upsert: replace existing connection for this user
+    await db.x_connections.replace_one(
+        {"user_id": current_user["id"]},
+        connection_doc,
+        upsert=True,
+    )
+
+    logger.info(f"X account connected: @{profile_data.get('username')} for user {current_user['id']}")
+    return {
+        "connected": True,
+        "x_username": profile_data.get("username"),
+        "x_name": profile_data.get("name"),
+        "x_profile_image": profile_data.get("profile_image_url"),
+    }
+
+
+@api_router.post("/auth/x/disconnect")
+async def x_disconnect(current_user: dict = Depends(get_current_user)):
+    """Disconnect X account: revoke token (best-effort) and delete connection."""
+    await require_x_enabled()
+    connection = await db.x_connections.find_one({"user_id": current_user["id"]})
+    if not connection:
+        raise HTTPException(status_code=404, detail="X account not connected")
+
+    # Best-effort token revocation
+    x_client_id = await get_config_value("x_client_id")
+    x_client_secret = await get_config_value("x_client_secret")
+    try:
+        access_token = decrypt_token(connection["access_token_enc"])
+        async with httpx.AsyncClient() as client_http:
+            await client_http.post(
+                "https://api.twitter.com/2/oauth2/revoke",
+                data={"token": access_token, "client_id": x_client_id},
+                auth=(x_client_id, x_client_secret),
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+    except Exception as e:
+        logger.warning(f"X token revocation failed (best-effort): {e}")
+
+    await db.x_connections.delete_one({"user_id": current_user["id"]})
+    logger.info(f"X account disconnected for user {current_user['id']}")
+    return {"disconnected": True}
+
+
+@api_router.get("/auth/x/status")
+async def x_status(current_user: dict = Depends(get_current_user)):
+    """Get X connection status (never returns encrypted tokens)."""
+    await require_x_enabled()
+    connection = await db.x_connections.find_one(
+        {"user_id": current_user["id"]},
+        {"_id": 0, "access_token_enc": 0, "refresh_token_enc": 0},
+    )
+    if not connection:
+        return {"connected": False}
+
+    return {
+        "connected": True,
+        "x_username": connection.get("x_username"),
+        "x_name": connection.get("x_name"),
+        "x_profile_image": connection.get("x_profile_image"),
+        "connected_at": connection.get("connected_at"),
+        "last_sync_at": connection.get("last_sync_at"),
+        "sync_status": connection.get("sync_status", "idle"),
+        "total_synced": connection.get("total_synced", 0),
+    }
+
+
+@api_router.post("/auth/x/sync")
+@limiter.limit("5/minute")
+async def x_sync(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(get_current_user),
+):
+    """Sync X bookmarks: fetch, deduplicate, store, and trigger AI processing."""
+    await require_x_enabled()
+    x_client_id = await get_config_value("x_client_id")
+    if not x_client_id:
+        raise HTTPException(status_code=503, detail="X integration not configured")
+
+    connection = await db.x_connections.find_one({"user_id": current_user["id"]})
+    if not connection:
+        raise HTTPException(status_code=404, detail="X account not connected")
+
+    # Concurrency guard
+    if connection.get("sync_status") == "syncing":
+        raise HTTPException(status_code=409, detail="Sync already in progress")
+
+    await db.x_connections.update_one(
+        {"user_id": current_user["id"]},
+        {"$set": {"sync_status": "syncing"}},
+    )
+
+    try:
+        # Fetch X bookmarks with pagination (resume from saved cursor if present)
+        x_user_id = connection.get("x_user_id")
+        if not x_user_id:
+            raise HTTPException(status_code=400, detail="X user ID not found. Please reconnect your X account.")
+
+        all_tweets = []
+        all_users = {}
+        pagination_token = connection.get("next_cursor")
+        pages_fetched = 0
+
+        while True:
+            if X_MAX_BOOKMARK_PAGES and pages_fetched >= X_MAX_BOOKMARK_PAGES:
+                break
+            params = {
+                "max_results": 100,
+                "tweet.fields": "created_at,public_metrics,entities",
+                "expansions": "author_id",
+                "user.fields": "username,name,profile_image_url",
+            }
+            if pagination_token:
+                params["pagination_token"] = pagination_token
+
+            response = await x_api_request(
+                current_user["id"],
+                "GET",
+                f"https://api.twitter.com/2/users/{x_user_id}/bookmarks",
+                params=params,
+            )
+
+            if response.status_code != 200:
+                logger.error(f"X bookmarks fetch failed: {response.status_code} {response.text}")
+                await db.x_connections.update_one(
+                    {"user_id": current_user["id"]},
+                    {"$set": {"sync_status": "error"}},
+                )
+                raise HTTPException(status_code=502, detail="Failed to fetch X bookmarks")
+
+            data = response.json()
+            meta = data.get("meta", {})
+            tweets = data.get("data", [])
+            logger.info(
+                f"X sync page {pages_fetched + 1}: got {len(tweets)} tweets, "
+                f"meta={meta}, "
+                f"response_keys={list(data.keys())}, "
+                f"errors={data.get('errors', 'none')}"
+            )
+            if not tweets:
+                break
+
+            all_tweets.extend(tweets)
+            pages_fetched += 1
+
+            # Build authors map from includes
+            for user in data.get("includes", {}).get("users", []):
+                all_users[user["id"]] = user
+
+            # Total tweet cap — stop early if we have enough.
+            # To remove this limit: set X_MAX_BOOKMARKS=0 in .env or delete this block.
+            if X_MAX_BOOKMARKS and len(all_tweets) >= X_MAX_BOOKMARKS:
+                all_tweets = all_tweets[:X_MAX_BOOKMARKS]
+                logger.info(f"X sync capped at {X_MAX_BOOKMARKS} bookmarks")
+                break
+
+            # Check for next page
+            pagination_token = data.get("meta", {}).get("next_token")
+            if not pagination_token:
+                break
+
+        if not all_tweets:
+            await db.x_connections.update_one(
+                {"user_id": current_user["id"]},
+                {
+                    "$set": {
+                        "sync_status": "idle",
+                        "last_sync_at": datetime.now(timezone.utc).isoformat(),
+                        "next_cursor": None,
+                    }
+                },
+            )
+            return {"total_fetched": 0, "new_bookmarks": 0, "duplicates_skipped": 0, "sync_status": "idle"}
+
+        # Get existing tweet IDs and URLs for dedup
+        existing_tweet_ids = set()
+        existing_urls = set()
+        existing_cursor = db.bookmarks.find(
+            {"user_id": current_user["id"], "x_tweet_id": {"$exists": True, "$ne": None}},
+            {"x_tweet_id": 1, "url": 1},
+        )
+        async for doc in existing_cursor:
+            existing_tweet_ids.add(doc.get("x_tweet_id"))
+            normalized = normalize_url_for_dedup(doc.get("url") or "")
+            if normalized:
+                existing_urls.add(normalized)
+
+        # Also get existing web bookmark URLs for cross-source dedup
+        web_urls_cursor = db.bookmarks.find(
+            {"user_id": current_user["id"], "x_tweet_id": None},
+            {"url": 1},
+        )
+        async for doc in web_urls_cursor:
+            normalized = normalize_url_for_dedup(doc.get("url") or "")
+            if normalized:
+                existing_urls.add(normalized)
+
+        new_bookmarks = []
+        duplicates_skipped = 0
+
+        for tweet in all_tweets:
+            tweet_id = tweet["id"]
+            if tweet_id in existing_tweet_ids:
+                duplicates_skipped += 1
+                continue
+
+            author = all_users.get(tweet.get("author_id"), {})
+            tweet_url = f"https://x.com/{author.get('username', 'i')}/status/{tweet_id}"
+
+            # Smart URL mapping: if tweet contains external URL, use it
+            bookmark_url = tweet_url
+            entities = tweet.get("entities", {})
+            external_urls = entities.get("urls", [])
+            for url_entity in external_urls:
+                expanded = url_entity.get("expanded_url", "")
+                parsed = urlparse(expanded)
+                if parsed.netloc and "x.com" not in parsed.netloc and "twitter.com" not in parsed.netloc:
+                    bookmark_url = expanded
+                    break
+
+            bookmark_url_normalized = normalize_url_for_dedup(bookmark_url)
+            if bookmark_url_normalized and bookmark_url_normalized in existing_urls:
+                duplicates_skipped += 1
+                continue
+
+            metrics = tweet.get("public_metrics", {})
+            tweet_text = tweet.get("text", "")
+
+            bookmark_doc = {
+                "id": str(uuid.uuid4()),
+                "user_id": current_user["id"],
+                "url": bookmark_url,
+                "title": tweet_text[:100] + ("..." if len(tweet_text) > 100 else ""),
+                "description": tweet_text,
+                "domain": urlparse(bookmark_url).netloc,
+                "text_content": tweet_text,
+                "read_status": False,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "source": "x",
+                "x_tweet_id": tweet_id,
+                "x_author_username": author.get("username"),
+                "x_author_name": author.get("name"),
+                "x_tweet_url": tweet_url,
+                "x_metrics": {
+                    "retweet_count": metrics.get("retweet_count", 0),
+                    "like_count": metrics.get("like_count", 0),
+                    "reply_count": metrics.get("reply_count", 0),
+                    "quote_count": metrics.get("quote_count", 0),
+                },
+            }
+
+            new_bookmarks.append(bookmark_doc)
+            existing_tweet_ids.add(tweet_id)
+            if bookmark_url_normalized:
+                existing_urls.add(bookmark_url_normalized)
+
+        # Bulk insert new bookmarks
+        if new_bookmarks:
+            await db.bookmarks.insert_many(new_bookmarks)
+
+            # Create pending AI summary docs
+            ai_docs = [
+                {
+                    "id": str(uuid.uuid4()),
+                    "bookmark_id": b["id"],
+                    "processing_status": "pending",
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                }
+                for b in new_bookmarks
+            ]
+            await db.ai_summaries.insert_many(ai_docs)
+
+            # Queue background AI processing
+            bookmark_ids = [b["id"] for b in new_bookmarks]
+            background_tasks.add_task(process_x_bookmarks_batch, bookmark_ids, current_user["id"])
+
+        # Update connection stats
+        has_more = pagination_token is not None
+        total_synced = connection.get("total_synced", 0) + len(new_bookmarks)
+        await db.x_connections.update_one(
+            {"user_id": current_user["id"]},
+            {
+                "$set": {
+                    "sync_status": "idle",
+                    "last_sync_at": datetime.now(timezone.utc).isoformat(),
+                    "total_synced": total_synced,
+                    "next_cursor": pagination_token if has_more else None,
+                }
+            },
+        )
+
+        return {
+            "total_fetched": len(all_tweets),
+            "new_bookmarks": len(new_bookmarks),
+            "duplicates_skipped": duplicates_skipped,
+            "sync_status": "idle",
+            "has_more": has_more,
+        }
+
+    except HTTPException as exc:
+        await db.x_connections.update_one(
+            {"user_id": current_user["id"]},
+            {"$set": {"sync_status": map_x_sync_error_status(exc.status_code)}},
+        )
+        raise
+    except Exception as e:
+        logger.exception(f"Error during X sync for user {current_user['id']}")
+        await db.x_connections.update_one(
+            {"user_id": current_user["id"]},
+            {"$set": {"sync_status": "error"}},
+        )
+        raise HTTPException(status_code=500, detail="Sync failed unexpectedly")
+
+
+async def process_x_bookmarks_batch(bookmark_ids: list, user_id: str):
+    """Background: process X bookmarks through AI pipeline (content fetch + summaries + embeddings)."""
+    for bookmark_id in bookmark_ids:
+        try:
+            bookmark = await db.bookmarks.find_one({"id": bookmark_id, "user_id": user_id})
+            if not bookmark:
+                continue
+
+            url = bookmark.get("url", "")
+            tweet_url = bookmark.get("x_tweet_url", "")
+
+            # If URL is external (not the tweet itself), fetch its content
+            if url != tweet_url and "x.com" not in url and "twitter.com" not in url:
+                try:
+                    content = await fetch_webpage_content(url)
+                    await db.bookmarks.update_one(
+                        {"id": bookmark_id},
+                        {
+                            "$set": {
+                                "title": content.get("title") or bookmark.get("title"),
+                                "description": content.get("description") or bookmark.get("description"),
+                                "favicon": content.get("favicon"),
+                                "thumbnail": content.get("thumbnail"),
+                                "html_content": content.get("html_content"),
+                                "text_content": content.get("text_content") or bookmark.get("text_content"),
+                                "domain": content.get("domain") or bookmark.get("domain"),
+                                "reading_time": calculate_reading_time(content.get("text_content", "")),
+                                "updated_at": datetime.now(timezone.utc).isoformat(),
+                            }
+                        },
+                    )
+                    # Use fetched content for AI if available
+                    text_content = content.get("text_content") or bookmark.get("text_content", "")
+                    title = content.get("title") or bookmark.get("title", "")
+                    description = content.get("description") or bookmark.get("description", "")
+                except Exception as e:
+                    logger.warning(f"Failed to fetch external content for X bookmark {bookmark_id}: {e}")
+                    text_content = bookmark.get("text_content", "")
+                    title = bookmark.get("title", "")
+                    description = bookmark.get("description", "")
+            else:
+                text_content = bookmark.get("text_content", "")
+                title = bookmark.get("title", "")
+                description = bookmark.get("description", "")
+
+            # Generate AI summaries (lower threshold for tweets)
+            if text_content and len(text_content.strip()) >= 20:
+                await generate_ai_summaries(text_content, bookmark_id)
+
+                # Generate embedding for semantic search
+                if len(text_content.strip()) >= 50:
+                    embedding = await generate_embedding(text_content, title, description)
+                    ai_summary = await db.ai_summaries.find_one(
+                        {"bookmark_id": bookmark_id}, {"_id": 0}
+                    )
+                    entities, concepts = await extract_entities_and_concepts(text_content, ai_summary)
+
+                    update_data = {"updated_at": datetime.now(timezone.utc).isoformat()}
+                    if embedding:
+                        update_data["embedding"] = embedding
+                        update_data["embedding_model"] = "text-embedding-004"
+                    if entities:
+                        update_data["entities"] = entities
+                    if concepts:
+                        update_data["concepts"] = concepts
+                    await db.bookmarks.update_one({"id": bookmark_id}, {"$set": update_data})
+            else:
+                # Mark as completed even with insufficient content
+                await db.ai_summaries.update_one(
+                    {"bookmark_id": bookmark_id},
+                    {"$set": {"processing_status": "completed", "one_sentence": text_content[:200]}},
+                )
+
+            logger.info(f"Processed X bookmark: {bookmark_id}")
+        except Exception as e:
+            logger.exception(f"Error processing X bookmark {bookmark_id}")
+            await db.ai_summaries.update_one(
+                {"bookmark_id": bookmark_id},
+                {"$set": {"processing_status": "failed"}},
+            )
 
 
 # Request size limit middleware
@@ -576,6 +1350,15 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 
 # --- Admin Pydantic Models ---
+
+class ApiKeysUpdate(BaseModel):
+    gemini_api_key: Optional[str] = None
+    x_client_id: Optional[str] = None
+    x_client_secret: Optional[str] = None
+    x_redirect_uri: Optional[str] = None
+    x_integration_enabled: Optional[bool] = None
+    resend_api_key: Optional[str] = None
+
 
 class AdminUserInvite(BaseModel):
     email: EmailStr
@@ -891,6 +1674,153 @@ async def admin_delete_user(user_id: str, admin: dict = Depends(get_admin_user))
     }
 
 
+# --- Admin API Keys Management ---
+
+def _mask_key(key: Optional[str]) -> Optional[str]:
+    """Mask an API key, showing only the last 4 characters."""
+    if not key:
+        return None
+    if len(key) <= 4:
+        return "••••"
+    return "•" * (len(key) - 4) + key[-4:]
+
+
+@api_router.get("/admin/api-keys")
+async def admin_get_api_keys(admin: dict = Depends(get_admin_user)):
+    """Get current API key configuration (masked values)."""
+    logger.info(f"Admin action: get api-keys by {admin['email']}")
+
+    # Read DB overrides
+    db_settings = await db.instance_settings.find_one({"_id": "api_keys"}) or {}
+
+    def get_effective(db_key: str, env_key: str):
+        """Get the effective value and source for an API key."""
+        db_val = db_settings.get(db_key)
+        env_val = os.environ.get(env_key)
+
+        if db_val:
+            try:
+                decrypted = fernet.decrypt(db_val.encode()).decode()
+                return decrypted, "database"
+            except Exception:
+                return None, "none"
+        elif env_val:
+            return env_val, "environment"
+        return None, "none"
+
+    gemini_val, gemini_src = get_effective("gemini_api_key", "GEMINI_API_KEY")
+    x_id_val, x_id_src = get_effective("x_client_id", "X_CLIENT_ID")
+    x_secret_val, x_secret_src = get_effective("x_client_secret", "X_CLIENT_SECRET")
+    resend_val, resend_src = get_effective("resend_api_key", "RESEND_API_KEY")
+
+    # X redirect URI (not encrypted, just a URL)
+    db_redirect = db_settings.get("x_redirect_uri")
+    env_redirect = os.environ.get("X_REDIRECT_URI")
+    x_redirect = db_redirect or env_redirect or f"{APP_URL}/settings?section=connections"
+    x_redirect_src = "database" if db_redirect else ("environment" if env_redirect else "default")
+
+    # X integration enabled
+    db_x_enabled = db_settings.get("x_integration_enabled")
+    x_enabled = db_x_enabled if db_x_enabled is not None else X_INTEGRATION_ENABLED
+    x_enabled_src = "database" if db_x_enabled is not None else "environment"
+
+    return {
+        "gemini_api_key": {
+            "configured": gemini_val is not None,
+            "masked_value": _mask_key(gemini_val),
+            "source": gemini_src,
+        },
+        "x_client_id": {
+            "configured": x_id_val is not None,
+            "masked_value": _mask_key(x_id_val),
+            "source": x_id_src,
+        },
+        "x_client_secret": {
+            "configured": x_secret_val is not None,
+            "masked_value": _mask_key(x_secret_val),
+            "source": x_secret_src,
+        },
+        "x_redirect_uri": {
+            "value": x_redirect,
+            "source": x_redirect_src,
+        },
+        "x_integration_enabled": {
+            "value": x_enabled,
+            "source": x_enabled_src,
+        },
+        "resend_api_key": {
+            "configured": resend_val is not None,
+            "masked_value": _mask_key(resend_val),
+            "source": resend_src,
+        },
+    }
+
+
+@api_router.put("/admin/api-keys")
+async def admin_update_api_keys(
+    body: ApiKeysUpdate, admin: dict = Depends(get_admin_user)
+):
+    """Update API key configuration. Keys are encrypted at rest."""
+    logger.info(f"Admin action: update api-keys by {admin['email']}")
+
+    update_fields = {}
+    encrypted_keys = ["gemini_api_key", "x_client_id", "x_client_secret", "resend_api_key"]
+
+    for field in encrypted_keys:
+        value = getattr(body, field, None)
+        if value is not None:
+            update_fields[field] = encrypt_token(value)
+
+    # Non-encrypted fields
+    if body.x_redirect_uri is not None:
+        update_fields["x_redirect_uri"] = body.x_redirect_uri
+    if body.x_integration_enabled is not None:
+        update_fields["x_integration_enabled"] = body.x_integration_enabled
+
+    if not update_fields:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    update_fields["updated_at"] = datetime.now(timezone.utc).isoformat()
+    update_fields["updated_by"] = admin["email"]
+
+    await db.instance_settings.update_one(
+        {"_id": "api_keys"},
+        {"$set": update_fields},
+        upsert=True,
+    )
+
+    logger.info(f"API keys updated: {list(update_fields.keys())} by {admin['email']}")
+    return {"status": "updated", "fields": [k for k in update_fields if k not in ("updated_at", "updated_by")]}
+
+
+@api_router.delete("/admin/api-keys/{key_name}")
+async def admin_delete_api_key(key_name: str, admin: dict = Depends(get_admin_user)):
+    """Remove a DB-stored API key override, reverting to environment variable."""
+    logger.info(f"Admin action: delete api-key {key_name} by {admin['email']}")
+
+    valid_keys = ["gemini_api_key", "x_client_id", "x_client_secret", "x_redirect_uri", "x_integration_enabled", "resend_api_key"]
+    if key_name not in valid_keys:
+        raise HTTPException(status_code=400, detail=f"Invalid key name. Valid: {valid_keys}")
+
+    result = await db.instance_settings.update_one(
+        {"_id": "api_keys"},
+        {"$unset": {key_name: ""}, "$set": {"updated_at": datetime.now(timezone.utc).isoformat(), "updated_by": admin["email"]}},
+    )
+
+    # Check what the env fallback is
+    env_map = {
+        "gemini_api_key": "GEMINI_API_KEY",
+        "x_client_id": "X_CLIENT_ID",
+        "x_client_secret": "X_CLIENT_SECRET",
+        "x_redirect_uri": "X_REDIRECT_URI",
+        "x_integration_enabled": "X_INTEGRATION_ENABLED",
+        "resend_api_key": "RESEND_API_KEY",
+    }
+    has_env_fallback = bool(os.environ.get(env_map.get(key_name, "")))
+
+    return {"status": "removed", "key": key_name, "has_env_fallback": has_env_fallback}
+
+
 @api_router.get("/admin/system")
 async def admin_system_health(admin: dict = Depends(get_admin_user)):
     logger.info(f"Admin action: system health by {admin['email']}")
@@ -1067,6 +1997,30 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+async def create_x_indexes():
+    """Create indexes for X bookmarks integration."""
+    try:
+        await db.bookmarks.create_index(
+            [("user_id", 1), ("x_tweet_id", 1)],
+            unique=True,
+            partialFilterExpression={"x_tweet_id": {"$type": "string"}},
+            name="idx_user_x_tweet_dedup",
+        )
+        await db.bookmarks.create_index(
+            [("user_id", 1), ("source", 1), ("created_at", -1)],
+            name="idx_user_source_date",
+        )
+        await db.x_connections.create_index(
+            "user_id",
+            unique=True,
+            name="idx_x_connections_user",
+        )
+        logger.info("X integration indexes created successfully")
+    except Exception as e:
+        logger.warning(f"Index creation skipped (may already exist): {e}")
 
 
 @app.on_event("startup")

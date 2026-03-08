@@ -1,46 +1,90 @@
 # Arivu Browser Extension
 
-Quick save bookmarks to Arivu with AI-powered summaries.
+Save bookmarks directly into Arivu from Chrome or Firefox.
+
+## What It Does
+
+- Saves current tab URL to Arivu
+- Lets users pick a target collection
+- Uses extension session tokens issued by Arivu (`/api/auth/extension-token`)
+- Supports custom/self-hosted API URL through popup settings
 
 ## Installation
 
 ### Chrome
 1. Open `chrome://extensions/`
-2. Enable "Developer mode"
-3. Click "Load unpacked"
-4. Select the `/app/extension` folder
+2. Enable `Developer mode`
+3. Click `Load unpacked`
+4. Select the `extension/` directory in this repo
 
 ### Firefox
 1. Open `about:debugging#/runtime/this-firefox`
-2. Click "Load Temporary Add-on"
-3. Select `manifest.json` from `/app/extension` folder
+2. Click `Load Temporary Add-on`
+3. Select `extension/manifest.json`
 
-## Setup
+## Default Endpoints
 
-1. Log in to your Arivu account
-2. The extension will automatically detect your deployment URL
-3. Click the extension icon to save any webpage
-4. Or use keyboard shortcut: `Ctrl+Shift+S` (Windows/Linux) or `Cmd+Shift+S` (Mac)
+- Default API URL in popup: `https://arivu.app/api`
+- Local host permission included: `http://localhost:8001/*`
 
-## Features
+## Self-Hosted Setup
 
-- **One-click bookmark saving**: Save any webpage instantly
-- **Collection organization**: Choose which collection to save to
-- **Keyboard shortcut**: Quick save with Ctrl/Cmd+Shift+S
-- **Auto-sync**: Automatically syncs with your Arivu account
-- **AI processing**: Generates summaries, highlights, and tags automatically
+### 1. Update Host Permissions
 
-## Configuration
+Edit `extension/manifest.json` and add your domain:
 
-The extension automatically uses the same URL as your Arivu deployment. No manual configuration needed!
+```json
+"host_permissions": [
+  "https://your-domain.example/*",
+  "http://localhost:8001/*"
+],
+"content_scripts": [
+  {
+    "matches": ["https://your-domain.example/*", "http://localhost/*"],
+    "js": ["content.js"],
+    "run_at": "document_idle"
+  }
+]
+```
+
+Reload the extension after saving.
+
+### 2. Set API URL in Popup
+
+1. Open the extension popup
+2. Click `Settings`
+3. Set API URL to `https://your-domain.example/api`
+
+This value is stored in `chrome.storage.local` as `apiUrl`.
+
+### 3. Authenticate
+
+1. Log into your self-hosted Arivu web app
+2. Visit the app in the same browser
+3. The content script requests extension tokens from `/api/auth/extension-token`
+4. Tokens are stored in `chrome.storage.session`
 
 ## Troubleshooting
 
-If the extension isn't working:
-1. Make sure you're logged in to Arivu in your browser
-2. Check that the extension has permission to access the current site
-3. Try reloading the extension from the extensions page
+### "Log in to save bookmarks" persists
 
-## Privacy
+- Confirm you are logged into Arivu on the same browser profile
+- Open your Arivu app once and refresh the page
+- Verify your `apiUrl` setting matches your deployed domain
 
-The extension only accesses webpage data when you explicitly save a bookmark. Your token is stored securely in the browser's local storage.
+### Save fails with 401
+
+- Session token expired; open Arivu and re-authenticate
+- Ensure backend `/api/auth/extension-token` is reachable
+
+### Save fails on self-hosted domain
+
+- Confirm domain is listed in `host_permissions`
+- Confirm API URL ends with `/api`
+- Reload the extension after `manifest.json` updates
+
+## Privacy and Storage
+
+- Access/refresh tokens are stored in `chrome.storage.session`
+- Custom API URL is stored in `chrome.storage.local`
+- Extension only sends data when user submits save action

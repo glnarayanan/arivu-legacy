@@ -230,7 +230,11 @@ async def login(request: Request, login_data: UserLogin, response: Response):
 @router.get("/auth/me")
 async def get_current_user_info(current_user: dict = Depends(get_current_user)):
     """Get current authenticated user info from cookies"""
-    return current_user
+    from app.core.config import settings
+    admin_emails = [e.strip().lower() for e in settings.ADMIN_EMAILS.split(",") if e.strip()]
+    user_data = dict(current_user)
+    user_data["is_admin"] = user_data.get("email", "").lower() in admin_emails
+    return user_data
 
 
 @router.post("/auth/extension-token")
