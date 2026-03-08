@@ -1,0 +1,5 @@
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+markers = [
+    "integration: tests requiring Docker (real MongoDB via testcontainers)",
+]

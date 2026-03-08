@@ -1,0 +1,128 @@
+/* Brutalist Design System - Arivu */
+/* Fonts: Bebas Neue (display), DM Sans (body/heading), IBM Plex Mono (mono) */
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+    margin: 0;
+    font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+code {
+    font-family: 'IBM Plex Mono', monospace;
+}
+
+@layer base {
+    :root {
+        /* Brutalist Light Theme - Signal Orange palette */
+        --background: 0 0% 97%;
+        --foreground: 0 0% 6%;
+        
+        --card: 0 0% 100%;
+        --card-foreground: 0 0% 6%;
+        
+        --popover: 0 0% 100%;
+        --popover-foreground: 0 0% 6%;
+        
+        /* Signal Orange - Primary actions */
+        --primary: 24 95% 53%;
+        --primary-foreground: 0 0% 100%;
+        
+        --secondary: 0 0% 93%;
+        --secondary-foreground: 0 0% 6%;
+        
+        --muted: 0 0% 93%;
+        --muted-foreground: 0 0% 40%;
+        
+        /* Electric Blue - AI features */
+        --accent: 217 91% 60%;
+        --accent-foreground: 0 0% 100%;
+        
+        --destructive: 0 72% 51%;
+        --destructive-foreground: 0 0% 100%;
+        
+        /* Black borders - brutalist */
+        --border: 0 0% 6%;
+        --input: 0 0% 6%;
+        --ring: 0 0% 6%;
+        
+        /* Sharp corners - 0px radius */
+        --radius: 0px;
+        
+        /* Success color */
+        --success: 142 76% 46%;
+        --success-foreground: 0 0% 100%;
+    }
+    
+}
+
+@layer base {
+    * {
+        @apply border-border;
+    }
+    body {
+        @apply bg-background text-foreground;
+    }
+    
+    /* Selection color - Signal Orange */
+    ::selection {
+        @apply bg-primary text-primary-foreground;
+    }
+}
+
+/* Typography utilities */
+.font-display {
+    font-family: 'Bebas Neue', sans-serif;
+    letter-spacing: 0.02em;
+}
+
+.font-heading {
+    font-family: 'DM Sans', sans-serif;
+    font-weight: 700;
+}
+
+.font-mono {
+    font-family: 'IBM Plex Mono', monospace;
+}
+
+/* Brutalist component utilities */
+@layer components {
+    /* Overline label - mono, uppercase, wide tracking */
+    .overline {
+        @apply font-mono text-xs uppercase tracking-[0.2em] text-muted-foreground;
+    }
+    
+    /* AI badge - Electric Blue background */
+    .ai-badge {
+        @apply inline-flex items-center gap-1;
+        @apply bg-accent text-accent-foreground;
+        @apply font-mono text-xs uppercase tracking-wider;
+        @apply px-2 py-0.5 border border-accent;
+    }
+    
+    /* Dividers */
+    .divider {
+        @apply w-full h-0.5 bg-foreground;
+    }
+    
+    .divider-thin {
+        @apply w-full h-px bg-border;
+    }
+    
+    /* Brutal card hover effect */
+    .brutal-hover {
+        @apply transition-all duration-150;
+        @apply hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none;
+    }
+    
+    /* Brutal press effect */
+    .brutal-press {
+        @apply active:translate-x-[4px] active:translate-y-[4px] active:shadow-none;
+    }
+}
+

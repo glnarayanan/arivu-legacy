@@ -1,0 +1,38 @@
+.App {
+  min-height: 100vh;
+}
+
+.App-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(10px + 2vmin);
+}
+
+.reader-content {
+  max-width: 65ch;
+  line-height: 1.8;
+}
+
+.reader-content p {
+  margin-bottom: 1.5rem;
+}
+
+.reader-content h1,
+.reader-content h2,
+.reader-content h3 {
+  margin-top: 2rem;
+  margin-bottom: 1rem;
+  font-family: 'DM Sans', sans-serif;
+  font-weight: 700;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
