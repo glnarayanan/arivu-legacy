@@ -126,12 +126,21 @@ settingsToggle.addEventListener('click', async () => {
 apiUrlInput.addEventListener('change', async () => {
   const value = apiUrlInput.value.trim();
   if (value) {
-    await chrome.storage.local.set({ apiUrl: value });
-    apiUrl = value;
-  } else {
-    await chrome.storage.local.remove(['apiUrl']);
-    apiUrl = DEFAULT_API_URL;
+    try {
+      const parsed = new URL(value);
+      if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+        const normalized = parsed.toString();
+        await chrome.storage.local.set({ apiUrl: normalized });
+        apiUrl = normalized;
+        return;
+      }
+    } catch {
+      // Invalid URL; fall through to reset to default.
+    }
   }
+
+  await chrome.storage.local.remove(['apiUrl']);
+  apiUrl = DEFAULT_API_URL;
 });
 
 init();
