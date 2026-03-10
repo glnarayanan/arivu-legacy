@@ -113,7 +113,7 @@ async def test_export_bookmarks(client, mock_db):
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
     assert "NETSCAPE-Bookmark-file-1" in response.text
-    assert "https://example.com" in response.text
+    assert 'HREF="https://example.com"' in response.text
 
 
 @pytest.mark.anyio
