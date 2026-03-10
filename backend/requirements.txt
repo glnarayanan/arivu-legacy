@@ -88,7 +88,7 @@ pydantic_core==2.41.5
 pyflakes==3.4.0
 Pygments==2.19.2
 PyJWT==2.10.1
-pymongo[snappy]==4.5.0
+pymongo[snappy]==4.11.3
 pyparsing==3.2.5
 pytest==9.0.2
 pytest-asyncio>=0.23.0,<1.0
