@@ -10,7 +10,7 @@ API reference for application endpoints.
 
 ### `features/`
 Implementation and behavior docs for product features.
-- Includes Knowledge Graph, Resurfacing, Analytics, Collections, Import/Export, Duplicates, and X integration
+- Includes Knowledge Graph, CLI, Resurfacing, Analytics, Collections, Import/Export, Duplicates, and X integration
 
 ### `deployment/`
 Infrastructure and operations documentation.
@@ -23,6 +23,7 @@ Infrastructure and operations documentation.
 |------|----------|
 | API endpoints | `documentation/api/README.md` |
 | Feature behavior | `documentation/features/README.md` |
+| CLI usage | `documentation/features/cli.md` |
 | Self-hosting and deployment | `documentation/deployment/DEPLOYMENT.md` |
 | Environment configuration | `documentation/deployment/ENVIRONMENT_VARIABLES.md` |
 
@@ -32,4 +33,3 @@ Infrastructure and operations documentation.
 2. Remove stale docs when a feature path is replaced.
 3. Prefer concrete examples and exact file paths.
 4. Keep root clean; add new docs under `documentation/` unless they are marketing-site content.
-

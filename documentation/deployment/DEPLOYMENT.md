@@ -10,6 +10,7 @@
 ## Open-Source / Self-Hosted Quick Links
 
 - Public docs hub: `/documentation/` (marketing site route)
+- CLI workflow guide: `documentation/features/cli.md`
 - Self-hosting guide: `marketing/content/documentation/self-hosting-arivu.md`
 - Extension self-hosting guide: `marketing/content/documentation/extension-self-hosted-setup.md`
 - X API setup guide: `marketing/content/documentation/x-bookmarks-api-setup.md`
@@ -189,6 +190,26 @@ docker-compose up -d
 docker-compose down -v
 docker system prune -a --volumes
 ```
+
+### CLI-Driven Local Workflow
+
+If you want to use Arivu primarily from the terminal, the backend-bundled CLI can boot the same local stack and point itself at the proxied API automatically:
+
+```bash
+cd backend
+pip install -r requirements.txt
+pip install -e .
+
+arivu local up
+arivu auth login --profile local
+arivu save https://example.com/article
+arivu search "example topic"
+```
+
+Notes:
+- `arivu local up` expects the repo root `.env` to exist and contain a real `SECRET_KEY`
+- The generated local profile targets `http://localhost/api`
+- `arivu local status` and `arivu local logs` can be used for troubleshooting
 
 ---
 
