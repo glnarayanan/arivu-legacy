@@ -137,8 +137,12 @@ class ArivuAPITester:
 
         result = self.run_test("Bookmarks - Create", "POST", "bookmarks", 200, data=bookmark_data)
 
-        if result and "id" in result:
-            return result["id"]
+        if result:
+            if "id" in result:
+                return result["id"]
+            bookmark = result.get("bookmark") or {}
+            if "id" in bookmark:
+                return bookmark["id"]
         return None
 
     def test_create_bookmark_wikipedia(self):
@@ -147,8 +151,12 @@ class ArivuAPITester:
 
         result = self.run_test("Bookmarks - Create Wikipedia", "POST", "bookmarks", 200, data=bookmark_data)
 
-        if result and "id" in result:
-            return result["id"]
+        if result:
+            if "id" in result:
+                return result["id"]
+            bookmark = result.get("bookmark") or {}
+            if "id" in bookmark:
+                return bookmark["id"]
         return None
 
     def test_get_bookmarks(self):
