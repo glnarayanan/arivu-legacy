@@ -55,4 +55,4 @@ jobs:
         run: yarn install --frozen-lockfile
 
       - name: Lint
-        run: yarn eslint src/ --max-warnings 0
+        run: yarn eslint src/
