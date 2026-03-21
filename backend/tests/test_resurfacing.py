@@ -5,10 +5,10 @@ Covers: resurfacing suggestions, snooze, archive, unarchive,
 memory-jogger get, and memory-jogger dismiss.
 """
 
-import pytest
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime, timedelta, timezone
 
+import pytest
 
 # --- Helpers for cursor mocking ---
 
@@ -23,7 +23,7 @@ def make_cursor(items):
 
 # --- Sample data ---
 
-THIRTY_DAYS_AGO = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+THIRTY_DAYS_AGO = (datetime.now(UTC) - timedelta(days=30)).isoformat()
 
 SAMPLE_BOOKMARK = {
     "id": "bm-1",
@@ -51,7 +51,17 @@ SAMPLE_BOOKMARK = {
 @patch("app.routers.resurfacing.should_resurface", return_value=True)
 @patch(
     "app.routers.resurfacing.calculate_resurfacing_score",
-    return_value=(25.0, {"age": 10, "engagement": 6, "quality": 3, "reading_time": 5, "spaced_repetition": 0, "total": 25.0}),
+    return_value=(
+        25.0,
+        {
+            "age": 10,
+            "engagement": 6,
+            "quality": 3,
+            "reading_time": 5,
+            "spaced_repetition": 0,
+            "total": 25.0,
+        },
+    ),
 )
 @patch(
     "app.routers.resurfacing.get_resurfacing_reason",
@@ -62,9 +72,7 @@ async def test_get_resurfacing_suggestions(mock_reason, mock_score, mock_should,
     # Mock bookmarks cursor
     mock_db.bookmarks.find.return_value = make_cursor([SAMPLE_BOOKMARK])
     # Mock AI summaries cursor
-    mock_db.ai_summaries.find.return_value = make_cursor([
-        {"bookmark_id": "bm-1", "one_sentence": "A test summary"}
-    ])
+    mock_db.ai_summaries.find.return_value = make_cursor([{"bookmark_id": "bm-1", "one_sentence": "A test summary"}])
 
     response = await client.get("/api/resurfacing")
     assert response.status_code == 200

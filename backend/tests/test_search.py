@@ -8,20 +8,14 @@ pagination, user isolation, and search_utils pure functions.
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from app.services.search_utils import (
-    BM25_K1,
-    BM25_B,
-    RRF_K,
-    SEARCH_STOPWORDS,
-    tokenize_text,
     calculate_bm25_score,
     calculate_entity_boost,
-    reciprocal_rank_fusion,
     detect_query_type,
     get_adaptive_weights,
+    reciprocal_rank_fusion,
+    tokenize_text,
 )
-
 
 # --- Helpers for cursor mocking ---
 
@@ -143,9 +137,7 @@ class TestBM25Score:
         assert score == 0.0
 
     def test_no_match(self):
-        score = calculate_bm25_score(
-            ["rust"], ["python", "javascript"], {"python": 1, "javascript": 1}, 10.0, 5
-        )
+        score = calculate_bm25_score(["rust"], ["python", "javascript"], {"python": 1, "javascript": 1}, 10.0, 5)
         assert score == 0.0
 
     def test_higher_tf_higher_score(self):
@@ -162,15 +154,17 @@ class TestBM25Score:
 class TestEntityBoost:
     def test_overlap_scoring(self):
         score = calculate_entity_boost(
-            ["python", "ai"], ["Python", "Machine Learning", "AI"],
-            {"python": 1.0, "ai": 0.5, "machine learning": 0.8}
+            ["python", "ai"],
+            ["Python", "Machine Learning", "AI"],
+            {"python": 1.0, "ai": 0.5, "machine learning": 0.8},
         )
         assert score > 0
 
     def test_no_overlap(self):
         score = calculate_entity_boost(
-            ["rust"], ["Python", "JavaScript"],
-            {"rust": 1.0, "python": 0.5, "javascript": 0.5}
+            ["rust"],
+            ["Python", "JavaScript"],
+            {"rust": 1.0, "python": 0.5, "javascript": 0.5},
         )
         assert score == 0.0
 

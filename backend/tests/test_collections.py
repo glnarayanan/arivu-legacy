@@ -102,9 +102,7 @@ async def test_add_to_collection(client, mock_db):
     mock_result.matched_count = 1
     mock_db.collections.update_one = AsyncMock(return_value=mock_result)
 
-    response = await client.post(
-        "/api/collections/col-1/add", json={"bookmark_id": "bm-1"}
-    )
+    response = await client.post("/api/collections/col-1/add", json={"bookmark_id": "bm-1"})
 
     assert response.status_code == 200
     assert response.json()["message"] == "Bookmark added to collection"
@@ -118,9 +116,7 @@ async def test_add_to_collection_not_found(client, mock_db):
     mock_result.matched_count = 0
     mock_db.collections.update_one = AsyncMock(return_value=mock_result)
 
-    response = await client.post(
-        "/api/collections/nonexistent/add", json={"bookmark_id": "bm-1"}
-    )
+    response = await client.post("/api/collections/nonexistent/add", json={"bookmark_id": "bm-1"})
 
     assert response.status_code == 404
     assert "Collection not found" in response.json()["detail"]

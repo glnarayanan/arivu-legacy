@@ -6,18 +6,18 @@ Includes snooze/archive management and daily featured bookmark (Memory Jogger).
 """
 
 import random
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-
-from app.core.database import get_database
-from app.core.dependencies import get_current_user
 from resurfacing import (
     calculate_resurfacing_score,
     get_resurfacing_reason,
     should_resurface,
 )
+
+from app.core.database import get_database
+from app.core.dependencies import get_current_user
 
 router = APIRouter(tags=["resurfacing"])
 
@@ -36,9 +36,7 @@ class MemoryJoggerDismissRequest(BaseModel):
 # --- Helper Functions ---
 
 
-async def get_recent_connections(
-    user_id: str, bookmark_embedding: list, days: int = 7, threshold: float = 0.6
-) -> dict:
+async def get_recent_connections(user_id: str, bookmark_embedding: list, days: int = 7, threshold: float = 0.6) -> dict:
     """
     Find bookmarks saved in last N days that are semantically related.
     Returns connection count and topics.
@@ -46,7 +44,7 @@ async def get_recent_connections(
     import numpy as np
 
     db = get_database()
-    cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
+    cutoff_date = datetime.now(UTC) - timedelta(days=days)
 
     recent_bookmarks = await db.bookmarks.find(
         {
@@ -132,9 +130,7 @@ def calculate_connections_batch(
 
 
 @router.get("/resurfacing")
-async def get_resurfacing_suggestions(
-    limit: int = 5, current_user: dict = Depends(get_current_user)
-):
+async def get_resurfacing_suggestions(limit: int = 5, current_user: dict = Depends(get_current_user)):
     """
     Get top resurfacing suggestions for the user.
     Returns bookmarks scored by age, engagement, content quality, and spaced repetition.
@@ -159,43 +155,37 @@ async def get_resurfacing_suggestions(
         "resurfacing_archived": 1,
     }
 
-    bookmarks = await db.bookmarks.find(
-        {"user_id": current_user["id"]}, projection
-    ).to_list(500)  # Cap at 500 for performance
+    bookmarks = await db.bookmarks.find({"user_id": current_user["id"]}, projection).to_list(
+        500
+    )  # Cap at 500 for performance
 
     # Get AI summaries for all bookmarks
     bookmark_ids = [b["id"] for b in bookmarks]
-    summaries = await db.ai_summaries.find(
-        {"bookmark_id": {"$in": bookmark_ids}}, {"_id": 0}
-    ).to_list(None)
+    summaries = await db.ai_summaries.find({"bookmark_id": {"$in": bookmark_ids}}, {"_id": 0}).to_list(None)
     summary_map = {s["bookmark_id"]: s for s in summaries}
 
     # Score each bookmark
     scored_bookmarks = []
-    current_time = datetime.now(timezone.utc)
+    current_time = datetime.now(UTC)
 
     for bookmark in bookmarks:
         if not should_resurface(bookmark):
             continue
 
         ai_summary = summary_map.get(bookmark["id"])
-        score, breakdown = calculate_resurfacing_score(
-            bookmark, ai_summary, current_time
-        )
+        score, breakdown = calculate_resurfacing_score(bookmark, ai_summary, current_time)
 
         # Calculate days since access for reason generation
         last_accessed = bookmark.get("last_accessed")
         if isinstance(last_accessed, str):
             try:
-                last_accessed = datetime.fromisoformat(
-                    last_accessed.replace("Z", "+00:00")
-                )
+                last_accessed = datetime.fromisoformat(last_accessed.replace("Z", "+00:00"))
             except (ValueError, TypeError):
                 last_accessed = None
 
         if last_accessed:
             if last_accessed.tzinfo is None:
-                last_accessed = last_accessed.replace(tzinfo=timezone.utc)
+                last_accessed = last_accessed.replace(tzinfo=UTC)
             days_since = (current_time - last_accessed).days
         else:
             days_since = 30  # Default
@@ -235,20 +225,18 @@ async def snooze_resurfacing(
     db = get_database()
 
     # Verify ownership
-    bookmark = await db.bookmarks.find_one(
-        {"id": bookmark_id, "user_id": current_user["id"]}
-    )
+    bookmark = await db.bookmarks.find_one({"id": bookmark_id, "user_id": current_user["id"]})
     if not bookmark:
         raise HTTPException(status_code=404, detail="Bookmark not found")
 
-    snooze_until = datetime.now(timezone.utc) + timedelta(days=snooze_data.days)
+    snooze_until = datetime.now(UTC) + timedelta(days=snooze_data.days)
 
     await db.bookmarks.update_one(
         {"id": bookmark_id},
         {
             "$set": {
                 "resurfacing_snoozed_until": snooze_until.isoformat(),
-                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(UTC).isoformat(),
             }
         },
     )
@@ -260,16 +248,12 @@ async def snooze_resurfacing(
 
 
 @router.post("/resurfacing/{bookmark_id}/archive")
-async def archive_from_resurfacing(
-    bookmark_id: str, current_user: dict = Depends(get_current_user)
-):
+async def archive_from_resurfacing(bookmark_id: str, current_user: dict = Depends(get_current_user)):
     """Archive a bookmark from resurfacing suggestions (never show again)."""
     db = get_database()
 
     # Verify ownership
-    bookmark = await db.bookmarks.find_one(
-        {"id": bookmark_id, "user_id": current_user["id"]}
-    )
+    bookmark = await db.bookmarks.find_one({"id": bookmark_id, "user_id": current_user["id"]})
     if not bookmark:
         raise HTTPException(status_code=404, detail="Bookmark not found")
 
@@ -278,7 +262,7 @@ async def archive_from_resurfacing(
         {
             "$set": {
                 "resurfacing_archived": True,
-                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(UTC).isoformat(),
             }
         },
     )
@@ -287,16 +271,12 @@ async def archive_from_resurfacing(
 
 
 @router.post("/resurfacing/{bookmark_id}/unarchive")
-async def unarchive_from_resurfacing(
-    bookmark_id: str, current_user: dict = Depends(get_current_user)
-):
+async def unarchive_from_resurfacing(bookmark_id: str, current_user: dict = Depends(get_current_user)):
     """Unarchive a bookmark to allow it back in resurfacing suggestions."""
     db = get_database()
 
     # Verify ownership
-    bookmark = await db.bookmarks.find_one(
-        {"id": bookmark_id, "user_id": current_user["id"]}
-    )
+    bookmark = await db.bookmarks.find_one({"id": bookmark_id, "user_id": current_user["id"]})
     if not bookmark:
         raise HTTPException(status_code=404, detail="Bookmark not found")
 
@@ -305,7 +285,7 @@ async def unarchive_from_resurfacing(
         {
             "$set": {
                 "resurfacing_archived": False,
-                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(UTC).isoformat(),
             }
         },
     )
@@ -320,9 +300,8 @@ async def get_memory_jogger(current_user: dict = Depends(get_current_user)):
     Uses scoring algorithm to surface forgotten but relevant bookmarks.
     """
     db = get_database()
-    current_time = datetime.now(timezone.utc)
+    current_time = datetime.now(UTC)
     seven_days_ago = current_time - timedelta(days=7)
-    thirty_days_ago = current_time - timedelta(days=30)
 
     query = {
         "user_id": current_user["id"],
@@ -412,13 +391,11 @@ async def get_memory_jogger(current_user: dict = Depends(get_current_user)):
         if last_accessed:
             try:
                 if isinstance(last_accessed, str):
-                    last_accessed_dt = datetime.fromisoformat(
-                        last_accessed.replace("Z", "+00:00")
-                    )
+                    last_accessed_dt = datetime.fromisoformat(last_accessed.replace("Z", "+00:00"))
                 else:
                     last_accessed_dt = last_accessed
                 if last_accessed_dt.tzinfo is None:
-                    last_accessed_dt = last_accessed_dt.replace(tzinfo=timezone.utc)
+                    last_accessed_dt = last_accessed_dt.replace(tzinfo=UTC)
                 days_since_accessed = (current_time - last_accessed_dt).days
             except (ValueError, TypeError):
                 days_since_accessed = 30
@@ -453,13 +430,11 @@ async def get_memory_jogger(current_user: dict = Depends(get_current_user)):
     if created_at:
         try:
             if isinstance(created_at, str):
-                created_at_dt = datetime.fromisoformat(
-                    created_at.replace("Z", "+00:00")
-                )
+                created_at_dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
             else:
                 created_at_dt = created_at
             if created_at_dt.tzinfo is None:
-                created_at_dt = created_at_dt.replace(tzinfo=timezone.utc)
+                created_at_dt = created_at_dt.replace(tzinfo=UTC)
             days_since_saved = (current_time - created_at_dt).days
         except (ValueError, TypeError):
             days_since_saved = 0
@@ -477,9 +452,7 @@ async def get_memory_jogger(current_user: dict = Depends(get_current_user)):
     else:
         reason = "A forgotten gem from your collection"
 
-    ai_summary = await db.ai_summaries.find_one(
-        {"bookmark_id": selected_bookmark["id"]}, {"_id": 0}
-    )
+    ai_summary = await db.ai_summaries.find_one({"bookmark_id": selected_bookmark["id"]}, {"_id": 0})
 
     selected_bookmark.pop("embedding", None)
 
@@ -507,9 +480,7 @@ async def dismiss_memory_jogger(
     """Dismiss today's memory jogger. Records dismissal for analytics."""
     db = get_database()
 
-    bookmark = await db.bookmarks.find_one(
-        {"id": request.bookmark_id, "user_id": current_user["id"]}
-    )
+    bookmark = await db.bookmarks.find_one({"id": request.bookmark_id, "user_id": current_user["id"]})
     if not bookmark:
         raise HTTPException(status_code=404, detail="Bookmark not found")
 
@@ -517,8 +488,8 @@ async def dismiss_memory_jogger(
         {"id": request.bookmark_id},
         {
             "$set": {
-                "memory_jogger_dismissed_at": datetime.now(timezone.utc).isoformat(),
-                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "memory_jogger_dismissed_at": datetime.now(UTC).isoformat(),
+                "updated_at": datetime.now(UTC).isoformat(),
             }
         },
     )

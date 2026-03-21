@@ -15,6 +15,7 @@ def server_module():
     os.environ.setdefault("SECRET_KEY", "x" * 32)
 
     if "html2text" not in sys.modules:
+
         class _HTML2TextStub:  # minimal stub for import-time usage
             def __init__(self):
                 pass

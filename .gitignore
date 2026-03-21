@@ -57,6 +57,7 @@ chainlit.md
 .chainlit
 .ipynb_checkpoints/
 .ac
+.sisyphus/
 
 # Deployment
 .vercel

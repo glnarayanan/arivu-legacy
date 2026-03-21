@@ -25,7 +25,12 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "backend/tests/*" = ["S"]
-"backend/server.py" = ["E402"]
+"backend/app/models/bookmark.py" = ["S104"]
+"backend/app/routers/*.py" = ["B008"]
+"backend/app/routers/resurfacing.py" = ["B008", "S311"]
+"backend/load_tests/*" = ["S311"]
+"backend/server.py" = ["B008", "S104"]
+"backend/start_server.py" = ["S104"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

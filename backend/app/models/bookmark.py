@@ -7,8 +7,7 @@ Shared Pydantic models used by bookmarks router and other consumers.
 import ipaddress
 import logging
 import uuid
-from datetime import datetime, timezone
-from typing import Dict, List, Optional
+from datetime import UTC, datetime
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, validator
@@ -45,12 +44,7 @@ def is_safe_url(url: str) -> tuple:
             ip_obj = ipaddress.ip_address(hostname)
 
             # Block private, loopback, link-local, and reserved ranges
-            if (
-                ip_obj.is_private
-                or ip_obj.is_loopback
-                or ip_obj.is_link_local
-                or ip_obj.is_reserved
-            ):
+            if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local or ip_obj.is_reserved:
                 return False, "Cannot fetch from private or reserved IP addresses"
 
             # Block cloud metadata endpoints (AWS, GCP, Azure)
@@ -72,7 +66,7 @@ def is_safe_url(url: str) -> tuple:
 
 class BookmarkCreate(BaseModel):
     url: str
-    collection_id: Optional[str] = None
+    collection_id: str | None = None
 
     @validator("url")
     def validate_url(cls, v):
@@ -94,47 +88,47 @@ class Bookmark(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     user_id: str
     url: str
-    title: Optional[str] = None
-    description: Optional[str] = None
-    favicon: Optional[str] = None
-    thumbnail: Optional[str] = None
-    html_content: Optional[str] = None
-    text_content: Optional[str] = None
-    domain: Optional[str] = None
-    reading_time: Optional[int] = None
+    title: str | None = None
+    description: str | None = None
+    favicon: str | None = None
+    thumbnail: str | None = None
+    html_content: str | None = None
+    text_content: str | None = None
+    domain: str | None = None
+    reading_time: int | None = None
     read_status: bool = False
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     # Phase 1: Access tracking fields
-    last_accessed: Optional[datetime] = None
-    view_count: Optional[int] = 0
-    access_history: Optional[List[Dict[str, str]]] = []
+    last_accessed: datetime | None = None
+    view_count: int | None = 0
+    access_history: list[dict[str, str]] | None = []
     # Semantic Knowledge Graph: Embedding vector for semantic search
-    embedding: Optional[List[float]] = None
-    embedding_model: Optional[str] = None
-    entities: Optional[List[str]] = []  # Named entities extracted from content
-    concepts: Optional[List[str]] = []  # Key concepts/topics
+    embedding: list[float] | None = None
+    embedding_model: str | None = None
+    entities: list[str] | None = []  # Named entities extracted from content
+    concepts: list[str] | None = []  # Key concepts/topics
     # X (Twitter) integration fields
-    source: Optional[str] = "web"  # "web" | "x"
-    x_tweet_id: Optional[str] = None
-    x_author_username: Optional[str] = None
-    x_author_name: Optional[str] = None
-    x_tweet_url: Optional[str] = None
-    x_metrics: Optional[Dict] = None
+    source: str | None = "web"  # "web" | "x"
+    x_tweet_id: str | None = None
+    x_author_username: str | None = None
+    x_author_name: str | None = None
+    x_tweet_url: str | None = None
+    x_metrics: dict | None = None
     # Optimistic locking version (REL-03)
     version: int = 1
 
 
 class QuickConnection(BaseModel):
     id: str
-    title: Optional[str] = None
-    domain: Optional[str] = None
-    favicon: Optional[str] = None
+    title: str | None = None
+    domain: str | None = None
+    favicon: str | None = None
     connection_type: str
     connection_reason: str
 
 
 class BookmarkWithConnections(BaseModel):
     bookmark: Bookmark
-    connections: List[QuickConnection] = []
+    connections: list[QuickConnection] = []
     connections_count: int = 0

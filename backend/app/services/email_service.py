@@ -20,18 +20,14 @@ def init_email_service():
         resend.api_key = settings.RESEND_API_KEY
         logger.info("Resend email configured successfully")
     else:
-        logger.warning(
-            "RESEND_API_KEY not set - password reset emails will not work"
-        )
+        logger.warning("RESEND_API_KEY not set - password reset emails will not work")
 
 
 async def send_password_reset_email(email: str, reset_token: str) -> bool:
     """Send password reset email via Resend."""
     resend_key = await get_config_value("resend_api_key")
     if not resend_key:
-        logger.error(
-            "Cannot send password reset email - RESEND_API_KEY not configured"
-        )
+        logger.error("Cannot send password reset email - RESEND_API_KEY not configured")
         return False
     resend.api_key = resend_key
 
@@ -74,7 +70,7 @@ async def send_password_reset_email(email: str, reset_token: str) -> bool:
         resend.Emails.send(params)
         logger.info(f"Password reset email sent to {email}")
         return True
-    except Exception as e:
+    except Exception:
         logger.exception("Failed to send password reset email")
         return False
 

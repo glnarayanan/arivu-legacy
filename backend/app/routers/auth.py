@@ -10,8 +10,7 @@ import logging
 import re
 import secrets
 import uuid
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, EmailStr, validator
@@ -64,10 +63,10 @@ class UserLogin(BaseModel):
 
 
 class TokenResponse(BaseModel):
-    access_token: Optional[str] = None
-    refresh_token: Optional[str] = None
+    access_token: str | None = None
+    refresh_token: str | None = None
     token_type: str = "bearer"
-    user: Optional[dict] = None
+    user: dict | None = None
 
 
 class RefreshTokenRequest(BaseModel):
@@ -89,8 +88,8 @@ class ChangePasswordRequest(BaseModel):
 
 
 class ProfileUpdate(BaseModel):
-    name: Optional[str] = None
-    email: Optional[EmailStr] = None
+    name: str | None = None
+    email: EmailStr | None = None
 
     @validator("name")
     def validate_name(cls, v):
@@ -145,7 +144,7 @@ async def signup(request: Request, user_data: UserSignup):
         "email": user_data.email,
         "name": user_data.name,
         "password_hash": hash_password(user_data.password),
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
     }
     await db.users.insert_one(user)
 
@@ -185,7 +184,7 @@ async def login(request: Request, login_data: UserLogin, response: Response):
     if user and user.get("invite_pending"):
         raise HTTPException(
             status_code=403,
-            detail="Please complete your account setup using the invite link sent to your email."
+            detail="Please complete your account setup using the invite link sent to your email.",
         )
     if not user or not verify_password(login_data.password, user["password_hash"]):
         await record_failed_login(email_lower)
@@ -230,6 +229,7 @@ async def login(request: Request, login_data: UserLogin, response: Response):
 async def get_current_user_info(current_user: dict = Depends(get_current_user)):
     """Get current authenticated user info from cookies"""
     from app.core.config import settings
+
     admin_emails = [e.strip().lower() for e in settings.ADMIN_EMAILS.split(",") if e.strip()]
     user_data = dict(current_user)
     user_data["is_admin"] = user_data.get("email", "").lower() in admin_emails
@@ -289,17 +289,19 @@ async def forgot_password(request: Request, reset_request: PasswordResetRequest)
 
     # Generate secure reset token
     reset_token = secrets.token_urlsafe(32)
-    expires_at = datetime.now(timezone.utc) + timedelta(hours=settings.PASSWORD_RESET_TOKEN_EXPIRE_HOURS)
+    expires_at = datetime.now(UTC) + timedelta(hours=settings.PASSWORD_RESET_TOKEN_EXPIRE_HOURS)
 
     # Store token in database
     await db.password_reset_tokens.delete_many({"user_id": user["id"]})  # Remove old tokens
-    await db.password_reset_tokens.insert_one({
-        "id": str(uuid.uuid4()),
-        "user_id": user["id"],
-        "token": reset_token,
-        "expires_at": expires_at.isoformat(),
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    })
+    await db.password_reset_tokens.insert_one(
+        {
+            "id": str(uuid.uuid4()),
+            "user_id": user["id"],
+            "token": reset_token,
+            "expires_at": expires_at.isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
+        }
+    )
 
     # Send email
     await send_password_reset_email(email, reset_token)
@@ -321,7 +323,7 @@ async def reset_password(request: Request, reset_confirm: PasswordResetConfirm):
 
     # Check expiry
     expires_at = datetime.fromisoformat(token_doc["expires_at"])
-    if datetime.now(timezone.utc) > expires_at:
+    if datetime.now(UTC) > expires_at:
         await db.password_reset_tokens.delete_one({"token": reset_confirm.token})
         raise HTTPException(status_code=400, detail="Reset token has expired")
 
@@ -334,7 +336,12 @@ async def reset_password(request: Request, reset_confirm: PasswordResetConfirm):
     new_hash = hash_password(reset_confirm.new_password)
     await db.users.update_one(
         {"id": token_doc["user_id"]},
-        {"$set": {"password_hash": new_hash, "updated_at": datetime.now(timezone.utc).isoformat()}}
+        {
+            "$set": {
+                "password_hash": new_hash,
+                "updated_at": datetime.now(UTC).isoformat(),
+            }
+        },
     )
 
     # Delete used token
@@ -347,7 +354,7 @@ async def reset_password(request: Request, reset_confirm: PasswordResetConfirm):
 @router.post("/auth/change-password")
 async def change_password(
     change_request: ChangePasswordRequest,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """Change password while logged in (requires current password)"""
     db = get_database()
@@ -366,7 +373,12 @@ async def change_password(
     new_hash = hash_password(change_request.new_password)
     await db.users.update_one(
         {"id": current_user["id"]},
-        {"$set": {"password_hash": new_hash, "updated_at": datetime.now(timezone.utc).isoformat()}}
+        {
+            "$set": {
+                "password_hash": new_hash,
+                "updated_at": datetime.now(UTC).isoformat(),
+            }
+        },
     )
 
     logger.info(f"Password changed for user: {current_user['id']}")
@@ -382,20 +394,14 @@ async def change_password(
 async def get_profile(current_user: dict = Depends(get_current_user)):
     """Get current user profile"""
     db = get_database()
-    user = await db.users.find_one(
-        {"id": current_user["id"]},
-        {"_id": 0, "password_hash": 0}
-    )
+    user = await db.users.find_one({"id": current_user["id"]}, {"_id": 0, "password_hash": 0})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return user
 
 
 @router.put("/user/profile")
-async def update_profile(
-    profile_update: ProfileUpdate,
-    current_user: dict = Depends(get_current_user)
-):
+async def update_profile(profile_update: ProfileUpdate, current_user: dict = Depends(get_current_user)):
     """Update user profile (name, email)"""
     db = get_database()
     update_data = {}
@@ -414,28 +420,19 @@ async def update_profile(
     if not update_data:
         raise HTTPException(status_code=400, detail="No fields to update")
 
-    update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+    update_data["updated_at"] = datetime.now(UTC).isoformat()
 
-    await db.users.update_one(
-        {"id": current_user["id"]},
-        {"$set": update_data}
-    )
+    await db.users.update_one({"id": current_user["id"]}, {"$set": update_data})
 
     logger.info(f"Profile updated for user: {current_user['id']}")
 
     # Return updated user
-    user = await db.users.find_one(
-        {"id": current_user["id"]},
-        {"_id": 0, "password_hash": 0}
-    )
+    user = await db.users.find_one({"id": current_user["id"]}, {"_id": 0, "password_hash": 0})
     return user
 
 
 @router.post("/user/avatar")
-async def upload_avatar(
-    avatar_upload: AvatarUpload,
-    current_user: dict = Depends(get_current_user)
-):
+async def upload_avatar(avatar_upload: AvatarUpload, current_user: dict = Depends(get_current_user)):
     """Upload user avatar (base64 encoded, max 1.5MB)"""
     db = get_database()
     avatar_data = avatar_upload.avatar_data
@@ -451,18 +448,20 @@ async def upload_avatar(
         decoded = base64.b64decode(avatar_data)
         if len(decoded) > 1.5 * 1024 * 1024:  # 1.5MB
             raise HTTPException(status_code=400, detail="Avatar image too large (max 1.5MB)")
-    except Exception as e:
-        if isinstance(e, HTTPException):
-            raise
-        raise HTTPException(status_code=400, detail="Invalid image data")
+    except HTTPException:
+        raise
+    except Exception as err:
+        raise HTTPException(status_code=400, detail="Invalid image data") from err
 
     # Store as data URL
     await db.users.update_one(
         {"id": current_user["id"]},
-        {"$set": {
-            "avatar_url": avatar_upload.avatar_data,  # Store original with data URL prefix
-            "updated_at": datetime.now(timezone.utc).isoformat()
-        }}
+        {
+            "$set": {
+                "avatar_url": avatar_upload.avatar_data,  # Store original with data URL prefix
+                "updated_at": datetime.now(UTC).isoformat(),
+            }
+        },
     )
 
     logger.info(f"Avatar uploaded for user: {current_user['id']}")
@@ -475,7 +474,10 @@ async def delete_avatar(current_user: dict = Depends(get_current_user)):
     db = get_database()
     await db.users.update_one(
         {"id": current_user["id"]},
-        {"$unset": {"avatar_url": ""}, "$set": {"updated_at": datetime.now(timezone.utc).isoformat()}}
+        {
+            "$unset": {"avatar_url": ""},
+            "$set": {"updated_at": datetime.now(UTC).isoformat()},
+        },
     )
 
     logger.info(f"Avatar removed for user: {current_user['id']}")

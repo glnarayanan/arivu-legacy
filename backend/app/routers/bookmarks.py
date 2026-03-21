@@ -8,8 +8,7 @@ and related bookmarks via embedding similarity.
 import logging
 import re
 import uuid
-from datetime import datetime, timedelta, timezone
-from typing import List, Optional
+from datetime import UTC, datetime, timedelta
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
@@ -42,7 +41,7 @@ async def find_quick_connections(
     title: str,
     user_id: str,
     limit: int = 5,
-) -> List[QuickConnection]:
+) -> list[QuickConnection]:
     """
     Find related bookmarks quickly (before embeddings are generated).
 
@@ -55,26 +54,31 @@ async def find_quick_connections(
     if not domain:
         return connections
 
-    domain_matches = await db.bookmarks.find(
-        {
-            "user_id": user_id,
-            "domain": domain,
-            "id": {"$ne": bookmark_id},
-        },
-        {
-            "_id": 0, "id": 1, "title": 1, "domain": 1, "favicon": 1
-        }
-    ).sort("created_at", -1).limit(limit).to_list(None)
+    domain_matches = (
+        await db.bookmarks.find(
+            {
+                "user_id": user_id,
+                "domain": domain,
+                "id": {"$ne": bookmark_id},
+            },
+            {"_id": 0, "id": 1, "title": 1, "domain": 1, "favicon": 1},
+        )
+        .sort("created_at", -1)
+        .limit(limit)
+        .to_list(None)
+    )
 
     for bm in domain_matches:
-        connections.append(QuickConnection(
-            id=bm["id"],
-            title=bm.get("title"),
-            domain=bm.get("domain"),
-            favicon=bm.get("favicon"),
-            connection_type="same_domain",
-            connection_reason=f"Also from {domain}"
-        ))
+        connections.append(
+            QuickConnection(
+                id=bm["id"],
+                title=bm.get("title"),
+                domain=bm.get("domain"),
+                favicon=bm.get("favicon"),
+                connection_type="same_domain",
+                connection_reason=f"Also from {domain}",
+            )
+        )
 
     return connections[:limit]
 
@@ -107,8 +111,8 @@ async def create_bookmark(
         "domain": parsed_url.netloc,
         "reading_time": None,
         "read_status": False,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
+        "updated_at": datetime.now(UTC).isoformat(),
         "version": 1,  # Optimistic locking (REL-03)
     }
 
@@ -118,7 +122,7 @@ async def create_bookmark(
         "id": str(uuid.uuid4()),
         "bookmark_id": bookmark["id"],
         "processing_status": "pending",
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
     }
     await db.ai_summaries.insert_one(ai_summary)
 
@@ -142,26 +146,26 @@ async def create_bookmark(
         domain=parsed_url.netloc,
         title=bookmark.get("title", ""),
         user_id=current_user["id"],
-        limit=5
+        limit=5,
     )
 
     return BookmarkWithConnections(
         bookmark=Bookmark(**bookmark),
         connections=connections,
-        connections_count=len(connections)
+        connections_count=len(connections),
     )
 
 
-@router.get("/bookmarks", response_model=List[dict])
+@router.get("/bookmarks", response_model=list[dict])
 async def get_bookmarks(
-    search: Optional[str] = None,
-    tag: Optional[str] = None,
-    domain: Optional[str] = None,
-    collection_id: Optional[str] = None,
-    read_status: Optional[str] = None,
-    source: Optional[str] = None,
-    sort_by: Optional[str] = "created_at",
-    limit: Optional[int] = 100,
+    search: str | None = None,
+    tag: str | None = None,
+    domain: str | None = None,
+    collection_id: str | None = None,
+    read_status: str | None = None,
+    source: str | None = None,
+    sort_by: str | None = "created_at",
+    limit: int | None = 100,
     current_user: dict = Depends(get_current_user),
 ):
     db = get_database()
@@ -181,9 +185,7 @@ async def get_bookmarks(
         query["read_status"] = False
 
     if collection_id:
-        collection = await db.collections.find_one(
-            {"id": collection_id}, {"_id": 0, "bookmark_ids": 1}
-        )
+        collection = await db.collections.find_one({"id": collection_id}, {"_id": 0, "bookmark_ids": 1})
         if collection:
             query["id"] = {"$in": collection.get("bookmark_ids", [])}
 
@@ -221,10 +223,7 @@ async def get_bookmarks(
     }
 
     bookmarks = (
-        await db.bookmarks.find(query, projection)
-        .sort(sort_field, sort_order)
-        .limit(min(limit, 1000))
-        .to_list(None)
+        await db.bookmarks.find(query, projection).sort(sort_field, sort_order).limit(min(limit, 1000)).to_list(None)
     )
 
     # Improved search: use keyword matching across multiple fields
@@ -248,9 +247,7 @@ async def get_bookmarks(
         bookmarks = [b for b in bookmarks if matches_search(b)]
 
     bookmark_ids = [b["id"] for b in bookmarks]
-    summaries = await db.ai_summaries.find(
-        {"bookmark_id": {"$in": bookmark_ids}}, {"_id": 0}
-    ).to_list(None)
+    summaries = await db.ai_summaries.find({"bookmark_id": {"$in": bookmark_ids}}, {"_id": 0}).to_list(None)
 
     summary_map = {s["bookmark_id"]: s for s in summaries}
 
@@ -259,9 +256,7 @@ async def get_bookmarks(
         summary = summary_map.get(bookmark["id"])
 
         if tag and summary:
-            if tag.lower() not in [
-                t.lower() for t in summary.get("suggested_tags", [])
-            ]:
+            if tag.lower() not in [t.lower() for t in summary.get("suggested_tags", [])]:
                 continue
 
         bookmark_with_summary = {**bookmark}
@@ -291,7 +286,7 @@ async def get_aged_bookmarks(
     Used for aged bookmarks banner.
     """
     db = get_database()
-    cutoff_date = datetime.now(timezone.utc) - timedelta(days=min_days)
+    cutoff_date = datetime.now(UTC) - timedelta(days=min_days)
 
     query = {
         "user_id": current_user["id"],
@@ -313,12 +308,7 @@ async def get_aged_bookmarks(
         "view_count": 1,
     }
 
-    bookmarks = (
-        await db.bookmarks.find(query, projection)
-        .sort("last_accessed", 1)
-        .limit(limit)
-        .to_list(None)
-    )
+    bookmarks = await db.bookmarks.find(query, projection).sort("last_accessed", 1).limit(limit).to_list(None)
 
     return {"count": len(bookmarks), "bookmarks": bookmarks}
 
@@ -340,11 +330,7 @@ async def detect_duplicates(current_user: dict = Depends(get_current_user)):
         "favicon": 1,
         "embedding": 1,  # Fetch embeddings instead of text_content
     }
-    bookmarks = (
-        await db.bookmarks.find({"user_id": current_user["id"]}, projection)
-        .limit(500)
-        .to_list(None)
-    )
+    bookmarks = await db.bookmarks.find({"user_id": current_user["id"]}, projection).limit(500).to_list(None)
 
     # URL-based exact duplicates (preserve existing logic)
     url_groups = {}
@@ -355,7 +341,7 @@ async def detect_duplicates(current_user: dict = Depends(get_current_user)):
         url_groups[normalized_url].append(bookmark)
 
     duplicates = []
-    for url, group in url_groups.items():
+    for group in url_groups.values():
         if len(group) > 1:
             # Strip embeddings from response (large arrays, not needed in output)
             clean_group = [{k: v for k, v in b.items() if k != "embedding"} for b in group]
@@ -381,11 +367,13 @@ async def detect_duplicates(current_user: dict = Depends(get_current_user)):
                         # Strip embeddings from response
                         b_i = {k: v for k, v in indexed_bookmarks[i].items() if k != "embedding"}
                         b_j = {k: v for k, v in indexed_bookmarks[j].items() if k != "embedding"}
-                        duplicates.append({
-                            "type": "similar_content",
-                            "similarity": float(similarity_matrix[i][j]),
-                            "bookmarks": [b_i, b_j],
-                        })
+                        duplicates.append(
+                            {
+                                "type": "similar_content",
+                                "similarity": float(similarity_matrix[i][j]),
+                                "bookmarks": [b_i, b_j],
+                            }
+                        )
         except Exception:
             logger.exception("Error in embedding-based duplicate detection")
 
@@ -393,13 +381,9 @@ async def detect_duplicates(current_user: dict = Depends(get_current_user)):
 
 
 @router.get("/bookmarks/{bookmark_id}")
-async def get_bookmark(
-    bookmark_id: str, current_user: dict = Depends(get_current_user)
-):
+async def get_bookmark(bookmark_id: str, current_user: dict = Depends(get_current_user)):
     db = get_database()
-    bookmark = await db.bookmarks.find_one(
-        {"id": bookmark_id, "user_id": current_user["id"]}, {"_id": 0}
-    )
+    bookmark = await db.bookmarks.find_one({"id": bookmark_id, "user_id": current_user["id"]}, {"_id": 0})
     if not bookmark:
         raise HTTPException(status_code=404, detail="Bookmark not found")
 
@@ -499,9 +483,7 @@ async def get_related_bookmarks(
     similarities = []
     for bookmark in all_bookmarks:
         if bookmark.get("embedding"):
-            similarity = dot_product_similarity(
-                source_embedding, bookmark["embedding"]
-            )
+            similarity = dot_product_similarity(source_embedding, bookmark["embedding"])
             # Only include results above minimum threshold
             if similarity >= MIN_SEMANTIC_SCORE:
                 bookmark.pop("embedding", None)
@@ -516,20 +498,14 @@ async def get_related_bookmarks(
 
 
 @router.delete("/bookmarks/{bookmark_id}")
-async def delete_bookmark(
-    bookmark_id: str, current_user: dict = Depends(get_current_user)
-):
+async def delete_bookmark(bookmark_id: str, current_user: dict = Depends(get_current_user)):
     db = get_database()
-    result = await db.bookmarks.delete_one(
-        {"id": bookmark_id, "user_id": current_user["id"]}
-    )
+    result = await db.bookmarks.delete_one({"id": bookmark_id, "user_id": current_user["id"]})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Bookmark not found")
 
     await db.ai_summaries.delete_one({"bookmark_id": bookmark_id})
-    await db.collections.update_many(
-        {"user_id": current_user["id"]}, {"$pull": {"bookmark_ids": bookmark_id}}
-    )
+    await db.collections.update_many({"user_id": current_user["id"]}, {"$pull": {"bookmark_ids": bookmark_id}})
 
     return {"message": "Bookmark deleted"}
 
@@ -539,13 +515,11 @@ async def delete_bookmark(
 @limiter.limit("50/hour", key_func=get_user_identifier)  # User-based rate limiting
 async def bulk_delete_bookmarks(
     request: Request,
-    bookmark_ids: List[str],
+    bookmark_ids: list[str],
     current_user: dict = Depends(get_current_user),
 ):
     db = get_database()
-    result = await db.bookmarks.delete_many(
-        {"id": {"$in": bookmark_ids}, "user_id": current_user["id"]}
-    )
+    result = await db.bookmarks.delete_many({"id": {"$in": bookmark_ids}, "user_id": current_user["id"]})
     await db.ai_summaries.delete_many({"bookmark_id": {"$in": bookmark_ids}})
     await db.collections.update_many(
         {"user_id": current_user["id"]},
@@ -561,7 +535,7 @@ async def bulk_delete_bookmarks(
 async def update_read_status(
     bookmark_id: str,
     read_status: bool,
-    version: Optional[int] = None,
+    version: int | None = None,
     current_user: dict = Depends(get_current_user),
 ):
     db = get_database()
@@ -579,7 +553,7 @@ async def update_read_status(
         {
             "$set": {
                 "read_status": read_status,
-                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(UTC).isoformat(),
             },
             "$inc": {"version": 1},
         },
@@ -606,7 +580,7 @@ async def update_read_status(
 @limiter.limit("50/hour", key_func=get_user_identifier)  # User-based rate limiting
 async def bulk_mark_read(
     request: Request,
-    bookmark_ids: List[str],
+    bookmark_ids: list[str],
     read_status: bool,
     current_user: dict = Depends(get_current_user),
 ):
@@ -616,7 +590,7 @@ async def bulk_mark_read(
         {
             "$set": {
                 "read_status": read_status,
-                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(UTC).isoformat(),
             },
             "$inc": {"version": 1},
         },
@@ -642,13 +616,11 @@ async def track_bookmark_access(
     """
     db = get_database()
     # Validate ownership
-    bookmark = await db.bookmarks.find_one(
-        {"id": bookmark_id, "user_id": current_user["id"]}
-    )
+    bookmark = await db.bookmarks.find_one({"id": bookmark_id, "user_id": current_user["id"]})
     if not bookmark:
         raise HTTPException(status_code=404, detail="Bookmark not found")
 
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
 
     # Atomic update with tracking
     await db.bookmarks.update_one(
@@ -669,14 +641,10 @@ async def track_bookmark_access(
 
 
 @router.post("/bookmarks/merge")
-async def merge_bookmarks(
-    bookmark_ids: List[str], current_user: dict = Depends(get_current_user)
-):
+async def merge_bookmarks(bookmark_ids: list[str], current_user: dict = Depends(get_current_user)):
     db = get_database()
     if len(bookmark_ids) < 2:
-        raise HTTPException(
-            status_code=400, detail="Need at least 2 bookmarks to merge"
-        )
+        raise HTTPException(status_code=400, detail="Need at least 2 bookmarks to merge")
 
     bookmarks = await db.bookmarks.find(
         {"id": {"$in": bookmark_ids}, "user_id": current_user["id"]}, {"_id": 0}

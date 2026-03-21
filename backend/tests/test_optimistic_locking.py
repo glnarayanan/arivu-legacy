@@ -8,15 +8,14 @@ Verifies that the bookmarks router correctly:
 - Returns 404 when bookmark doesn't exist at all
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
+import app.core.database as db_module
+import pytest
+from app.core.dependencies import get_current_user
+from app.routers.bookmarks import router as bookmarks_router
 from fastapi import APIRouter, FastAPI
 from httpx import ASGITransport, AsyncClient
-
-from app.routers.bookmarks import router as bookmarks_router
-from app.core.dependencies import get_current_user
-import app.core.database as db_module
 
 MOCK_USER = {
     "id": "test-user-id",
@@ -79,9 +78,7 @@ def bookmarks_app(mock_db):
 @pytest.fixture
 async def bookmarks_client(bookmarks_app):
     """Async HTTP client for bookmarks optimistic locking tests."""
-    async with AsyncClient(
-        transport=ASGITransport(app=bookmarks_app), base_url="http://test"
-    ) as ac:
+    async with AsyncClient(transport=ASGITransport(app=bookmarks_app), base_url="http://test") as ac:
         yield ac
 
 
@@ -91,9 +88,7 @@ async def bookmarks_client(bookmarks_app):
 
 
 @pytest.mark.anyio
-async def test_update_read_status_with_correct_version_succeeds(
-    bookmarks_client, mock_db
-):
+async def test_update_read_status_with_correct_version_succeeds(bookmarks_client, mock_db):
     """PATCH with correct version returns 200 and incremented version."""
     mock_db.bookmarks.find_one_and_update = AsyncMock(
         return_value={**SAMPLE_BOOKMARK, "read_status": True, "version": 2}
@@ -122,16 +117,12 @@ async def test_update_read_status_with_correct_version_succeeds(
 
 
 @pytest.mark.anyio
-async def test_update_read_status_with_stale_version_returns_409(
-    bookmarks_client, mock_db
-):
+async def test_update_read_status_with_stale_version_returns_409(bookmarks_client, mock_db):
     """PATCH with stale version returns 409 Conflict when bookmark exists but version mismatches."""
     # find_one_and_update returns None (version mismatch -- query didn't match)
     mock_db.bookmarks.find_one_and_update = AsyncMock(return_value=None)
     # Bookmark exists, but with a different version
-    mock_db.bookmarks.find_one = AsyncMock(
-        return_value={**SAMPLE_BOOKMARK, "version": 5}
-    )
+    mock_db.bookmarks.find_one = AsyncMock(return_value={**SAMPLE_BOOKMARK, "version": 5})
 
     response = await bookmarks_client.patch(
         "/api/bookmarks/bm-1/read-status",
@@ -143,9 +134,7 @@ async def test_update_read_status_with_stale_version_returns_409(
 
 
 @pytest.mark.anyio
-async def test_update_read_status_without_version_succeeds(
-    bookmarks_client, mock_db
-):
+async def test_update_read_status_without_version_succeeds(bookmarks_client, mock_db):
     """PATCH without version parameter succeeds (backward compatibility)."""
     mock_db.bookmarks.find_one_and_update = AsyncMock(
         return_value={**SAMPLE_BOOKMARK, "read_status": True, "version": 2}
@@ -170,9 +159,7 @@ async def test_update_read_status_without_version_succeeds(
 
 
 @pytest.mark.anyio
-async def test_update_read_status_nonexistent_bookmark_returns_404(
-    bookmarks_client, mock_db
-):
+async def test_update_read_status_nonexistent_bookmark_returns_404(bookmarks_client, mock_db):
     """PATCH on nonexistent bookmark returns 404."""
     # find_one_and_update returns None (no match at all)
     mock_db.bookmarks.find_one_and_update = AsyncMock(return_value=None)
@@ -189,9 +176,7 @@ async def test_update_read_status_nonexistent_bookmark_returns_404(
 
 
 @pytest.mark.anyio
-async def test_update_read_status_version_field_incremented_in_update(
-    bookmarks_client, mock_db
-):
+async def test_update_read_status_version_field_incremented_in_update(bookmarks_client, mock_db):
     """Verify the update operation includes $inc for version field."""
     mock_db.bookmarks.find_one_and_update = AsyncMock(
         return_value={**SAMPLE_BOOKMARK, "read_status": False, "version": 3}

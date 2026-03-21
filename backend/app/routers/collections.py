@@ -6,8 +6,7 @@ Manages user bookmark collections: create, list, and add bookmarks.
 
 import re
 import uuid
-from datetime import datetime, timezone
-from typing import List
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, validator
@@ -26,8 +25,8 @@ class Collection(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     user_id: str
     name: str
-    bookmark_ids: List[str] = []
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    bookmark_ids: list[str] = []
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class CollectionCreate(BaseModel):
@@ -62,20 +61,16 @@ async def create_collection(
         "user_id": current_user["id"],
         "name": collection_data.name,
         "bookmark_ids": [],
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
     }
     await db.collections.insert_one(collection)
     return Collection(**collection)
 
 
-@router.get("/collections", response_model=List[Collection])
+@router.get("/collections", response_model=list[Collection])
 async def get_collections(current_user: dict = Depends(get_current_user)):
     db = get_database()
-    collections = (
-        await db.collections.find({"user_id": current_user["id"]}, {"_id": 0})
-        .limit(100)
-        .to_list(None)
-    )
+    collections = await db.collections.find({"user_id": current_user["id"]}, {"_id": 0}).limit(100).to_list(None)
     return [Collection(**c) for c in collections]
 
 

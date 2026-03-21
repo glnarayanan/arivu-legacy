@@ -21,9 +21,7 @@ async def get_redis():
     """Get or create Redis client for lockout tracking."""
     global redis_client
     if redis_client is None:
-        redis_client = await aioredis.from_url(
-            settings.REDIS_URL, decode_responses=True
-        )
+        redis_client = await aioredis.from_url(settings.REDIS_URL, decode_responses=True)
         logger.info("Redis client initialized for account lockout tracking")
     return redis_client
 
@@ -34,7 +32,7 @@ async def is_account_locked(email: str) -> bool:
         r = await get_redis()
         attempts = await r.get(f"login_attempts:{email}")
         return attempts is not None and int(attempts) >= settings.LOCKOUT_THRESHOLD
-    except Exception as e:
+    except Exception:
         logger.exception(f"Redis error checking lockout for {email}")
         return False  # Fail open - don't block login if Redis is down
 
@@ -48,7 +46,7 @@ async def record_failed_login(email: str):
         pipe.incr(key)
         pipe.expire(key, settings.LOCKOUT_DURATION_SECONDS)
         await pipe.execute()
-    except Exception as e:
+    except Exception:
         logger.exception(f"Redis error recording failed login for {email}")
 
 
@@ -57,5 +55,5 @@ async def clear_failed_logins(email: str):
     try:
         r = await get_redis()
         await r.delete(f"login_attempts:{email}")
-    except Exception as e:
+    except Exception:
         logger.exception(f"Redis error clearing failed logins for {email}")

@@ -6,7 +6,6 @@ Provides typed settings from environment variables with validation.
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -42,18 +41,18 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
 
     # Email (Resend)
-    RESEND_API_KEY: Optional[str] = None
+    RESEND_API_KEY: str | None = None
     RESEND_FROM_EMAIL: str = "noreply@arivu.app"
     APP_URL: str = "https://arivu.app"
 
     # AI
-    GEMINI_API_KEY: Optional[str] = None
+    GEMINI_API_KEY: str | None = None
 
     # X (Twitter) Integration
     X_INTEGRATION_ENABLED: bool = False
-    X_CLIENT_ID: Optional[str] = None
-    X_CLIENT_SECRET: Optional[str] = None
-    X_REDIRECT_URI: Optional[str] = None
+    X_CLIENT_ID: str | None = None
+    X_CLIENT_SECRET: str | None = None
+    X_REDIRECT_URI: str | None = None
 
     # Admin
     ADMIN_EMAILS: str = ""

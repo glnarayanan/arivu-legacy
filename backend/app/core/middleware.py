@@ -41,9 +41,7 @@ class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
         if content_length:
             content_length = int(content_length)
             if content_length > self.max_size:
-                logger.warning(
-                    f"Request rejected: size {content_length} exceeds limit {self.max_size}"
-                )
+                logger.warning(f"Request rejected: size {content_length} exceeds limit {self.max_size}")
                 raise HTTPException(
                     status_code=413,
                     detail=f"Request body too large. Maximum size is {self.max_size / (1024 * 1024):.1f}MB",
@@ -97,9 +95,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-XSS-Protection"] = "1; mode=block"
-        response.headers["Strict-Transport-Security"] = (
-            "max-age=31536000; includeSubDomains"
-        )
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
 
         return response

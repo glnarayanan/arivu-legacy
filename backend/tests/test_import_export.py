@@ -5,8 +5,9 @@ Covers: import bookmarks, get import jobs, get single job, job not found,
 export bookmarks, backup bookmarks.
 """
 
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
 
 # Cursor mock factory for chained MongoDB queries
@@ -70,15 +71,17 @@ async def test_get_import_jobs(client, mock_db):
 @pytest.mark.anyio
 async def test_get_import_job(client, mock_db):
     """GET /api/import-jobs/{id} returns specific import job."""
-    mock_db.import_jobs.find_one = AsyncMock(return_value={
-        "id": "job-1",
-        "user_id": "test-user-id",
-        "total_bookmarks": 10,
-        "content_fetched": 8,
-        "ai_processed": 5,
-        "failed": 2,
-        "status": "completed",
-    })
+    mock_db.import_jobs.find_one = AsyncMock(
+        return_value={
+            "id": "job-1",
+            "user_id": "test-user-id",
+            "total_bookmarks": 10,
+            "content_fetched": 8,
+            "ai_processed": 5,
+            "failed": 2,
+            "status": "completed",
+        }
+    )
 
     response = await client.get("/api/import-jobs/job-1")
     assert response.status_code == 200
@@ -131,12 +134,8 @@ async def test_backup_bookmarks(client, mock_db):
         },
     ]
     mock_db.bookmarks.find.return_value = make_cursor_mock(mock_bookmarks)
-    mock_db.ai_summaries.find.return_value = MagicMock(
-        to_list=AsyncMock(return_value=[])
-    )
-    mock_db.notes.find.return_value = MagicMock(
-        to_list=AsyncMock(return_value=[])
-    )
+    mock_db.ai_summaries.find.return_value = MagicMock(to_list=AsyncMock(return_value=[]))
+    mock_db.notes.find.return_value = MagicMock(to_list=AsyncMock(return_value=[]))
 
     response = await client.post(
         "/api/bookmarks/backup",
@@ -147,6 +146,7 @@ async def test_backup_bookmarks(client, mock_db):
 
     # Verify JSON content
     import json
+
     data = json.loads(response.text)
     assert data["total_bookmarks"] == 1
     assert len(data["bookmarks"]) == 1
@@ -155,9 +155,9 @@ async def test_backup_bookmarks(client, mock_db):
 @pytest.mark.anyio
 async def test_import_rejects_unauthenticated(mock_db):
     """Import/export endpoints reject unauthenticated requests."""
+    from app.routers.import_export import router as ie_router
     from fastapi import APIRouter, FastAPI
     from httpx import ASGITransport, AsyncClient
-    from app.routers.import_export import router as ie_router
 
     # Create test app WITHOUT auth override
     test_app = FastAPI()
@@ -167,19 +167,20 @@ async def test_import_rejects_unauthenticated(mock_db):
 
     # Set up rate limiter (required for import endpoint)
     from app.core.dependencies import limiter
+
     test_app.state.limiter = limiter
     from slowapi import _rate_limit_exceeded_handler
     from slowapi.errors import RateLimitExceeded
+
     test_app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
     # Override database
     import app.core.database as db_module
+
     _original_db = db_module.db
     db_module.db = mock_db
 
-    async with AsyncClient(
-        transport=ASGITransport(app=test_app), base_url="http://test"
-    ) as ac:
+    async with AsyncClient(transport=ASGITransport(app=test_app), base_url="http://test") as ac:
         response = await ac.post("/api/bookmarks/import", content=b"test")
         assert response.status_code == 401
 

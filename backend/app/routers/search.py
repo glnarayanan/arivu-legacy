@@ -2,9 +2,6 @@
 
 import logging
 import math
-from typing import Optional
-
-logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
@@ -12,13 +9,15 @@ from app.core.database import get_database
 from app.core.dependencies import get_current_user, get_user_identifier, limiter
 from app.services.ai_service import generate_embedding
 from app.services.search_utils import (
-    tokenize_text,
     calculate_bm25_score,
     calculate_entity_boost,
-    reciprocal_rank_fusion,
     detect_query_type,
     get_adaptive_weights,
+    reciprocal_rank_fusion,
+    tokenize_text,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["search"])
 
@@ -32,9 +31,9 @@ async def hybrid_search(
     limit: int = 20,
     use_semantic: bool = True,
     use_keyword: bool = True,
-    domain: Optional[str] = None,
-    collection_id: Optional[str] = None,
-    read_status: Optional[str] = None,
+    domain: str | None = None,
+    collection_id: str | None = None,
+    read_status: str | None = None,
     current_user: dict = Depends(get_current_user),
 ):
     """
@@ -52,18 +51,13 @@ async def hybrid_search(
     db = get_database()
 
     if not query or len(query.strip()) < 2:
-        raise HTTPException(
-            status_code=400, detail="Query must be at least 2 characters"
-        )
+        raise HTTPException(status_code=400, detail="Query must be at least 2 characters")
     if len(query.encode("utf-8")) > 10240:  # PERF-01: 10KB max query
-        raise HTTPException(
-            status_code=400, detail="Query too large (max 10KB)"
-        )
+        raise HTTPException(status_code=400, detail="Query too large (max 10KB)")
 
     # Cap limit parameter
     limit = min(limit, 100)  # PERF-01: Cap at 100 results
 
-    query_lower = query.lower().strip()
     query_tokens = tokenize_text(query)
     user_id = current_user["id"]
 
@@ -83,9 +77,7 @@ async def hybrid_search(
         base_query["read_status"] = False
 
     if collection_id:
-        collection = await db.collections.find_one(
-            {"id": collection_id}, {"_id": 0, "bookmark_ids": 1}
-        )
+        collection = await db.collections.find_one({"id": collection_id}, {"_id": 0, "bookmark_ids": 1})
         if collection:
             base_query["id"] = {"$in": collection.get("bookmark_ids", [])}
 
@@ -110,9 +102,7 @@ async def hybrid_search(
 
     # Fetch candidates (increased limit for better reranking)
     candidate_limit = min(500, limit * 25)
-    all_candidates = await db.bookmarks.find(
-        base_query, projection
-    ).limit(candidate_limit).to_list(None)
+    all_candidates = await db.bookmarks.find(base_query, projection).limit(candidate_limit).to_list(None)
 
     if not all_candidates:
         return {
@@ -155,9 +145,7 @@ async def hybrid_search(
     bm25_scores = []
     for bookmark in all_candidates:
         doc_tokens = doc_tokens_map.get(bookmark["id"], [])
-        score = calculate_bm25_score(
-            query_tokens, doc_tokens, doc_freq, avg_doc_len, total_docs
-        )
+        score = calculate_bm25_score(query_tokens, doc_tokens, doc_freq, avg_doc_len, total_docs)
         if score > 0:
             bm25_scores.append((bookmark["id"], score))
 
@@ -169,16 +157,13 @@ async def hybrid_search(
     query_embedding = None
 
     if use_semantic and len(query.strip()) >= 3:
-        query_embedding = await generate_embedding(
-            query, min_length=3, task_type="retrieval_query"
-        )
+        query_embedding = await generate_embedding(query, min_length=3, task_type="retrieval_query")
         if not query_embedding:
-            logger.warning(
-                f"Semantic embedding failed for query, falling back to keyword-only"
-            )
+            logger.warning("Semantic embedding failed for query, falling back to keyword-only")
             use_semantic = False  # Graceful degradation (REL-03)
 
     if query_embedding:
+
         def dot_product_similarity(vec1, vec2):
             return float(np.dot(vec1, vec2))
 
@@ -206,10 +191,7 @@ async def hybrid_search(
             entity_lower = entity.lower()
             entity_counts[entity_lower] = entity_counts.get(entity_lower, 0) + 1
 
-    entity_idf = {
-        e: math.log((total_docs + 1) / (count + 1))
-        for e, count in entity_counts.items()
-    }
+    entity_idf = {e: math.log((total_docs + 1) / (count + 1)) for e, count in entity_counts.items()}
 
     entity_scores = []
     for bookmark in all_candidates:
@@ -283,9 +265,7 @@ async def hybrid_search(
     # Fetch AI summaries for results
     if top_results:
         bookmark_ids = [b["id"] for b in top_results]
-        summaries = await db.ai_summaries.find(
-            {"bookmark_id": {"$in": bookmark_ids}}, {"_id": 0}
-        ).to_list(None)
+        summaries = await db.ai_summaries.find({"bookmark_id": {"$in": bookmark_ids}}, {"_id": 0}).to_list(None)
         summary_map = {s["bookmark_id"]: s for s in summaries}
 
         for bookmark in top_results:

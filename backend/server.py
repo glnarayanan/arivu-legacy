@@ -1,66 +1,61 @@
-from fastapi import (
-    FastAPI,
-    APIRouter,
-    HTTPException,
-    Depends,
-    status,
-    BackgroundTasks,
-    Request,
-    Response,
-)
-from fastapi.security import HTTPBearer
-from dotenv import load_dotenv
-from starlette.middleware.cors import CORSMiddleware
-from starlette.middleware.base import BaseHTTPMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
-import os
-import logging
-from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict, EmailStr, validator
-from typing import List, Optional, Dict
-import uuid
-from datetime import datetime, timezone, timedelta
-import jwt
-import bcrypt
-import asyncio
-from urllib.parse import urlparse, urlencode, parse_qsl, urlunparse, quote
-import requests
-import re
-import ipaddress
-import socket
-import sys
-from slowapi import _rate_limit_exceeded_handler
-from slowapi.errors import RateLimitExceeded
-from app.core.dependencies import limiter
-import time
-import resend
-import secrets
-import redis.asyncio as aioredis
-import httpx
-from cryptography.fernet import Fernet
-import hashlib
 import base64
-from app.core.database import init_db as init_core_db, close_db as close_core_db
+import hashlib
+import ipaddress
+import logging
+import os
+import re
+import secrets
+import sys
+import uuid
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
+
+import bcrypt
+import httpx
+import jwt
+import redis.asyncio as aioredis
+import resend
+from app.core.database import close_db as close_core_db
+from app.core.database import init_db as init_core_db
+from app.core.dependencies import limiter
 from app.core.instance_config import get_config_value, is_x_integration_enabled
+from app.routers.analytics import router as analytics_router
+from app.routers.auth import router as auth_router
 from app.routers.bookmarks import router as bookmarks_router
 from app.routers.collections import router as collections_router
-from app.routers.analytics import router as analytics_router
-from app.routers.resurfacing import router as resurfacing_router
-from app.routers.auth import router as auth_router
-from app.routers.search import router as search_router
-from app.routers.knowledge_graph import router as knowledge_graph_router
-from app.routers.import_export import router as import_export_router
 from app.routers.content import router as content_router
+from app.routers.import_export import router as import_export_router
+from app.routers.knowledge_graph import router as knowledge_graph_router
+from app.routers.resurfacing import router as resurfacing_router
+from app.routers.search import router as search_router
 from app.services.ai_service import (
+    extract_entities_and_concepts,
     gemini_rate_limiter,
     generate_ai_summaries,
     generate_embedding,
-    extract_entities_and_concepts,
 )
 from app.services.content_service import (
-    fetch_webpage_content,
     calculate_reading_time,
+    fetch_webpage_content,
 )
+from cryptography.fernet import Fernet
+from dotenv import load_dotenv
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    FastAPI,
+    HTTPException,
+    Request,
+)
+from fastapi.security import HTTPBearer
+from motor.motor_asyncio import AsyncIOMotorClient
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, validator
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.cors import CORSMiddleware
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -133,7 +128,7 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60  # 1 hour for access tokens
 REFRESH_TOKEN_EXPIRE_DAYS = 30  # 30 days for refresh tokens
 PASSWORD_RESET_TOKEN_EXPIRE_HOURS = 1  # 1 hour for password reset tokens
 
-SERVER_START_TIME = datetime.now(timezone.utc)
+SERVER_START_TIME = datetime.now(UTC)
 
 ADMIN_EMAILS = [e.strip().lower() for e in os.environ.get("ADMIN_EMAILS", "").split(",") if e.strip()]
 
@@ -156,7 +151,11 @@ else:
     logger.warning("RESEND_API_KEY not set - password reset emails will not work")
 
 # X (Twitter) Integration
-X_INTEGRATION_ENABLED = os.environ.get("X_INTEGRATION_ENABLED", "false").lower() in ("true", "1", "yes")
+X_INTEGRATION_ENABLED = os.environ.get("X_INTEGRATION_ENABLED", "false").lower() in (
+    "true",
+    "1",
+    "yes",
+)
 X_CLIENT_ID = os.environ.get("X_CLIENT_ID")
 X_CLIENT_SECRET = os.environ.get("X_CLIENT_SECRET")
 X_REDIRECT_URI = os.environ.get("X_REDIRECT_URI") or f"{APP_URL}/settings?section=connections"
@@ -280,7 +279,7 @@ async def is_account_locked(email: str) -> bool:
         r = await get_redis()
         attempts = await r.get(f"login_attempts:{email}")
         return attempts is not None and int(attempts) >= LOCKOUT_THRESHOLD
-    except Exception as e:
+    except Exception:
         logger.exception(f"Redis error checking lockout for {email}")
         return False  # Fail open - don't block login if Redis is down
 
@@ -294,7 +293,7 @@ async def record_failed_login(email: str):
         pipe.incr(key)
         pipe.expire(key, LOCKOUT_DURATION_SECONDS)
         await pipe.execute()
-    except Exception as e:
+    except Exception:
         logger.exception(f"Redis error recording failed login for {email}")
 
 
@@ -303,7 +302,7 @@ async def clear_failed_logins(email: str):
     try:
         r = await get_redis()
         await r.delete(f"login_attempts:{email}")
-    except Exception as e:
+    except Exception:
         logger.exception(f"Redis error clearing failed logins for {email}")
 
 
@@ -352,12 +351,7 @@ def is_safe_url(url: str) -> tuple[bool, str]:
             ip_obj = ipaddress.ip_address(hostname)
 
             # Block private, loopback, link-local, and reserved ranges
-            if (
-                ip_obj.is_private
-                or ip_obj.is_loopback
-                or ip_obj.is_link_local
-                or ip_obj.is_reserved
-            ):
+            if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local or ip_obj.is_reserved:
                 return False, "Cannot fetch from private or reserved IP addresses"
 
             # Block cloud metadata endpoints (AWS, GCP, Azure)
@@ -381,13 +375,13 @@ class BackupRequest(BaseModel):
     format: str = "html"  # "html" | "json" | "csv"
     include_notes: bool = True
     include_ai_summaries: bool = True
-    date_from: Optional[datetime] = None
-    date_to: Optional[datetime] = None
+    date_from: datetime | None = None
+    date_to: datetime | None = None
 
 
 class BookmarkCreate(BaseModel):
     url: str
-    collection_id: Optional[str] = None
+    collection_id: str | None = None
 
     @validator("url")
     def validate_url(cls, v):
@@ -409,49 +403,49 @@ class Bookmark(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     user_id: str
     url: str
-    title: Optional[str] = None
-    description: Optional[str] = None
-    favicon: Optional[str] = None
-    thumbnail: Optional[str] = None
-    html_content: Optional[str] = None
-    text_content: Optional[str] = None
-    domain: Optional[str] = None
-    reading_time: Optional[int] = None
+    title: str | None = None
+    description: str | None = None
+    favicon: str | None = None
+    thumbnail: str | None = None
+    html_content: str | None = None
+    text_content: str | None = None
+    domain: str | None = None
+    reading_time: int | None = None
     read_status: bool = False
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     # Phase 1: Access tracking fields
-    last_accessed: Optional[datetime] = None
-    view_count: Optional[int] = 0
-    access_history: Optional[List[Dict[str, str]]] = []
+    last_accessed: datetime | None = None
+    view_count: int | None = 0
+    access_history: list[dict[str, str]] | None = []
     # Semantic Knowledge Graph: Embedding vector for semantic search
-    embedding: Optional[List[float]] = None
-    embedding_model: Optional[str] = None
-    entities: Optional[List[str]] = []  # Named entities extracted from content
-    concepts: Optional[List[str]] = []  # Key concepts/topics
+    embedding: list[float] | None = None
+    embedding_model: str | None = None
+    entities: list[str] | None = []  # Named entities extracted from content
+    concepts: list[str] | None = []  # Key concepts/topics
     # X (Twitter) integration fields
-    source: Optional[str] = "web"  # "web" | "x"
-    x_tweet_id: Optional[str] = None
-    x_author_username: Optional[str] = None
-    x_author_name: Optional[str] = None
-    x_tweet_url: Optional[str] = None
-    x_metrics: Optional[Dict] = None
+    source: str | None = "web"  # "web" | "x"
+    x_tweet_id: str | None = None
+    x_author_username: str | None = None
+    x_author_name: str | None = None
+    x_tweet_url: str | None = None
+    x_metrics: dict | None = None
     # Optimistic locking version (REL-03)
     version: int = 1
 
 
 class QuickConnection(BaseModel):
     id: str
-    title: Optional[str] = None
-    domain: Optional[str] = None
-    favicon: Optional[str] = None
+    title: str | None = None
+    domain: str | None = None
+    favicon: str | None = None
     connection_type: str
     connection_reason: str
 
 
 class BookmarkWithConnections(BaseModel):
     bookmark: Bookmark
-    connections: List[QuickConnection] = []
+    connections: list[QuickConnection] = []
     connections_count: int = 0
 
 
@@ -459,13 +453,13 @@ class AISummary(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     bookmark_id: str
-    one_sentence: Optional[str] = None
-    bullet_points: List[str] = []
-    long_form: Optional[str] = None
-    highlights: List[str] = []
-    suggested_tags: List[str] = []
+    one_sentence: str | None = None
+    bullet_points: list[str] = []
+    long_form: str | None = None
+    highlights: list[str] = []
+    suggested_tags: list[str] = []
     processing_status: str = "pending"
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class ImportJob(BaseModel):
@@ -477,20 +471,18 @@ class ImportJob(BaseModel):
     ai_processed: int = 0
     failed: int = 0
     status: str = "processing"  # processing, completed, failed
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    estimated_completion_time: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    estimated_completion_time: datetime | None = None
 
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+def create_access_token(data: dict, expires_delta: timedelta | None = None):
     """Create JWT access token"""
     to_encode = data.copy()
     if expires_delta:
-        expire = datetime.now(timezone.utc) + expires_delta
+        expire = datetime.now(UTC) + expires_delta
     else:
-        expire = datetime.now(timezone.utc) + timedelta(
-            minutes=ACCESS_TOKEN_EXPIRE_MINUTES
-        )
+        expire = datetime.now(UTC) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire, "type": "access"})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
@@ -499,7 +491,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
 def create_refresh_token(data: dict):
     """Create JWT refresh token"""
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    expire = datetime.now(UTC) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
     to_encode.update({"exp": expire, "type": "refresh"})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
@@ -519,10 +511,10 @@ async def health_check():
             "status": "healthy",
             "service": "arivu-backend",
             "database": "connected",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         }
-    except Exception as e:
-        raise HTTPException(status_code=503, detail=f"Service unhealthy: {str(e)}")
+    except Exception as err:
+        raise HTTPException(status_code=503, detail=f"Service unhealthy: {str(err)}") from err
 
 
 async def get_current_user(request: Request):
@@ -555,10 +547,10 @@ async def get_current_user(request: Request):
         if user.get("banned"):
             raise HTTPException(status_code=403, detail="Account has been suspended")
         return user
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token expired")
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid token")
+    except jwt.ExpiredSignatureError as err:
+        raise HTTPException(status_code=401, detail="Token expired") from err
+    except jwt.InvalidTokenError as err:
+        raise HTTPException(status_code=401, detail="Invalid token") from err
 
 
 async def send_invite_email(email: str, name: str, invite_token: str):
@@ -609,8 +601,8 @@ async def send_invite_email(email: str, name: str, invite_token: str):
         resend.Emails.send(params)
         logger.info(f"Invite email sent to {email}")
         return True
-    except Exception as e:
-        logger.exception(f"Failed to send invite email")
+    except Exception:
+        logger.exception("Failed to send invite email")
         return False
 
 
@@ -627,9 +619,12 @@ async def accept_invite(request: Request, accept: AcceptInviteRequest):
         raise HTTPException(status_code=400, detail="Invalid or expired invite link")
 
     expires_at = datetime.fromisoformat(token_doc["expires_at"])
-    if datetime.now(timezone.utc) > expires_at:
+    if datetime.now(UTC) > expires_at:
         await db.invite_tokens.delete_one({"token": accept.token})
-        raise HTTPException(status_code=400, detail="Invite link has expired. Please ask the admin to resend your invite.")
+        raise HTTPException(
+            status_code=400,
+            detail="Invite link has expired. Please ask the admin to resend your invite.",
+        )
 
     user = await db.users.find_one({"id": token_doc["user_id"]})
     if not user:
@@ -645,11 +640,13 @@ async def accept_invite(request: Request, accept: AcceptInviteRequest):
     new_hash = bcrypt.hashpw(accept.password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
     await db.users.update_one(
         {"id": token_doc["user_id"]},
-        {"$set": {
-            "password_hash": new_hash,
-            "invite_pending": False,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-        }}
+        {
+            "$set": {
+                "password_hash": new_hash,
+                "invite_pending": False,
+                "updated_at": datetime.now(UTC).isoformat(),
+            }
+        },
     )
 
     await db.invite_tokens.delete_one({"token": accept.token})
@@ -663,7 +660,7 @@ async def accept_invite(request: Request, accept: AcceptInviteRequest):
 # ============================================
 
 
-async def refresh_x_token(user_id: str) -> Optional[dict]:
+async def refresh_x_token(user_id: str) -> dict | None:
     """Refresh expired X access token using stored refresh_token."""
     connection = await db.x_connections.find_one({"user_id": user_id})
     if not connection or not connection.get("refresh_token_enc"):
@@ -693,7 +690,7 @@ async def refresh_x_token(user_id: str) -> Optional[dict]:
             return None
 
         data = response.json()
-        expires_at = datetime.now(timezone.utc) + timedelta(seconds=data.get("expires_in", 7200))
+        expires_at = datetime.now(UTC) + timedelta(seconds=data.get("expires_in", 7200))
         await db.x_connections.update_one(
             {"user_id": user_id},
             {
@@ -706,7 +703,7 @@ async def refresh_x_token(user_id: str) -> Optional[dict]:
             },
         )
         return data
-    except Exception as e:
+    except Exception:
         logger.exception(f"Error refreshing X token for user {user_id}")
         return None
 
@@ -722,11 +719,14 @@ async def x_api_request(user_id: str, method: str, url: str, **kwargs) -> httpx.
     if expires_at:
         exp_dt = datetime.fromisoformat(expires_at)
         if exp_dt.tzinfo is None:
-            exp_dt = exp_dt.replace(tzinfo=timezone.utc)
-        if datetime.now(timezone.utc) >= exp_dt - timedelta(minutes=5):
+            exp_dt = exp_dt.replace(tzinfo=UTC)
+        if datetime.now(UTC) >= exp_dt - timedelta(minutes=5):
             refreshed = await refresh_x_token(user_id)
             if not refreshed:
-                raise HTTPException(status_code=401, detail="X authentication expired. Please reconnect.")
+                raise HTTPException(
+                    status_code=401,
+                    detail="X authentication expired. Please reconnect.",
+                )
             connection = await db.x_connections.find_one({"user_id": user_id})
 
     access_token = decrypt_token(connection["access_token_enc"])
@@ -776,9 +776,7 @@ async def x_connect(current_user: dict = Depends(get_current_user)):
 
     # Generate PKCE code verifier and challenge
     code_verifier = secrets.token_urlsafe(64)
-    code_challenge = base64.urlsafe_b64encode(
-        hashlib.sha256(code_verifier.encode()).digest()
-    ).decode().rstrip("=")
+    code_challenge = base64.urlsafe_b64encode(hashlib.sha256(code_verifier.encode()).digest()).decode().rstrip("=")
 
     # Generate state with user_id for CSRF protection
     state = secrets.token_urlsafe(32)
@@ -827,8 +825,8 @@ async def x_callback(
 
     try:
         stored_user_id, code_verifier = state_data.split(":", 1)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid OAuth state format")
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail="Invalid OAuth state format") from err
     if stored_user_id != current_user["id"]:
         raise HTTPException(status_code=400, detail="OAuth state mismatch")
 
@@ -874,7 +872,7 @@ async def x_callback(
         raise HTTPException(status_code=400, detail="Failed to fetch X profile")
 
     profile_data = profile_response.json().get("data", {})
-    expires_at = datetime.now(timezone.utc) + timedelta(seconds=token_data.get("expires_in", 7200))
+    expires_at = datetime.now(UTC) + timedelta(seconds=token_data.get("expires_in", 7200))
 
     connection_doc = {
         "id": str(uuid.uuid4()),
@@ -887,7 +885,7 @@ async def x_callback(
         "refresh_token_enc": encrypt_token(refresh_token) if refresh_token else None,
         "token_expires_at": expires_at.isoformat(),
         "scopes": token_data.get("scope", "").split(),
-        "connected_at": datetime.now(timezone.utc).isoformat(),
+        "connected_at": datetime.now(UTC).isoformat(),
         "last_sync_at": None,
         "sync_status": "idle",
         "total_synced": 0,
@@ -991,7 +989,10 @@ async def x_sync(
         # Fetch X bookmarks with pagination (resume from saved cursor if present)
         x_user_id = connection.get("x_user_id")
         if not x_user_id:
-            raise HTTPException(status_code=400, detail="X user ID not found. Please reconnect your X account.")
+            raise HTTPException(
+                status_code=400,
+                detail="X user ID not found. Please reconnect your X account.",
+            )
 
         all_tweets = []
         all_users = {}
@@ -1062,18 +1063,26 @@ async def x_sync(
                 {
                     "$set": {
                         "sync_status": "idle",
-                        "last_sync_at": datetime.now(timezone.utc).isoformat(),
+                        "last_sync_at": datetime.now(UTC).isoformat(),
                         "next_cursor": None,
                     }
                 },
             )
-            return {"total_fetched": 0, "new_bookmarks": 0, "duplicates_skipped": 0, "sync_status": "idle"}
+            return {
+                "total_fetched": 0,
+                "new_bookmarks": 0,
+                "duplicates_skipped": 0,
+                "sync_status": "idle",
+            }
 
         # Get existing tweet IDs and URLs for dedup
         existing_tweet_ids = set()
         existing_urls = set()
         existing_cursor = db.bookmarks.find(
-            {"user_id": current_user["id"], "x_tweet_id": {"$exists": True, "$ne": None}},
+            {
+                "user_id": current_user["id"],
+                "x_tweet_id": {"$exists": True, "$ne": None},
+            },
             {"x_tweet_id": 1, "url": 1},
         )
         async for doc in existing_cursor:
@@ -1132,8 +1141,8 @@ async def x_sync(
                 "domain": urlparse(bookmark_url).netloc,
                 "text_content": tweet_text,
                 "read_status": False,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "created_at": datetime.now(UTC).isoformat(),
+                "updated_at": datetime.now(UTC).isoformat(),
                 "source": "x",
                 "x_tweet_id": tweet_id,
                 "x_author_username": author.get("username"),
@@ -1162,7 +1171,7 @@ async def x_sync(
                     "id": str(uuid.uuid4()),
                     "bookmark_id": b["id"],
                     "processing_status": "pending",
-                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "created_at": datetime.now(UTC).isoformat(),
                 }
                 for b in new_bookmarks
             ]
@@ -1180,7 +1189,7 @@ async def x_sync(
             {
                 "$set": {
                     "sync_status": "idle",
-                    "last_sync_at": datetime.now(timezone.utc).isoformat(),
+                    "last_sync_at": datetime.now(UTC).isoformat(),
                     "total_synced": total_synced,
                     "next_cursor": pagination_token if has_more else None,
                 }
@@ -1201,13 +1210,13 @@ async def x_sync(
             {"$set": {"sync_status": map_x_sync_error_status(exc.status_code)}},
         )
         raise
-    except Exception as e:
+    except Exception as err:
         logger.exception(f"Error during X sync for user {current_user['id']}")
         await db.x_connections.update_one(
             {"user_id": current_user["id"]},
             {"$set": {"sync_status": "error"}},
         )
-        raise HTTPException(status_code=500, detail="Sync failed unexpectedly")
+        raise HTTPException(status_code=500, detail="Sync failed unexpectedly") from err
 
 
 async def process_x_bookmarks_batch(bookmark_ids: list, user_id: str):
@@ -1237,7 +1246,7 @@ async def process_x_bookmarks_batch(bookmark_ids: list, user_id: str):
                                 "text_content": content.get("text_content") or bookmark.get("text_content"),
                                 "domain": content.get("domain") or bookmark.get("domain"),
                                 "reading_time": calculate_reading_time(content.get("text_content", "")),
-                                "updated_at": datetime.now(timezone.utc).isoformat(),
+                                "updated_at": datetime.now(UTC).isoformat(),
                             }
                         },
                     )
@@ -1262,12 +1271,10 @@ async def process_x_bookmarks_batch(bookmark_ids: list, user_id: str):
                 # Generate embedding for semantic search
                 if len(text_content.strip()) >= 50:
                     embedding = await generate_embedding(text_content, title, description)
-                    ai_summary = await db.ai_summaries.find_one(
-                        {"bookmark_id": bookmark_id}, {"_id": 0}
-                    )
+                    ai_summary = await db.ai_summaries.find_one({"bookmark_id": bookmark_id}, {"_id": 0})
                     entities, concepts = await extract_entities_and_concepts(text_content, ai_summary)
 
-                    update_data = {"updated_at": datetime.now(timezone.utc).isoformat()}
+                    update_data = {"updated_at": datetime.now(UTC).isoformat()}
                     if embedding:
                         update_data["embedding"] = embedding
                         update_data["embedding_model"] = "text-embedding-004"
@@ -1280,11 +1287,16 @@ async def process_x_bookmarks_batch(bookmark_ids: list, user_id: str):
                 # Mark as completed even with insufficient content
                 await db.ai_summaries.update_one(
                     {"bookmark_id": bookmark_id},
-                    {"$set": {"processing_status": "completed", "one_sentence": text_content[:200]}},
+                    {
+                        "$set": {
+                            "processing_status": "completed",
+                            "one_sentence": text_content[:200],
+                        }
+                    },
                 )
 
             logger.info(f"Processed X bookmark: {bookmark_id}")
-        except Exception as e:
+        except Exception:
             logger.exception(f"Error processing X bookmark {bookmark_id}")
             await db.ai_summaries.update_one(
                 {"bookmark_id": bookmark_id},
@@ -1304,9 +1316,7 @@ class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
         if content_length:
             content_length = int(content_length)
             if content_length > self.max_size:
-                logger.warning(
-                    f"Request rejected: size {content_length} exceeds limit {self.max_size}"
-                )
+                logger.warning(f"Request rejected: size {content_length} exceeds limit {self.max_size}")
                 raise HTTPException(
                     status_code=413,
                     detail=f"Request body too large. Maximum size is {self.max_size / (1024 * 1024):.1f}MB",
@@ -1341,22 +1351,21 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-XSS-Protection"] = "1; mode=block"
-        response.headers["Strict-Transport-Security"] = (
-            "max-age=31536000; includeSubDomains"
-        )
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         return response
 
 
 # --- Admin Pydantic Models ---
 
+
 class ApiKeysUpdate(BaseModel):
-    gemini_api_key: Optional[str] = None
-    x_client_id: Optional[str] = None
-    x_client_secret: Optional[str] = None
-    x_redirect_uri: Optional[str] = None
-    x_integration_enabled: Optional[bool] = None
-    resend_api_key: Optional[str] = None
+    gemini_api_key: str | None = None
+    x_client_id: str | None = None
+    x_client_secret: str | None = None
+    x_redirect_uri: str | None = None
+    x_integration_enabled: bool | None = None
+    resend_api_key: str | None = None
 
 
 class AdminUserInvite(BaseModel):
@@ -1370,6 +1379,7 @@ class AdminPasswordReset(BaseModel):
 
 # --- Admin Auth Dependency ---
 
+
 async def get_admin_user(request: Request):
     user = await get_current_user(request)
     if user["email"].lower() not in ADMIN_EMAILS:
@@ -1379,10 +1389,11 @@ async def get_admin_user(request: Request):
 
 # --- Admin Endpoints ---
 
+
 @api_router.get("/admin/overview")
 async def admin_overview(admin: dict = Depends(get_admin_user)):
     logger.info(f"Admin action: overview requested by {admin['email']}")
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
     week_start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
@@ -1411,7 +1422,7 @@ async def admin_overview(admin: dict = Depends(get_admin_user)):
             "collections": db_stats.get("collections", 0),
             "objects": db_stats.get("objects", 0),
         }
-    except Exception as e:
+    except Exception:
         logger.exception("Failed to get dbStats")
         mongo_stats = {"error": "Failed to retrieve database stats"}
 
@@ -1448,7 +1459,11 @@ async def admin_api_usage(admin: dict = Depends(get_admin_user)):
     current_tpm = sum(t for _, t in gemini_rate_limiter.tpm_bucket)
     rpm_util = (current_rpm / gemini_rate_limiter.max_rpm * 100) if gemini_rate_limiter.max_rpm else 0
     tpm_util = (current_tpm / gemini_rate_limiter.max_tpm * 100) if gemini_rate_limiter.max_tpm else 0
-    daily_util = (gemini_rate_limiter.total_requests_today / gemini_rate_limiter.max_daily * 100) if gemini_rate_limiter.max_daily else 0
+    daily_util = (
+        (gemini_rate_limiter.total_requests_today / gemini_rate_limiter.max_daily * 100)
+        if gemini_rate_limiter.max_daily
+        else 0
+    )
 
     return {
         "requests_today": gemini_rate_limiter.total_requests_today,
@@ -1474,33 +1489,27 @@ async def admin_list_users(
     admin: dict = Depends(get_admin_user),
 ):
     logger.info(f"Admin action: list users by {admin['email']}")
-    users = await db.users.find(
-        {}, {"_id": 0, "password_hash": 0}
-    ).to_list(None)
+    users = await db.users.find({}, {"_id": 0, "password_hash": 0}).to_list(None)
 
     user_ids = [u["id"] for u in users]
 
     bookmark_pipeline = [
         {"$match": {"user_id": {"$in": user_ids}}},
-        {"$group": {
-            "_id": "$user_id",
-            "count": {"$sum": 1},
-            "last_created": {"$max": "$created_at"},
-        }},
+        {
+            "$group": {
+                "_id": "$user_id",
+                "count": {"$sum": 1},
+                "last_created": {"$max": "$created_at"},
+            }
+        },
     ]
-    bookmark_stats = {
-        doc["_id"]: doc
-        async for doc in db.bookmarks.aggregate(bookmark_pipeline)
-    }
+    bookmark_stats = {doc["_id"]: doc async for doc in db.bookmarks.aggregate(bookmark_pipeline)}
 
     collection_pipeline = [
         {"$match": {"user_id": {"$in": user_ids}}},
         {"$group": {"_id": "$user_id", "count": {"$sum": 1}}},
     ]
-    collection_stats = {
-        doc["_id"]: doc["count"]
-        async for doc in db.collections.aggregate(collection_pipeline)
-    }
+    collection_stats = {doc["_id"]: doc["count"] async for doc in db.collections.aggregate(collection_pipeline)}
 
     enriched = []
     for u in users:
@@ -1529,18 +1538,21 @@ async def admin_list_users(
 @api_router.get("/admin/users/{user_id}")
 async def admin_get_user(user_id: str, admin: dict = Depends(get_admin_user)):
     logger.info(f"Admin action: get user {user_id} by {admin['email']}")
-    user = await db.users.find_one(
-        {"id": user_id}, {"_id": 0, "password_hash": 0}
-    )
+    user = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
     bookmark_count = await db.bookmarks.count_documents({"user_id": user_id})
     collection_count = await db.collections.count_documents({"user_id": user_id})
-    recent_bookmarks = await db.bookmarks.find(
-        {"user_id": user_id},
-        {"_id": 0, "id": 1, "title": 1, "url": 1, "domain": 1, "created_at": 1},
-    ).sort("created_at", -1).limit(10).to_list(10)
+    recent_bookmarks = (
+        await db.bookmarks.find(
+            {"user_id": user_id},
+            {"_id": 0, "id": 1, "title": 1, "url": 1, "domain": 1, "created_at": 1},
+        )
+        .sort("created_at", -1)
+        .limit(10)
+        .to_list(10)
+    )
 
     user["bookmark_count"] = bookmark_count
     user["collection_count"] = collection_count
@@ -1552,14 +1564,10 @@ async def admin_get_user(user_id: str, admin: dict = Depends(get_admin_user)):
 
 
 @api_router.post("/admin/users/invite")
-async def admin_invite_user(
-    invite: AdminUserInvite, admin: dict = Depends(get_admin_user)
-):
+async def admin_invite_user(invite: AdminUserInvite, admin: dict = Depends(get_admin_user)):
     logger.info(f"Admin action: invite user {invite.email} by {admin['email']}")
 
-    existing = await db.users.find_one(
-        {"email": invite.email}, {"_id": 0, "id": 1}
-    )
+    existing = await db.users.find_one({"email": invite.email}, {"_id": 0, "id": 1})
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
 
@@ -1569,20 +1577,22 @@ async def admin_invite_user(
         "email": invite.email,
         "name": invite.name,
         "password_hash": None,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
         "invite_pending": True,
     }
     await db.users.insert_one(user)
 
     invite_token = secrets.token_urlsafe(32)
-    expires_at = datetime.now(timezone.utc) + timedelta(days=7)
-    await db.invite_tokens.insert_one({
-        "id": str(uuid.uuid4()),
-        "user_id": user_id,
-        "token": invite_token,
-        "expires_at": expires_at.isoformat(),
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    })
+    expires_at = datetime.now(UTC) + timedelta(days=7)
+    await db.invite_tokens.insert_one(
+        {
+            "id": str(uuid.uuid4()),
+            "user_id": user_id,
+            "token": invite_token,
+            "expires_at": expires_at.isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
+        }
+    )
 
     await send_invite_email(invite.email, invite.name, invite_token)
 
@@ -1608,7 +1618,7 @@ async def admin_ban_user(user_id: str, admin: dict = Depends(get_admin_user)):
 
     await db.users.update_one(
         {"id": user_id},
-        {"$set": {"banned": True, "banned_at": datetime.now(timezone.utc).isoformat()}},
+        {"$set": {"banned": True, "banned_at": datetime.now(UTC).isoformat()}},
     )
     logger.info(f"Admin action: user {user_id} banned by {admin['email']}")
     return {"status": "banned", "user_id": user_id}
@@ -1622,7 +1632,7 @@ async def admin_unban_user(user_id: str, admin: dict = Depends(get_admin_user)):
 
     await db.users.update_one(
         {"id": user_id},
-        {"$set": {"banned": False, "unbanned_at": datetime.now(timezone.utc).isoformat()}},
+        {"$set": {"banned": False, "unbanned_at": datetime.now(UTC).isoformat()}},
     )
     logger.info(f"Admin action: user {user_id} unbanned by {admin['email']}")
     return {"status": "unbanned", "user_id": user_id}
@@ -1658,9 +1668,7 @@ async def admin_delete_user(user_id: str, admin: dict = Depends(get_admin_user))
     del_summaries = await db.ai_summaries.delete_many({"user_id": user_id})
     del_collections = await db.collections.delete_many({"user_id": user_id})
 
-    logger.info(
-        f"Admin action: deleted user {user_id} and all data by {admin['email']}"
-    )
+    logger.info(f"Admin action: deleted user {user_id} and all data by {admin['email']}")
     return {
         "status": "deleted",
         "user_id": user_id,
@@ -1675,7 +1683,8 @@ async def admin_delete_user(user_id: str, admin: dict = Depends(get_admin_user))
 
 # --- Admin API Keys Management ---
 
-def _mask_key(key: Optional[str]) -> Optional[str]:
+
+def _mask_key(key: str | None) -> str | None:
     """Mask an API key, showing only the last 4 characters."""
     if not key:
         return None
@@ -1756,14 +1765,17 @@ async def admin_get_api_keys(admin: dict = Depends(get_admin_user)):
 
 
 @api_router.put("/admin/api-keys")
-async def admin_update_api_keys(
-    body: ApiKeysUpdate, admin: dict = Depends(get_admin_user)
-):
+async def admin_update_api_keys(body: ApiKeysUpdate, admin: dict = Depends(get_admin_user)):
     """Update API key configuration. Keys are encrypted at rest."""
     logger.info(f"Admin action: update api-keys by {admin['email']}")
 
     update_fields = {}
-    encrypted_keys = ["gemini_api_key", "x_client_id", "x_client_secret", "resend_api_key"]
+    encrypted_keys = [
+        "gemini_api_key",
+        "x_client_id",
+        "x_client_secret",
+        "resend_api_key",
+    ]
 
     for field in encrypted_keys:
         value = getattr(body, field, None)
@@ -1779,7 +1791,7 @@ async def admin_update_api_keys(
     if not update_fields:
         raise HTTPException(status_code=400, detail="No fields to update")
 
-    update_fields["updated_at"] = datetime.now(timezone.utc).isoformat()
+    update_fields["updated_at"] = datetime.now(UTC).isoformat()
     update_fields["updated_by"] = admin["email"]
 
     await db.instance_settings.update_one(
@@ -1789,7 +1801,10 @@ async def admin_update_api_keys(
     )
 
     logger.info(f"API keys updated: {list(update_fields.keys())} by {admin['email']}")
-    return {"status": "updated", "fields": [k for k in update_fields if k not in ("updated_at", "updated_by")]}
+    return {
+        "status": "updated",
+        "fields": [k for k in update_fields if k not in ("updated_at", "updated_by")],
+    }
 
 
 @api_router.delete("/admin/api-keys/{key_name}")
@@ -1797,13 +1812,26 @@ async def admin_delete_api_key(key_name: str, admin: dict = Depends(get_admin_us
     """Remove a DB-stored API key override, reverting to environment variable."""
     logger.info(f"Admin action: delete api-key {key_name} by {admin['email']}")
 
-    valid_keys = ["gemini_api_key", "x_client_id", "x_client_secret", "x_redirect_uri", "x_integration_enabled", "resend_api_key"]
+    valid_keys = [
+        "gemini_api_key",
+        "x_client_id",
+        "x_client_secret",
+        "x_redirect_uri",
+        "x_integration_enabled",
+        "resend_api_key",
+    ]
     if key_name not in valid_keys:
         raise HTTPException(status_code=400, detail=f"Invalid key name. Valid: {valid_keys}")
 
-    result = await db.instance_settings.update_one(
+    await db.instance_settings.update_one(
         {"_id": "api_keys"},
-        {"$unset": {key_name: ""}, "$set": {"updated_at": datetime.now(timezone.utc).isoformat(), "updated_by": admin["email"]}},
+        {
+            "$unset": {key_name: ""},
+            "$set": {
+                "updated_at": datetime.now(UTC).isoformat(),
+                "updated_by": admin["email"],
+            },
+        },
     )
 
     # Check what the env fallback is
@@ -1835,13 +1863,13 @@ async def admin_system_health(admin: dict = Depends(get_admin_user)):
             "mem": server_status.get("mem", {}),
             "uptime": server_status.get("uptime"),
         }
-    except Exception as e:
+    except Exception:
         logger.exception("Failed to get serverStatus")
         mongo_info = {"error": "Failed to retrieve server status"}
 
     try:
         db_stats = await db.command("dbStats")
-    except Exception as e:
+    except Exception:
         logger.exception("Failed to get dbStats for health check")
         db_stats = {"error": "Failed to retrieve database stats"}
 
@@ -1854,7 +1882,7 @@ async def admin_system_health(admin: dict = Depends(get_admin_user)):
                 "connected_clients": info.get("connected_clients"),
                 "uptime_in_seconds": info.get("uptime_in_seconds"),
             }
-    except Exception as e:
+    except Exception:
         logger.exception("Failed to get Redis info")
         redis_info = {"error": "Failed to retrieve Redis info"}
 
@@ -1873,6 +1901,7 @@ async def admin_system_health(admin: dict = Depends(get_admin_user)):
 
     try:
         import psutil
+
         process = psutil.Process()
         cpu_percent = psutil.cpu_percent(interval=0.1)
         mem = psutil.virtual_memory()
@@ -1895,20 +1924,36 @@ async def admin_system_health(admin: dict = Depends(get_admin_user)):
 
     return {
         "mongodb": {
-            "connections_current": mongo_info.get("connections", {}).get("current") if isinstance(mongo_info, dict) and "error" not in mongo_info else None,
-            "connections_available": mongo_info.get("connections", {}).get("available") if isinstance(mongo_info, dict) and "error" not in mongo_info else None,
-            "uptime_seconds": mongo_info.get("uptime") if isinstance(mongo_info, dict) and "error" not in mongo_info else None,
-            "opcounters": mongo_info.get("opcounters") if isinstance(mongo_info, dict) and "error" not in mongo_info else None,
-            "mem": mongo_info.get("mem") if isinstance(mongo_info, dict) and "error" not in mongo_info else None,
+            "connections_current": (
+                mongo_info.get("connections", {}).get("current")
+                if isinstance(mongo_info, dict) and "error" not in mongo_info
+                else None
+            ),
+            "connections_available": (
+                mongo_info.get("connections", {}).get("available")
+                if isinstance(mongo_info, dict) and "error" not in mongo_info
+                else None
+            ),
+            "uptime_seconds": (
+                mongo_info.get("uptime") if isinstance(mongo_info, dict) and "error" not in mongo_info else None
+            ),
+            "opcounters": (
+                mongo_info.get("opcounters") if isinstance(mongo_info, dict) and "error" not in mongo_info else None
+            ),
+            "mem": (mongo_info.get("mem") if isinstance(mongo_info, dict) and "error" not in mongo_info else None),
         },
         "redis": redis_info,
         "python_version": sys.version.split()[0],
         "environment": "production" if IS_PRODUCTION else "development",
         "collections": collection_stats,
         "db_stats": {
-            "dataSize": db_stats.get("dataSize", 0) if isinstance(db_stats, dict) and "error" not in db_stats else 0,
-            "storageSize": db_stats.get("storageSize", 0) if isinstance(db_stats, dict) and "error" not in db_stats else 0,
-            "indexSize": db_stats.get("indexSize", 0) if isinstance(db_stats, dict) and "error" not in db_stats else 0,
+            "dataSize": (db_stats.get("dataSize", 0) if isinstance(db_stats, dict) and "error" not in db_stats else 0),
+            "storageSize": (
+                db_stats.get("storageSize", 0) if isinstance(db_stats, dict) and "error" not in db_stats else 0
+            ),
+            "indexSize": (
+                db_stats.get("indexSize", 0) if isinstance(db_stats, dict) and "error" not in db_stats else 0
+            ),
         },
         "system": system_stats,
     }
@@ -1918,10 +1963,22 @@ async def admin_system_health(admin: dict = Depends(get_admin_user)):
 async def admin_activity(admin: dict = Depends(get_admin_user)):
     logger.info(f"Admin action: activity feed by {admin['email']}")
 
-    recent_bookmarks = await db.bookmarks.find(
-        {},
-        {"_id": 0, "user_id": 1, "title": 1, "url": 1, "domain": 1, "created_at": 1},
-    ).sort("created_at", -1).limit(50).to_list(50)
+    recent_bookmarks = (
+        await db.bookmarks.find(
+            {},
+            {
+                "_id": 0,
+                "user_id": 1,
+                "title": 1,
+                "url": 1,
+                "domain": 1,
+                "created_at": 1,
+            },
+        )
+        .sort("created_at", -1)
+        .limit(50)
+        .to_list(50)
+    )
 
     bm_user_ids = list({b["user_id"] for b in recent_bookmarks})
     user_emails = {}
@@ -1935,10 +1992,15 @@ async def admin_activity(admin: dict = Depends(get_admin_user)):
     for b in recent_bookmarks:
         b["user_email"] = user_emails.get(b.get("user_id"), "unknown")
 
-    recent_users = await db.users.find(
-        {},
-        {"_id": 0, "id": 1, "email": 1, "name": 1, "created_at": 1},
-    ).sort("created_at", -1).limit(10).to_list(10)
+    recent_users = (
+        await db.users.find(
+            {},
+            {"_id": 0, "id": 1, "email": 1, "name": 1, "created_at": 1},
+        )
+        .sort("created_at", -1)
+        .limit(10)
+        .to_list(10)
+    )
 
     return {
         "recent_bookmarks": recent_bookmarks,
@@ -1977,18 +2039,12 @@ app.add_middleware(RequestSizeLimitMiddleware, max_size=10 * 1024 * 1024)  # 10M
 # Validate CORS origins
 cors_origins_env = os.environ.get("CORS_ORIGINS", "*")
 if cors_origins_env == "*":
-    logger.warning(
-        "CORS_ORIGINS set to '*' - allowing all origins (not recommended for production)"
-    )
+    logger.warning("CORS_ORIGINS set to '*' - allowing all origins (not recommended for production)")
     cors_origins = ["*"]
 else:
-    cors_origins = [
-        origin.strip() for origin in cors_origins_env.split(",") if origin.strip()
-    ]
+    cors_origins = [origin.strip() for origin in cors_origins_env.split(",") if origin.strip()]
     if not cors_origins:
-        logger.warning(
-            "CORS_ORIGINS configured but empty - defaulting to allow all origins"
-        )
+        logger.warning("CORS_ORIGINS configured but empty - defaulting to allow all origins")
         cors_origins = ["*"]
 
 app.add_middleware(
@@ -2033,9 +2089,7 @@ async def migrate_bookmark_version_field():
             {"$set": {"version": 1}},
         )
         if migrated.modified_count > 0:
-            logger.info(
-                f"Migrated {migrated.modified_count} bookmarks to include version field"
-            )
+            logger.info(f"Migrated {migrated.modified_count} bookmarks to include version field")
     except Exception as e:
         logger.warning(f"Version field migration skipped: {e}")
 

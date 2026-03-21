@@ -7,13 +7,12 @@ override) for authenticated profile/password endpoints.
 """
 
 import base64
-from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock, patch
 
 import pytest
-
+from app.core.config import settings
 from app.core.security import hash_password
-
 
 # ============================================
 # Auth Endpoint Tests (auth_client -- no auth override)
@@ -23,14 +22,20 @@ from app.core.security import hash_password
 @pytest.mark.anyio
 async def test_signup_disabled(auth_client):
     """POST /api/auth/signup returns 403 because signups are disabled."""
-    response = await auth_client.post(
-        "/api/auth/signup",
-        json={
-            "email": "new@example.com",
-            "password": "ValidPass1!",
-            "name": "New User",
-        },
-    )
+    original = settings.SIGNUPS_ENABLED
+    settings.SIGNUPS_ENABLED = False
+    try:
+        response = await auth_client.post(
+            "/api/auth/signup",
+            json={
+                "email": "new@example.com",
+                "password": "ValidPass1!",
+                "name": "New User",
+            },
+        )
+    finally:
+        settings.SIGNUPS_ENABLED = original
+
     assert response.status_code == 403
     assert "disabled" in response.json()["detail"].lower()
 
@@ -48,13 +53,16 @@ async def test_login_success(auth_client, mock_db):
         }
     )
 
-    with patch(
-        "app.routers.auth.is_account_locked",
-        new_callable=AsyncMock,
-        return_value=False,
-    ), patch(
-        "app.routers.auth.clear_failed_logins",
-        new_callable=AsyncMock,
+    with (
+        patch(
+            "app.routers.auth.is_account_locked",
+            new_callable=AsyncMock,
+            return_value=False,
+        ),
+        patch(
+            "app.routers.auth.clear_failed_logins",
+            new_callable=AsyncMock,
+        ),
     ):
         response = await auth_client.post(
             "/api/auth/login",
@@ -76,13 +84,16 @@ async def test_login_invalid_credentials(auth_client, mock_db):
     """POST /api/auth/login with wrong password returns 401."""
     mock_db.users.find_one = AsyncMock(return_value=None)
 
-    with patch(
-        "app.routers.auth.is_account_locked",
-        new_callable=AsyncMock,
-        return_value=False,
-    ), patch(
-        "app.routers.auth.record_failed_login",
-        new_callable=AsyncMock,
+    with (
+        patch(
+            "app.routers.auth.is_account_locked",
+            new_callable=AsyncMock,
+            return_value=False,
+        ),
+        patch(
+            "app.routers.auth.record_failed_login",
+            new_callable=AsyncMock,
+        ),
     ):
         response = await auth_client.post(
             "/api/auth/login",
@@ -182,7 +193,7 @@ async def test_forgot_password_nonexistent_user(auth_client, mock_db):
 @pytest.mark.anyio
 async def test_reset_password_valid_token(auth_client, mock_db):
     """POST /api/auth/reset-password with valid token updates password."""
-    future_time = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    future_time = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
     mock_db.password_reset_tokens.find_one = AsyncMock(
         return_value={
             "id": "token-123",
@@ -208,7 +219,7 @@ async def test_reset_password_valid_token(auth_client, mock_db):
 @pytest.mark.anyio
 async def test_reset_password_expired_token(auth_client, mock_db):
     """POST /api/auth/reset-password with expired token returns 400."""
-    past_time = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+    past_time = (datetime.now(UTC) - timedelta(hours=2)).isoformat()
     mock_db.password_reset_tokens.find_one = AsyncMock(
         return_value={
             "id": "token-123",

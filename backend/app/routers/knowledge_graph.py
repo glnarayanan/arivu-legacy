@@ -7,8 +7,7 @@ query expansion using related concepts, and embedding regeneration.
 
 import logging
 import math
-from datetime import datetime, timezone
-from typing import Dict, List
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 
@@ -29,9 +28,7 @@ MIN_SEMANTIC_SCORE = 0.3
 
 
 @router.get("/knowledge-graph/explore")
-async def explore_knowledge_graph(
-    limit: int = 50, current_user: dict = Depends(get_current_user)
-):
+async def explore_knowledge_graph(limit: int = 50, current_user: dict = Depends(get_current_user)):
     """
     Explore the user's knowledge graph with enhanced graph metrics.
 
@@ -86,8 +83,8 @@ async def explore_knowledge_graph(
         }
 
     # Extract all unique entities and concepts with counts
-    entity_counts: Dict[str, int] = {}
-    concept_counts: Dict[str, int] = {}
+    entity_counts: dict[str, int] = {}
+    concept_counts: dict[str, int] = {}
 
     for bookmark in bookmarks:
         for entity in bookmark.get("entities", []):
@@ -96,8 +93,8 @@ async def explore_knowledge_graph(
             concept_counts[concept] = concept_counts.get(concept, 0) + 1
 
     # Build concept/entity connections
-    concept_connections: Dict[str, List[str]] = {}
-    entity_connections: Dict[str, List[str]] = {}
+    concept_connections: dict[str, list[str]] = {}
+    entity_connections: dict[str, list[str]] = {}
 
     for bookmark in bookmarks:
         bookmark_id = bookmark["id"]
@@ -124,20 +121,15 @@ async def explore_knowledge_graph(
         connection_score = math.log(count + 1)
         return round(idf * connection_score, 3)
 
-    entity_importance = {
-        entity: calculate_importance(count)
-        for entity, count in entity_counts.items()
-    }
-    concept_importance = {
-        concept: calculate_importance(count)
-        for concept, count in concept_counts.items()
-    }
+    entity_importance = {entity: calculate_importance(count) for entity, count in entity_counts.items()}
+    concept_importance = {concept: calculate_importance(count) for concept, count in concept_counts.items()}
 
     # Find related bookmarks using embedding similarity
-    related_bookmarks: Dict[str, List[tuple]] = {}
+    related_bookmarks: dict[str, list[tuple]] = {}
     embedding_map = {b["id"]: b.get("embedding") for b in bookmarks if b.get("embedding")}
 
     if len(embedding_map) > 1:
+
         def dot_product_similarity(vec1, vec2):
             return float(np.dot(vec1, vec2))
 
@@ -200,21 +192,15 @@ async def semantic_search(
     db = get_database()
 
     if not query or len(query.strip()) < 3:
-        raise HTTPException(
-            status_code=400, detail="Query must be at least 3 characters"
-        )
+        raise HTTPException(status_code=400, detail="Query must be at least 3 characters")
     if len(query.encode("utf-8")) > 10240:  # PERF-01: 10KB max query
-        raise HTTPException(
-            status_code=400, detail="Query too large (max 10KB)"
-        )
+        raise HTTPException(status_code=400, detail="Query too large (max 10KB)")
 
     # Cap limit parameter
     limit = min(limit, 50)  # PERF-01: Cap at 50 results
 
     # Generate embedding for the search query
-    query_embedding = await generate_embedding(
-        query, min_length=3, task_type="retrieval_query"
-    )
+    query_embedding = await generate_embedding(query, min_length=3, task_type="retrieval_query")
 
     if not query_embedding:
         logger.warning(f"Failed to generate query embedding for: {query[:100]}")
@@ -266,17 +252,14 @@ async def semantic_search(
         adaptive_threshold = 0.15
 
     # Build entity IDF for boosting
-    entity_counts: Dict[str, int] = {}
+    entity_counts: dict[str, int] = {}
     for bookmark in all_bookmarks:
         for entity in bookmark.get("entities", []) + bookmark.get("concepts", []):
             entity_lower = entity.lower()
             entity_counts[entity_lower] = entity_counts.get(entity_lower, 0) + 1
 
     total_docs = len(all_bookmarks)
-    entity_idf = {
-        e: math.log((total_docs + 1) / (count + 1))
-        for e, count in entity_counts.items()
-    }
+    entity_idf = {e: math.log((total_docs + 1) / (count + 1)) for e, count in entity_counts.items()}
 
     # Extract entities from query (simple approach: use query tokens as potential entities)
     query_tokens = tokenize_text(query)
@@ -297,10 +280,12 @@ async def semantic_search(
     entity_ranked = sorted(entity_scores, key=lambda x: x[1], reverse=True)[:100]
 
     # RRF fusion
-    rrf_scores = reciprocal_rank_fusion([
-        [(item[0], item[1]) for item in semantic_ranked],
-        [(item[0], item[1]) for item in entity_ranked],
-    ])
+    rrf_scores = reciprocal_rank_fusion(
+        [
+            [(item[0], item[1]) for item in semantic_ranked],
+            [(item[0], item[1]) for item in entity_ranked],
+        ]
+    )
 
     # Build result set
     bookmark_map = {b["id"]: b for b in all_bookmarks}
@@ -356,28 +341,27 @@ async def expand_query(
     db = get_database()
 
     if not query or len(query.strip()) < 2:
-        raise HTTPException(
-            status_code=400, detail="Query must be at least 2 characters"
-        )
+        raise HTTPException(status_code=400, detail="Query must be at least 2 characters")
     if len(query.encode("utf-8")) > 10240:  # PERF-01: 10KB max query
-        raise HTTPException(
-            status_code=400, detail="Query too large (max 10KB)"
-        )
+        raise HTTPException(status_code=400, detail="Query too large (max 10KB)")
 
-    query_lower = query.lower().strip()
     query_tokens = set(tokenize_text(query))
 
     # Get user's entities and concepts with their bookmark associations
-    all_bookmarks = await db.bookmarks.find(
-        {"user_id": current_user["id"]},
-        {
-            "_id": 0,
-            "id": 1,
-            "entities": 1,
-            "concepts": 1,
-            "embedding": 1,
-        },
-    ).limit(500).to_list(None)
+    all_bookmarks = (
+        await db.bookmarks.find(
+            {"user_id": current_user["id"]},
+            {
+                "_id": 0,
+                "id": 1,
+                "entities": 1,
+                "concepts": 1,
+                "embedding": 1,
+            },
+        )
+        .limit(500)
+        .to_list(None)
+    )
 
     if not all_bookmarks:
         return {
@@ -388,8 +372,8 @@ async def expand_query(
         }
 
     # Build entity/concept co-occurrence map
-    entity_to_bookmarks: Dict[str, set] = {}
-    concept_to_bookmarks: Dict[str, set] = {}
+    entity_to_bookmarks: dict[str, set] = {}
+    concept_to_bookmarks: dict[str, set] = {}
 
     for bookmark in all_bookmarks:
         bid = bookmark["id"]
@@ -424,8 +408,8 @@ async def expand_query(
         matched_bookmark_ids.update(concept_to_bookmarks.get(concept, set()))
 
     # Collect co-occurring terms with frequency counts
-    cooccur_entities: Dict[str, int] = {}
-    cooccur_concepts: Dict[str, int] = {}
+    cooccur_entities: dict[str, int] = {}
+    cooccur_concepts: dict[str, int] = {}
 
     for bookmark in all_bookmarks:
         if bookmark["id"] in matched_bookmark_ids:
@@ -437,47 +421,51 @@ async def expand_query(
                     cooccur_concepts[concept] = cooccur_concepts.get(concept, 0) + 1
 
     # Sort by frequency and take top items
-    top_cooccur_entities = sorted(
-        cooccur_entities.items(), key=lambda x: x[1], reverse=True
-    )[:max_expansions]
-    top_cooccur_concepts = sorted(
-        cooccur_concepts.items(), key=lambda x: x[1], reverse=True
-    )[:max_expansions]
+    top_cooccur_entities = sorted(cooccur_entities.items(), key=lambda x: x[1], reverse=True)[:max_expansions]
+    top_cooccur_concepts = sorted(cooccur_concepts.items(), key=lambda x: x[1], reverse=True)[:max_expansions]
 
     # Build expansion list (mix of direct and co-occurring)
     expansions = []
 
     # Add direct matches first (high relevance)
     for entity in direct_entity_matches[:5]:
-        expansions.append({
-            "term": entity,
-            "type": "entity",
-            "source": "direct_match",
-            "relevance": 1.0,
-        })
+        expansions.append(
+            {
+                "term": entity,
+                "type": "entity",
+                "source": "direct_match",
+                "relevance": 1.0,
+            }
+        )
     for concept in direct_concept_matches[:5]:
-        expansions.append({
-            "term": concept,
-            "type": "concept",
-            "source": "direct_match",
-            "relevance": 1.0,
-        })
+        expansions.append(
+            {
+                "term": concept,
+                "type": "concept",
+                "source": "direct_match",
+                "relevance": 1.0,
+            }
+        )
 
     # Add co-occurring terms (medium relevance)
     for entity, count in top_cooccur_entities[:5]:
-        expansions.append({
-            "term": entity,
-            "type": "entity",
-            "source": "co_occurrence",
-            "relevance": round(min(count / 5.0, 0.8), 2),
-        })
+        expansions.append(
+            {
+                "term": entity,
+                "type": "entity",
+                "source": "co_occurrence",
+                "relevance": round(min(count / 5.0, 0.8), 2),
+            }
+        )
     for concept, count in top_cooccur_concepts[:5]:
-        expansions.append({
-            "term": concept,
-            "type": "concept",
-            "source": "co_occurrence",
-            "relevance": round(min(count / 5.0, 0.8), 2),
-        })
+        expansions.append(
+            {
+                "term": concept,
+                "type": "concept",
+                "source": "co_occurrence",
+                "relevance": round(min(count / 5.0, 0.8), 2),
+            }
+        )
 
     # Sort by relevance and limit
     expansions.sort(key=lambda x: x["relevance"], reverse=True)
@@ -552,17 +540,13 @@ async def regenerate_embeddings(
 
                     if embedding:
                         # Get AI summary for entity/concept extraction
-                        ai_summary = await bg_db.ai_summaries.find_one(
-                            {"bookmark_id": bookmark["id"]}, {"_id": 0}
-                        )
-                        entities, concepts = await extract_entities_and_concepts(
-                            text_content, ai_summary
-                        )
+                        ai_summary = await bg_db.ai_summaries.find_one({"bookmark_id": bookmark["id"]}, {"_id": 0})
+                        entities, concepts = await extract_entities_and_concepts(text_content, ai_summary)
 
                         update_data = {
                             "embedding": embedding,
                             "embedding_model": "text-embedding-004",
-                            "updated_at": datetime.now(timezone.utc).isoformat(),
+                            "updated_at": datetime.now(UTC).isoformat(),
                         }
 
                         if entities:
@@ -570,22 +554,14 @@ async def regenerate_embeddings(
                         if concepts:
                             update_data["concepts"] = concepts
 
-                        await bg_db.bookmarks.update_one(
-                            {"id": bookmark["id"]}, {"$set": update_data}
-                        )
+                        await bg_db.bookmarks.update_one({"id": bookmark["id"]}, {"$set": update_data})
                         processed += 1
-                        logger.info(
-                            f"Generated embedding for bookmark {bookmark['id']} ({processed}/{len(bookmarks)})"
-                        )
+                        logger.info(f"Generated embedding for bookmark {bookmark['id']} ({processed}/{len(bookmarks)})")
 
-            except Exception as e:
-                logger.exception(
-                    f"Error generating embedding for bookmark {bookmark.get('id')}"
-                )
+            except Exception:
+                logger.exception(f"Error generating embedding for bookmark {bookmark.get('id')}")
 
-        logger.info(
-            f"Completed embedding regeneration: {processed}/{len(bookmarks)} processed"
-        )
+        logger.info(f"Completed embedding regeneration: {processed}/{len(bookmarks)} processed")
 
     background_tasks.add_task(process_embeddings)
 

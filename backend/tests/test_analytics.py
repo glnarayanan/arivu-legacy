@@ -5,9 +5,9 @@ Covers: reading-stats, topics, patterns, insights, and summary.
 Business logic is mocked since it's tested separately in analytics.py.
 """
 
-import pytest
 from unittest.mock import AsyncMock, patch
 
+import pytest
 
 MOCK_STATS = {
     "period_days": 30,

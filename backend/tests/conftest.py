@@ -5,23 +5,22 @@ Provides mock auth, mock database, test app, and async HTTP client.
 Reusable across all router test modules (collections, analytics, resurfacing).
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from fastapi import APIRouter, FastAPI
-from httpx import ASGITransport, AsyncClient
-
-from app.core.database import get_database
+import pytest
 from app.core.dependencies import get_current_user
+from app.routers.analytics import router as analytics_router
+from app.routers.auth import router as auth_router
 from app.routers.bookmarks import router as bookmarks_router
 from app.routers.collections import router as collections_router
-from app.routers.analytics import router as analytics_router
 from app.routers.content import router as content_router
 from app.routers.import_export import router as import_export_router
 from app.routers.knowledge_graph import router as knowledge_graph_router
 from app.routers.resurfacing import router as resurfacing_router
-from app.routers.auth import router as auth_router
 from app.routers.search import router as search_router
+from fastapi import APIRouter, FastAPI
+from httpx import ASGITransport, AsyncClient
+
 
 @pytest.fixture(autouse=True)
 def reset_rate_limiter():
@@ -151,9 +150,7 @@ def app(mock_db):
 @pytest.fixture
 async def client(app):
     """Async HTTP client for testing."""
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as ac:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         yield ac
 
 
@@ -188,9 +185,7 @@ def auth_app(mock_db):
 @pytest.fixture
 async def auth_client(auth_app):
     """Async HTTP client for auth testing (no auth override)."""
-    async with AsyncClient(
-        transport=ASGITransport(app=auth_app), base_url="http://test"
-    ) as ac:
+    async with AsyncClient(transport=ASGITransport(app=auth_app), base_url="http://test") as ac:
         yield ac
 
 
@@ -201,8 +196,8 @@ async def auth_client(auth_app):
 # Skip:  pytest -m "not integration" tests/
 # ---------------------------------------------------------------------------
 try:
-    from testcontainers.mongodb import MongoDbContainer
     from motor.motor_asyncio import AsyncIOMotorClient as _RealMotorClient
+    from testcontainers.mongodb import MongoDbContainer
 
     _TESTCONTAINERS_AVAILABLE = True
 except ImportError:

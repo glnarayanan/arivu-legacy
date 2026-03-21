@@ -18,7 +18,6 @@ Web UI: http://localhost:8089
 import json
 import os
 import random
-import string
 
 from locust import HttpUser, LoadTestShape, between, events, tag, task
 
@@ -119,8 +118,16 @@ class BookmarkUser(HttpUser):
     def search_bookmarks(self):
         """GET /api/bookmarks with search query -- keyword search."""
         queries = [
-            "python", "javascript", "machine learning", "api", "docker",
-            "react", "fastapi", "mongodb", "tutorial", "guide",
+            "python",
+            "javascript",
+            "machine learning",
+            "api",
+            "docker",
+            "react",
+            "fastapi",
+            "mongodb",
+            "tutorial",
+            "guide",
         ]
         self.client.get(
             "/api/bookmarks",

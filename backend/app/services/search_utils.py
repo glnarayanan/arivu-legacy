@@ -7,7 +7,6 @@ Used by search router and knowledge graph router.
 
 import math
 import re
-from typing import Dict, List, Set, Tuple
 
 # BM25 parameters (tuned for bookmark search)
 BM25_K1 = 1.2  # Term frequency saturation
@@ -18,28 +17,79 @@ RRF_K = 60
 
 # Stopwords for tokenization
 SEARCH_STOPWORDS = {
-    "a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for",
-    "of", "with", "by", "from", "as", "is", "was", "are", "were", "been",
-    "be", "have", "has", "had", "do", "does", "did", "will", "would",
-    "could", "should", "may", "might", "must", "shall", "can", "this",
-    "that", "these", "those", "it", "its", "i", "you", "he", "she", "we",
-    "they", "what", "which", "who", "whom", "when", "where", "why", "how",
+    "a",
+    "an",
+    "the",
+    "and",
+    "or",
+    "but",
+    "in",
+    "on",
+    "at",
+    "to",
+    "for",
+    "of",
+    "with",
+    "by",
+    "from",
+    "as",
+    "is",
+    "was",
+    "are",
+    "were",
+    "been",
+    "be",
+    "have",
+    "has",
+    "had",
+    "do",
+    "does",
+    "did",
+    "will",
+    "would",
+    "could",
+    "should",
+    "may",
+    "might",
+    "must",
+    "shall",
+    "can",
+    "this",
+    "that",
+    "these",
+    "those",
+    "it",
+    "its",
+    "i",
+    "you",
+    "he",
+    "she",
+    "we",
+    "they",
+    "what",
+    "which",
+    "who",
+    "whom",
+    "when",
+    "where",
+    "why",
+    "how",
 }
 
 
-def tokenize_text(text: str) -> List[str]:
+def tokenize_text(text: str) -> list[str]:
     """Tokenize text for BM25 scoring."""
     if not text:
         return []
     # Lowercase, split on non-alphanumeric, filter stopwords and short tokens
-    tokens = re.findall(r'\b[a-z0-9]+\b', text.lower())
+    tokens = re.findall(r"\b[a-z0-9]+\b", text.lower())
     return [t for t in tokens if t not in SEARCH_STOPWORDS and len(t) > 1]
 
 
 def calculate_bm25_score(
-    query_tokens: List[str],
-    doc_tokens: List[str],
-    doc_freq: Dict[str, int],
+    query_tokens: list[str],
+    doc_tokens: list[str],
+    doc_freq: dict[str, int],
     avg_doc_len: float,
     total_docs: int,
 ) -> float:
@@ -81,9 +131,9 @@ def calculate_bm25_score(
 
 
 def calculate_entity_boost(
-    query_entities: List[str],
-    doc_entities: List[str],
-    entity_idf: Dict[str, float],
+    query_entities: list[str],
+    doc_entities: list[str],
+    entity_idf: dict[str, float],
 ) -> float:
     """
     Calculate IDF-weighted entity overlap score.
@@ -105,9 +155,9 @@ def calculate_entity_boost(
 
 
 def reciprocal_rank_fusion(
-    ranked_lists: List[List[tuple]],
+    ranked_lists: list[list[tuple]],
     k: int = RRF_K,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """
     Combine multiple ranked lists using Reciprocal Rank Fusion.
 
@@ -139,19 +189,19 @@ def detect_query_type(query: str) -> str:
     """
     # Quoted phrases indicate exact match desire
     if '"' in query or "'" in query:
-        return 'exact'
+        return "exact"
 
     # Technical patterns: URLs, code-like syntax, file paths
-    if re.search(r'[/\\._:@#]+', query) or re.search(r'\b\d+\.\d+\b', query):
-        return 'technical'
+    if re.search(r"[/\\._:@#]+", query) or re.search(r"\b\d+\.\d+\b", query):
+        return "technical"
 
     # Short queries (1-2 words) tend to be keyword-focused
     word_count = len(query.split())
     if word_count <= 2:
-        return 'exact'
+        return "exact"
 
     # Longer natural language queries benefit from semantic
-    return 'semantic'
+    return "semantic"
 
 
 def get_adaptive_weights(query_type: str) -> tuple:
@@ -160,9 +210,9 @@ def get_adaptive_weights(query_type: str) -> tuple:
 
     Returns: (semantic_weight, keyword_weight)
     """
-    if query_type == 'exact':
+    if query_type == "exact":
         return (0.3, 0.7)  # Favor keyword matching
-    elif query_type == 'technical':
+    elif query_type == "technical":
         return (0.4, 0.6)  # Balanced with keyword edge
     else:  # semantic
         return (0.75, 0.25)  # Favor semantic understanding

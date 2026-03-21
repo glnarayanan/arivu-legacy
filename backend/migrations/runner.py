@@ -13,8 +13,9 @@ Before running migrations on production:
     4. Run verify again to confirm
     5. If issues found, run rollback then restore from backup
 """
-import asyncio
+
 import argparse
+import asyncio
 import importlib
 import logging
 import sys
@@ -70,13 +71,18 @@ async def run_action(action: str, migration_name: str, mongo_url: str, db_name: 
 
 def main():
     parser = argparse.ArgumentParser(description="Run database migrations")
-    parser.add_argument("action", choices=["apply", "rollback", "verify"],
-                        help="Migration action to perform")
+    parser.add_argument(
+        "action",
+        choices=["apply", "rollback", "verify"],
+        help="Migration action to perform",
+    )
     parser.add_argument("migration", help="Migration name (e.g., 001_add_version_field)")
-    parser.add_argument("--mongo-url", default="mongodb://localhost:27017",
-                        help="MongoDB connection URL (default: mongodb://localhost:27017)")
-    parser.add_argument("--db-name", default="arivu",
-                        help="Database name (default: arivu)")
+    parser.add_argument(
+        "--mongo-url",
+        default="mongodb://localhost:27017",
+        help="MongoDB connection URL (default: mongodb://localhost:27017)",
+    )
+    parser.add_argument("--db-name", default="arivu", help="Database name (default: arivu)")
     args = parser.parse_args()
 
     asyncio.run(run_action(args.action, args.migration, args.mongo_url, args.db_name))

@@ -6,8 +6,7 @@ and bookmark content processing orchestration.
 """
 
 import logging
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 from urllib.parse import urlparse
 
 import html2text
@@ -52,10 +51,12 @@ async def fetch_webpage_content(url: str):
             response.raise_for_status()
 
             # Check Content-Length header BEFORE downloading
-            content_length = response.headers.get('content-length')
+            content_length = response.headers.get("content-length")
             if content_length and int(content_length) > MAX_CONTENT_SIZE:
                 logger.warning(f"Content too large (Content-Length: {content_length}): {urlparse(url).netloc}")
-                raise ValueError(f"Content too large: {int(content_length) // (1024*1024)}MB exceeds {MAX_CONTENT_SIZE // (1024*1024)}MB limit")
+                raise ValueError(
+                    f"Content too large: {int(content_length) // (1024 * 1024)}MB exceeds {MAX_CONTENT_SIZE // (1024 * 1024)}MB limit"
+                )
 
             # Stream content in chunks, tracking total size
             chunks = []
@@ -64,14 +65,14 @@ async def fetch_webpage_content(url: str):
                 total_size += len(chunk)
                 if total_size > MAX_CONTENT_SIZE:
                     logger.warning(f"Content exceeded size limit during download: {urlparse(url).netloc}")
-                    raise ValueError(f"Content exceeded {MAX_CONTENT_SIZE // (1024*1024)}MB limit during download")
+                    raise ValueError(f"Content exceeded {MAX_CONTENT_SIZE // (1024 * 1024)}MB limit during download")
                 chunks.append(chunk)
 
             # Decode content - try utf-8, fall back to detected encoding
             try:
-                html_content = b''.join(chunks).decode('utf-8')
+                html_content = b"".join(chunks).decode("utf-8")
             except UnicodeDecodeError:
-                html_content = b''.join(chunks).decode(response.encoding or 'utf-8', errors='replace')
+                html_content = b"".join(chunks).decode(response.encoding or "utf-8", errors="replace")
 
         soup = BeautifulSoup(html_content, "html.parser")
 
@@ -96,9 +97,7 @@ async def fetch_webpage_content(url: str):
             description = meta_desc.get("content")
 
         favicon = None
-        favicon_tag = soup.find("link", rel="icon") or soup.find(
-            "link", rel="shortcut icon"
-        )
+        favicon_tag = soup.find("link", rel="icon") or soup.find("link", rel="shortcut icon")
         if favicon_tag and favicon_tag.get("href"):
             favicon_url = favicon_tag.get("href")
             if favicon_url.startswith("//"):
@@ -168,16 +167,12 @@ async def fetch_webpage_content(url: str):
             "text_content": text_content,
             "domain": urlparse(url).netloc,
         }
-    except Exception as e:
-        # Sanitize URL in logs - remove query params and fragments
-        safe_url = urlparse(url)._replace(query="", fragment="").geturl()
-        logger.exception(
-            f"Error fetching webpage from domain {urlparse(url).netloc}"
-        )
+    except Exception:
+        logger.exception(f"Error fetching webpage from domain {urlparse(url).netloc}")
         return {
             "title": urlparse(url).netloc,
             "domain": urlparse(url).netloc,
-            "text_content": f"Failed to fetch content",
+            "text_content": "Failed to fetch content",
             "html_content": "",
         }
 
@@ -190,9 +185,7 @@ def calculate_reading_time(text_content: str) -> int:
     return max(1, round(word_count / 200))
 
 
-async def process_bookmark_content(
-    bookmark_id: str, url: str, collection_id: Optional[str] = None, user_id: str = None
-):
+async def process_bookmark_content(bookmark_id: str, url: str, collection_id: str | None = None, user_id: str = None):
     """Background task to fetch content, generate AI summaries, and create embeddings for semantic search"""
     try:
         db = get_database()
@@ -201,7 +194,7 @@ async def process_bookmark_content(
         # Fetch existing content for change detection (PERF-02)
         existing_bookmark = await db.bookmarks.find_one(
             {"id": bookmark_id},
-            {"_id": 0, "text_content": 1, "title": 1, "embedding": 1}
+            {"_id": 0, "text_content": 1, "title": 1, "embedding": 1},
         )
         old_text_content = existing_bookmark.get("text_content", "") if existing_bookmark else ""
         old_title = existing_bookmark.get("title", "") if existing_bookmark else ""
@@ -224,7 +217,7 @@ async def process_bookmark_content(
                     "text_content": new_text_content,
                     "domain": content.get("domain"),
                     "reading_time": reading_time,
-                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                    "updated_at": datetime.now(UTC).isoformat(),
                 }
             },
         )
@@ -237,11 +230,13 @@ async def process_bookmark_content(
             logger.error(f"AI summary failed after all retries for bookmark {bookmark_id}")
             await db.ai_summaries.update_one(
                 {"bookmark_id": bookmark_id},
-                {"$set": {
-                    "processing_status": "failed",
-                    "one_sentence": "AI processing temporarily unavailable. Will retry later.",
-                    "updated_at": datetime.now(timezone.utc).isoformat(),
-                }},
+                {
+                    "$set": {
+                        "processing_status": "failed",
+                        "one_sentence": "AI processing temporarily unavailable. Will retry later.",
+                        "updated_at": datetime.now(UTC).isoformat(),
+                    }
+                },
             )
 
         # Generate embedding only if content changed substantially (PERF-02)
@@ -255,7 +250,9 @@ async def process_bookmark_content(
         needs_embedding = not had_embedding or content_changed or title_changed
 
         if text_content and len(text_content.strip()) >= 50 and needs_embedding:
-            logger.info(f"Regenerating embedding for bookmark {bookmark_id} (content_changed={content_changed}, title_changed={title_changed})")
+            logger.info(
+                f"Regenerating embedding for bookmark {bookmark_id} (content_changed={content_changed}, title_changed={title_changed})"
+            )
             try:
                 embedding = await generate_embedding(text_content, title, description)
             except RetryError:
@@ -263,20 +260,16 @@ async def process_bookmark_content(
                 embedding = None
 
             # Get AI summary data for entity/concept extraction
-            ai_summary = await db.ai_summaries.find_one(
-                {"bookmark_id": bookmark_id}, {"_id": 0}
-            )
+            ai_summary = await db.ai_summaries.find_one({"bookmark_id": bookmark_id}, {"_id": 0})
 
             try:
-                entities, concepts = await extract_entities_and_concepts(
-                    text_content, ai_summary
-                )
+                entities, concepts = await extract_entities_and_concepts(text_content, ai_summary)
             except RetryError:
                 logger.error(f"Entity extraction failed after all retries for bookmark {bookmark_id}")
                 entities, concepts = [], []
 
             # Update bookmark with embedding and semantic data
-            update_data = {"updated_at": datetime.now(timezone.utc).isoformat()}
+            update_data = {"updated_at": datetime.now(UTC).isoformat()}
 
             if embedding:
                 update_data["embedding"] = embedding
@@ -289,12 +282,10 @@ async def process_bookmark_content(
                 update_data["concepts"] = concepts
 
             await db.bookmarks.update_one({"id": bookmark_id}, {"$set": update_data})
-            logger.info(
-                f"Generated embedding and semantic data for bookmark {bookmark_id}"
-            )
+            logger.info(f"Generated embedding and semantic data for bookmark {bookmark_id}")
         elif text_content and len(text_content.strip()) >= 50 and not needs_embedding:
             logger.info(f"Skipping embedding regeneration for bookmark {bookmark_id} (change below 10% threshold)")
 
         logger.info(f"Successfully processed bookmark: {bookmark_id}")
-    except Exception as e:
+    except Exception:
         logger.exception(f"Error processing bookmark {bookmark_id}")

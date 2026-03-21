@@ -9,7 +9,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
 # --- Helpers for cursor mocking ---
 
 
@@ -79,9 +78,7 @@ async def test_create_bookmark_empty_url(client):
 @pytest.mark.anyio
 async def test_create_bookmark_localhost_url(client):
     """POST /api/bookmarks with localhost URL returns 422 (SSRF protection)."""
-    response = await client.post(
-        "/api/bookmarks", json={"url": "http://localhost:8080/admin"}
-    )
+    response = await client.post("/api/bookmarks", json={"url": "http://localhost:8080/admin"})
     assert response.status_code == 422
 
 
@@ -394,9 +391,7 @@ async def test_merge_bookmarks_too_few(client, mock_db):
 @pytest.mark.anyio
 async def test_get_related_bookmarks_no_embedding(client, mock_db):
     """GET /api/bookmarks/{id}/related returns empty when no embedding exists."""
-    mock_db.bookmarks.find_one = AsyncMock(
-        return_value={"id": "bm-1", "title": "Test", "embedding": None}
-    )
+    mock_db.bookmarks.find_one = AsyncMock(return_value={"id": "bm-1", "title": "Test", "embedding": None})
 
     response = await client.get("/api/bookmarks/bm-1/related")
 

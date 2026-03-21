@@ -5,8 +5,7 @@ Pydantic models for bookmark import/export operations.
 """
 
 import uuid
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -15,8 +14,8 @@ class BackupRequest(BaseModel):
     format: str = "html"  # "html" | "json" | "csv"
     include_notes: bool = True
     include_ai_summaries: bool = True
-    date_from: Optional[datetime] = None
-    date_to: Optional[datetime] = None
+    date_from: datetime | None = None
+    date_to: datetime | None = None
 
 
 class ImportJob(BaseModel):
@@ -28,6 +27,6 @@ class ImportJob(BaseModel):
     ai_processed: int = 0
     failed: int = 0
     status: str = "processing"  # processing, completed, failed
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    estimated_completion_time: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    estimated_completion_time: datetime | None = None

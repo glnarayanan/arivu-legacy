@@ -4,15 +4,13 @@ Database module for MongoDB connection management.
 Provides async MongoDB client with proper connection pooling.
 """
 
-from typing import Optional
-
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 
 from app.core.config import settings
 
 # Global client and database references
-client: Optional[AsyncIOMotorClient] = None
-db: Optional[AsyncIOMotorDatabase] = None
+client: AsyncIOMotorClient | None = None
+db: AsyncIOMotorDatabase | None = None
 
 
 def init_db() -> AsyncIOMotorDatabase:
@@ -63,7 +61,5 @@ def get_database() -> AsyncIOMotorDatabase:
         AsyncIOMotorDatabase: The database instance
     """
     if db is None:
-        raise RuntimeError(
-            "Database not initialized. Call init_db() first."
-        )
+        raise RuntimeError("Database not initialized. Call init_db() first.")
     return db

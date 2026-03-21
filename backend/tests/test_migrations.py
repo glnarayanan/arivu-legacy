@@ -8,6 +8,7 @@ Marked @pytest.mark.integration -- only run when explicitly requested:
 Requires: testcontainers[mongo], motor
     pip install testcontainers[mongo]
 """
+
 import importlib
 
 import pytest
@@ -20,8 +21,8 @@ verify = migration_001.verify
 
 # Guard for testcontainers availability
 try:
-    from testcontainers.mongodb import MongoDbContainer
     from motor.motor_asyncio import AsyncIOMotorClient
+    from testcontainers.mongodb import MongoDbContainer
 
     HAS_TESTCONTAINERS = True
 except ImportError:
@@ -149,9 +150,7 @@ class TestVersionFieldMigration:
         assert result["modified_count"] == 1
 
         # The bookmark with version=5 must still have version=5
-        existing = await real_db.bookmarks.find_one(
-            {"url": "https://example.com/existing"}
-        )
+        existing = await real_db.bookmarks.find_one({"url": "https://example.com/existing"})
         assert existing["version"] == 5
 
         # Second upgrade -- nothing to modify (idempotent)

@@ -14,6 +14,7 @@ Usage via runner:
     python -m migrations.runner rollback 001_add_version_field
     python -m migrations.runner verify 001_add_version_field
 """
+
 import logging
 
 logger = logging.getLogger(__name__)
@@ -49,12 +50,8 @@ async def downgrade(db):
 
 async def verify(db):
     """Check migration status: how many bookmarks have/lack the version field."""
-    without_version = await db.bookmarks.count_documents(
-        {"version": {"$exists": False}}
-    )
-    with_version = await db.bookmarks.count_documents(
-        {"version": {"$exists": True}}
-    )
+    without_version = await db.bookmarks.count_documents({"version": {"$exists": False}})
+    with_version = await db.bookmarks.count_documents({"version": {"$exists": True}})
     total = without_version + with_version
     return {
         "migration": "001_add_version_field",
@@ -62,5 +59,5 @@ async def verify(db):
         "with_version": with_version,
         "without_version": without_version,
         "all_migrated": without_version == 0,
-        "percent_migrated": round(with_version / total * 100, 1) if total > 0 else 100.0,
+        "percent_migrated": (round(with_version / total * 100, 1) if total > 0 else 100.0),
     }

@@ -10,20 +10,18 @@ import json
 import logging
 import time
 from collections import deque
-from datetime import datetime, timezone
-from typing import List, Optional
+from datetime import UTC, datetime
 
 import google.generativeai as genai
-
-from app.core.instance_config import get_config_value
 from google.api_core.exceptions import (
     DeadlineExceeded,
-    InternalServerError as GoogleInternalServerError,
     ResourceExhausted,
     ServiceUnavailable,
 )
+from google.api_core.exceptions import (
+    InternalServerError as GoogleInternalServerError,
+)
 from tenacity import (
-    RetryError,
     before_sleep_log,
     retry,
     retry_if_exception_type,
@@ -32,6 +30,7 @@ from tenacity import (
 )
 
 from app.core.database import get_database
+from app.core.instance_config import get_config_value
 
 logger = logging.getLogger(__name__)
 
@@ -39,12 +38,12 @@ logger = logging.getLogger(__name__)
 # Only transient errors are retried; permanent errors (InvalidArgument,
 # PermissionDenied) fail fast without retry.
 RETRIABLE_AI_EXCEPTIONS = (
-    ResourceExhausted,          # 429 - Rate limit / quota
-    DeadlineExceeded,           # 504 - Timeout
-    ServiceUnavailable,         # 503 - Temporary unavailable
+    ResourceExhausted,  # 429 - Rate limit / quota
+    DeadlineExceeded,  # 504 - Timeout
+    ServiceUnavailable,  # 503 - Temporary unavailable
     GoogleInternalServerError,  # 500 - Server error
-    ConnectionError,            # Network issues
-    TimeoutError,               # Python timeout
+    ConnectionError,  # Network issues
+    TimeoutError,  # Python timeout
 )
 
 
@@ -68,7 +67,7 @@ class EnhancedGeminiRateLimiter:
         # Daily tracking
         self.total_requests_today = 0
         self.total_tokens_today = 0
-        self.current_date = datetime.now(timezone.utc).date().isoformat()
+        self.current_date = datetime.now(UTC).date().isoformat()
 
         # Thread safety
         self.lock = asyncio.Lock()
@@ -85,7 +84,7 @@ class EnhancedGeminiRateLimiter:
         """
         async with self.lock:
             now = time.time()
-            today = datetime.now(timezone.utc).date().isoformat()
+            today = datetime.now(UTC).date().isoformat()
 
             # Reset daily counters if date changed
             if today != self.current_date:
@@ -113,9 +112,7 @@ class EnhancedGeminiRateLimiter:
             if rpm_utilization >= 0.80 or tpm_utilization >= 0.80:
                 # Wait a bit to smooth out traffic
                 wait_time = 0.5
-                logger.debug(
-                    f"Dynamic throttling: RPM={rpm_utilization:.0%}, TPM={tpm_utilization:.0%}"
-                )
+                logger.debug(f"Dynamic throttling: RPM={rpm_utilization:.0%}, TPM={tpm_utilization:.0%}")
 
             # Hard limit: must wait if at capacity
             if current_rpm >= self.max_rpm:
@@ -128,12 +125,8 @@ class EnhancedGeminiRateLimiter:
 
             # Check daily limit (hard stop)
             if current_daily >= self.max_daily:
-                logger.error(
-                    f"Daily Gemini API quota exceeded: {current_daily}/{self.max_daily}"
-                )
-                raise Exception(
-                    "Daily Gemini API quota exceeded. Please try again tomorrow."
-                )
+                logger.error(f"Daily Gemini API quota exceeded: {current_daily}/{self.max_daily}")
+                raise Exception("Daily Gemini API quota exceeded. Please try again tomorrow.")
 
             # 5. Wait if needed
             if wait_time > 0:
@@ -179,9 +172,10 @@ gemini_rate_limiter = EnhancedGeminiRateLimiter(
 )
 
 
-def normalize_embedding(embedding: List[float]) -> List[float]:
+def normalize_embedding(embedding: list[float]) -> list[float]:
     """L2-normalize an embedding vector for consistent cosine similarity."""
     import numpy as np
+
     vec = np.array(embedding)
     norm = np.linalg.norm(vec)
     if norm > 0:
@@ -226,18 +220,11 @@ async def call_gemini_with_retry(model, prompt_text, generation_config=None):
     """
     await gemini_rate_limiter.acquire(estimated_tokens=1500)
     if generation_config:
-        response = await asyncio.to_thread(
-            model.generate_content, prompt_text,
-            generation_config=generation_config
-        )
+        response = await asyncio.to_thread(model.generate_content, prompt_text, generation_config=generation_config)
     else:
         response = await asyncio.to_thread(model.generate_content, prompt_text)
-    if hasattr(response, "usage_metadata") and hasattr(
-        response.usage_metadata, "total_token_count"
-    ):
-        await gemini_rate_limiter.record_actual_tokens(
-            response.usage_metadata.total_token_count
-        )
+    if hasattr(response, "usage_metadata") and hasattr(response.usage_metadata, "total_token_count"):
+        await gemini_rate_limiter.record_actual_tokens(response.usage_metadata.total_token_count)
     return response
 
 
@@ -270,7 +257,7 @@ async def generate_embedding(
     description: str = "",
     min_length: int = 50,
     task_type: str = "retrieval_document",
-) -> Optional[List[float]]:
+) -> list[float] | None:
     """
     Generate embedding vector for semantic search using Google's embedding model
 
@@ -319,8 +306,8 @@ async def generate_embedding(
         logger.info(f"Generated {task_type} embedding vector with {len(normalized_embedding)} dimensions")
         return normalized_embedding
 
-    except Exception as e:
-        logger.exception(f"Error generating embedding")
+    except Exception:
+        logger.exception("Error generating embedding")
         return None
 
 
@@ -329,10 +316,8 @@ async def generate_ai_summaries(text_content: str, bookmark_id: str):
     try:
         db = get_database()
         # Wrap AI processing with 60-second timeout to prevent hanging
-        return await asyncio.wait_for(
-            _generate_ai_summaries_impl(text_content, bookmark_id), timeout=60.0
-        )
-    except asyncio.TimeoutError:
+        return await asyncio.wait_for(_generate_ai_summaries_impl(text_content, bookmark_id), timeout=60.0)
+    except TimeoutError:
         db = get_database()
         logger.error(f"AI summary generation timed out for bookmark {bookmark_id}")
         await db.ai_summaries.update_one(
@@ -341,15 +326,13 @@ async def generate_ai_summaries(text_content: str, bookmark_id: str):
                 "$set": {
                     "processing_status": "failed",
                     "one_sentence": "AI processing timed out",
-                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                    "updated_at": datetime.now(UTC).isoformat(),
                 }
             },
         )
         return {"processing_status": "failed"}
-    except Exception as e:
-        logger.exception(
-            f"Error in AI summary wrapper for bookmark {bookmark_id}"
-        )
+    except Exception:
+        logger.exception(f"Error in AI summary wrapper for bookmark {bookmark_id}")
         return {"processing_status": "failed"}
 
 
@@ -357,9 +340,7 @@ async def _generate_ai_summaries_impl(text_content: str, bookmark_id: str):
     """Internal implementation of AI summary generation"""
     try:
         if not text_content or len(text_content.strip()) < 20:
-            logger.info(
-                f"Insufficient content for AI processing: bookmark {bookmark_id}"
-            )
+            logger.info(f"Insufficient content for AI processing: bookmark {bookmark_id}")
             raise ValueError("Insufficient content for AI processing")
 
         gemini_api_key = await get_config_value("gemini_api_key")
@@ -455,9 +436,7 @@ TAGS:""",
 
         # Parse one-sentence summary
         one_sentence = (
-            results_dict["one_sentence"].text.strip()
-            if results_dict["one_sentence"].text
-            else "Summary unavailable"
+            results_dict["one_sentence"].text.strip() if results_dict["one_sentence"].text else "Summary unavailable"
         )
 
         # Parse executive summary (replaces both bullets and long_form)
@@ -502,7 +481,7 @@ TAGS:""",
                     "highlights": highlights,
                     "suggested_tags": suggested_tags,
                     "processing_status": "completed",
-                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                    "updated_at": datetime.now(UTC).isoformat(),
                     # Keep legacy fields for backward compatibility
                     "bullet_points": [],  # Deprecated
                     "long_form": exec_summary,  # Map to exec_summary for backward compat
@@ -511,10 +490,8 @@ TAGS:""",
         )
         logger.info(f"AI summaries generated successfully for bookmark {bookmark_id}")
         return {"processing_status": "completed"}
-    except Exception as e:
-        logger.exception(
-            f"Error generating AI summaries for bookmark {bookmark_id}"
-        )
+    except Exception:
+        logger.exception(f"Error generating AI summaries for bookmark {bookmark_id}")
         db = get_database()
         await db.ai_summaries.update_one(
             {"bookmark_id": bookmark_id},
@@ -522,7 +499,7 @@ TAGS:""",
                 "$set": {
                     "processing_status": "failed",
                     "one_sentence": "AI processing failed",
-                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                    "updated_at": datetime.now(UTC).isoformat(),
                 }
             },
         )
@@ -531,14 +508,68 @@ TAGS:""",
 
 # Denylist for common false positive entities
 ENTITY_DENYLIST = {
-    "the", "this", "that", "these", "those", "what", "which", "where", "when",
-    "how", "why", "who", "will", "would", "could", "should", "may", "might",
-    "must", "can", "read", "more", "here", "click", "view", "see", "also",
-    "january", "february", "march", "april", "may", "june", "july", "august",
-    "september", "october", "november", "december", "monday", "tuesday",
-    "wednesday", "thursday", "friday", "saturday", "sunday", "today", "yesterday",
-    "tomorrow", "new", "update", "updated", "latest", "recent", "best", "top",
-    "home", "about", "contact", "privacy", "terms", "copyright", "share",
+    "the",
+    "this",
+    "that",
+    "these",
+    "those",
+    "what",
+    "which",
+    "where",
+    "when",
+    "how",
+    "why",
+    "who",
+    "will",
+    "would",
+    "could",
+    "should",
+    "may",
+    "might",
+    "must",
+    "can",
+    "read",
+    "more",
+    "here",
+    "click",
+    "view",
+    "see",
+    "also",
+    "january",
+    "february",
+    "march",
+    "april",
+    "june",
+    "july",
+    "august",
+    "september",
+    "october",
+    "november",
+    "december",
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday",
+    "today",
+    "yesterday",
+    "tomorrow",
+    "new",
+    "update",
+    "updated",
+    "latest",
+    "recent",
+    "best",
+    "top",
+    "home",
+    "about",
+    "contact",
+    "privacy",
+    "terms",
+    "copyright",
+    "share",
 }
 
 # Minimum confidence threshold for entities
@@ -550,7 +581,7 @@ def normalize_entity_name(name: str) -> str:
     return " ".join(name.lower().strip().split())
 
 
-async def extract_entities_with_gemini(text_content: str) -> List[dict]:
+async def extract_entities_with_gemini(text_content: str) -> list[dict]:
     """
     Extract named entities using Gemini structured extraction.
 
@@ -586,7 +617,8 @@ Rules:
 
         model = genai.GenerativeModel("gemini-2.5-flash")
         response = await call_gemini_with_retry(
-            model, extraction_prompt,
+            model,
+            extraction_prompt,
             generation_config=genai.types.GenerationConfig(
                 temperature=0.1,  # Low temperature for consistent extraction
                 max_output_tokens=1000,
@@ -627,11 +659,13 @@ Rules:
                 continue
 
             seen_names.add(normalized)
-            valid_entities.append({
-                "name": name,  # Keep original casing
-                "type": entity_type,
-                "confidence": confidence,
-            })
+            valid_entities.append(
+                {
+                    "name": name,  # Keep original casing
+                    "type": entity_type,
+                    "confidence": confidence,
+                }
+            )
 
         logger.info(f"Extracted {len(valid_entities)} entities via Gemini")
         return valid_entities[:15]
@@ -639,14 +673,12 @@ Rules:
     except json.JSONDecodeError as e:
         logger.warning(f"Failed to parse entity extraction JSON: {e}")
         return []
-    except Exception as e:
-        logger.exception(f"Error in Gemini entity extraction")
+    except Exception:
+        logger.exception("Error in Gemini entity extraction")
         return []
 
 
-async def extract_entities_and_concepts(
-    text_content: str, summary_data: dict
-) -> tuple:
+async def extract_entities_and_concepts(text_content: str, summary_data: dict) -> tuple:
     """
     Extract named entities and key concepts from content using Gemini AI.
 
@@ -672,6 +704,6 @@ async def extract_entities_and_concepts(
 
         return entities, concepts
 
-    except Exception as e:
-        logger.exception(f"Error extracting entities and concepts")
+    except Exception:
+        logger.exception("Error extracting entities and concepts")
         return [], []

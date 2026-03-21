@@ -44,7 +44,7 @@ def get_user_identifier(request: Request) -> str:
             if user_id:
                 return f"user:{user_id}"
     except Exception:
-        pass
+        return f"ip:{get_remote_address(request)}"
 
     # Fallback to IP-based rate limiting
     return f"ip:{get_remote_address(request)}"
@@ -89,17 +89,15 @@ async def get_current_user(request: Request) -> dict:
             raise HTTPException(status_code=401, detail="Invalid token")
 
         db = get_database()
-        user = await db.users.find_one(
-            {"id": user_id}, {"_id": 0, "password_hash": 0}
-        )
+        user = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
         if user is None:
             raise HTTPException(status_code=401, detail="User not found")
         return user
 
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token expired")
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid token")
+    except jwt.ExpiredSignatureError as err:
+        raise HTTPException(status_code=401, detail="Token expired") from err
+    except jwt.InvalidTokenError as err:
+        raise HTTPException(status_code=401, detail="Invalid token") from err
 
 
 # Alias for backward compatibility

@@ -4,8 +4,10 @@ Tests for knowledge graph router endpoints.
 Covers: explore, empty state, semantic search, expand query, regenerate embeddings.
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
 
 # Cursor mock factory for chained MongoDB queries
 def make_cursor_mock(data):
@@ -104,9 +106,7 @@ async def test_semantic_search(mock_embed, client, mock_db):
             "concepts": ["programming"],
         },
     ]
-    mock_db.bookmarks.find.return_value = MagicMock(
-        to_list=AsyncMock(return_value=mock_bookmarks)
-    )
+    mock_db.bookmarks.find.return_value = MagicMock(to_list=AsyncMock(return_value=mock_bookmarks))
 
     response = await client.get("/api/knowledge-graph/search?query=python+programming")
     assert response.status_code == 200
@@ -167,9 +167,9 @@ async def test_regenerate_embeddings(client, mock_db):
 @pytest.mark.anyio
 async def test_explore_rejects_unauthenticated(mock_db):
     """Knowledge graph endpoints reject unauthenticated requests."""
+    from app.routers.knowledge_graph import router as kg_router
     from fastapi import APIRouter, FastAPI
     from httpx import ASGITransport, AsyncClient
-    from app.routers.knowledge_graph import router as kg_router
 
     # Create test app WITHOUT auth override
     test_app = FastAPI()
@@ -179,12 +179,11 @@ async def test_explore_rejects_unauthenticated(mock_db):
 
     # Override database
     import app.core.database as db_module
+
     _original_db = db_module.db
     db_module.db = mock_db
 
-    async with AsyncClient(
-        transport=ASGITransport(app=test_app), base_url="http://test"
-    ) as ac:
+    async with AsyncClient(transport=ASGITransport(app=test_app), base_url="http://test") as ac:
         response = await ac.get("/api/knowledge-graph/explore")
         assert response.status_code == 401
 

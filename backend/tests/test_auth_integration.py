@@ -11,16 +11,15 @@ Uses a persistent AsyncClient session that tracks cookies automatically.
 Each test creates its own app and client for complete isolation.
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fastapi import APIRouter, FastAPI
-from httpx import ASGITransport, AsyncClient
-
 from app.core.dependencies import limiter
 from app.core.security import hash_password
 from app.routers.auth import router as auth_router
+from fastapi import APIRouter, FastAPI
+from httpx import ASGITransport, AsyncClient
 
 
 def _create_test_app(mock_db):
@@ -70,6 +69,14 @@ TEST_USER = {
 }
 
 
+def _auth_cookie_header(response) -> dict[str, str]:
+    access_token = response.cookies.get("access_token")
+    refresh_token = response.cookies.get("refresh_token")
+    assert access_token is not None
+    assert refresh_token is not None
+    return {"Cookie": f"access_token={access_token}; refresh_token={refresh_token}"}
+
+
 def _make_flexible_find_one(test_user):
     """Create a find_one mock that handles projection filtering."""
 
@@ -92,17 +99,18 @@ async def test_full_auth_flow():
     mock_db.users.find_one = _make_flexible_find_one(TEST_USER)
 
     try:
-        with patch(
-            "app.routers.auth.is_account_locked",
-            new_callable=AsyncMock,
-            return_value=False,
-        ), patch(
-            "app.routers.auth.clear_failed_logins",
-            new_callable=AsyncMock,
+        with (
+            patch(
+                "app.routers.auth.is_account_locked",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+            patch(
+                "app.routers.auth.clear_failed_logins",
+                new_callable=AsyncMock,
+            ),
         ):
-            async with AsyncClient(
-                transport=ASGITransport(app=test_app), base_url="http://test"
-            ) as client:
+            async with AsyncClient(transport=ASGITransport(app=test_app), base_url="http://test") as client:
                 # Step 1: Login
                 login_response = await client.post(
                     "/api/auth/login",
@@ -111,31 +119,27 @@ async def test_full_auth_flow():
                         "password": TEST_PASSWORD,
                     },
                 )
-                assert login_response.status_code == 200, (
-                    f"Login failed: {login_response.text}"
-                )
+                assert login_response.status_code == 200, f"Login failed: {login_response.text}"
                 assert "access_token" in login_response.cookies
                 assert "refresh_token" in login_response.cookies
+                auth_headers = _auth_cookie_header(login_response)
 
                 # Step 2: Authenticated request with cookies
-                me_response = await client.get("/api/auth/me")
-                assert me_response.status_code == 200, (
-                    f"/auth/me failed: {me_response.text}"
-                )
+                me_response = await client.get("/api/auth/me", headers=auth_headers)
+                assert me_response.status_code == 200, f"/auth/me failed: {me_response.text}"
                 me_data = me_response.json()
                 assert me_data["id"] == "user-integration-123"
                 assert me_data["email"] == "integration@example.com"
 
                 # Step 3: Logout
-                logout_response = await client.post("/api/auth/logout")
+                logout_response = await client.post("/api/auth/logout", headers=auth_headers)
                 assert logout_response.status_code == 200
 
                 # Step 4: Subsequent request should fail (cookies cleared)
                 me_after_logout = await client.get("/api/auth/me")
-                assert me_after_logout.status_code == 401, (
-                    f"Expected 401 after logout, got {me_after_logout.status_code}: "
-                    f"{me_after_logout.text}"
-                )
+                assert (
+                    me_after_logout.status_code == 401
+                ), f"Expected 401 after logout, got {me_after_logout.status_code}: {me_after_logout.text}"
     finally:
         import app.core.database as db_module
 
@@ -151,17 +155,18 @@ async def test_login_sets_cookie_attributes():
     mock_db.users.find_one = _make_flexible_find_one(TEST_USER)
 
     try:
-        with patch(
-            "app.routers.auth.is_account_locked",
-            new_callable=AsyncMock,
-            return_value=False,
-        ), patch(
-            "app.routers.auth.clear_failed_logins",
-            new_callable=AsyncMock,
+        with (
+            patch(
+                "app.routers.auth.is_account_locked",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+            patch(
+                "app.routers.auth.clear_failed_logins",
+                new_callable=AsyncMock,
+            ),
         ):
-            async with AsyncClient(
-                transport=ASGITransport(app=test_app), base_url="http://test"
-            ) as client:
+            async with AsyncClient(transport=ASGITransport(app=test_app), base_url="http://test") as client:
                 response = await client.post(
                     "/api/auth/login",
                     json={
@@ -174,9 +179,9 @@ async def test_login_sets_cookie_attributes():
 
                 # Inspect raw Set-Cookie headers for security attributes
                 set_cookie_headers = response.headers.get_list("set-cookie")
-                assert len(set_cookie_headers) >= 2, (
-                    f"Expected at least 2 Set-Cookie headers, got {len(set_cookie_headers)}"
-                )
+                assert (
+                    len(set_cookie_headers) >= 2
+                ), f"Expected at least 2 Set-Cookie headers, got {len(set_cookie_headers)}"
 
                 # Find access_token cookie header
                 access_cookie = None
@@ -218,9 +223,7 @@ async def test_password_reset_flow():
             new_callable=AsyncMock,
             return_value=True,
         ) as mock_send_email:
-            async with AsyncClient(
-                transport=ASGITransport(app=test_app), base_url="http://test"
-            ) as client:
+            async with AsyncClient(transport=ASGITransport(app=test_app), base_url="http://test") as client:
                 # Step 1: Request password reset
                 forgot_response = await client.post(
                     "/api/auth/forgot-password",
@@ -231,9 +234,7 @@ async def test_password_reset_flow():
                 mock_send_email.assert_called_once()
 
                 # Step 2: Reset password with valid token
-                future_time = (
-                    datetime.now(timezone.utc) + timedelta(hours=1)
-                ).isoformat()
+                future_time = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
                 mock_db.password_reset_tokens.find_one = AsyncMock(
                     return_value={
                         "id": "token-reset-123",
@@ -272,17 +273,18 @@ async def test_change_password_flow():
     mock_db.users.find_one = _make_flexible_find_one(test_user)
 
     try:
-        with patch(
-            "app.routers.auth.is_account_locked",
-            new_callable=AsyncMock,
-            return_value=False,
-        ), patch(
-            "app.routers.auth.clear_failed_logins",
-            new_callable=AsyncMock,
+        with (
+            patch(
+                "app.routers.auth.is_account_locked",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+            patch(
+                "app.routers.auth.clear_failed_logins",
+                new_callable=AsyncMock,
+            ),
         ):
-            async with AsyncClient(
-                transport=ASGITransport(app=test_app), base_url="http://test"
-            ) as client:
+            async with AsyncClient(transport=ASGITransport(app=test_app), base_url="http://test") as client:
                 # Step 1: Login to get auth cookies
                 login_response = await client.post(
                     "/api/auth/login",
@@ -292,11 +294,13 @@ async def test_change_password_flow():
                     },
                 )
                 assert login_response.status_code == 200
+                auth_headers = _auth_cookie_header(login_response)
 
                 # Step 2: Change password (requires authentication via cookies)
                 mock_db.users.update_one = AsyncMock()
                 change_response = await client.post(
                     "/api/auth/change-password",
+                    headers=auth_headers,
                     json={
                         "current_password": TEST_PASSWORD,
                         "new_password": "NewSecurePass1!",

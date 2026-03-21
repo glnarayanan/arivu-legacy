@@ -15,7 +15,6 @@ import base64
 import hashlib
 import logging
 import os
-from typing import Optional
 
 from cryptography.fernet import Fernet
 
@@ -25,9 +24,7 @@ from app.core.database import get_database
 logger = logging.getLogger(__name__)
 
 # Derive Fernet key from SECRET_KEY (same derivation as server.py)
-_fernet_key = base64.urlsafe_b64encode(
-    hashlib.sha256(settings.SECRET_KEY.encode()).digest()
-)
+_fernet_key = base64.urlsafe_b64encode(hashlib.sha256(settings.SECRET_KEY.encode()).digest())
 _fernet = Fernet(_fernet_key)
 
 # DB key → environment variable name mapping
@@ -43,13 +40,11 @@ _ENV_KEY_MAP = {
 _ENCRYPTED_KEYS = {"gemini_api_key", "x_client_id", "x_client_secret", "resend_api_key"}
 
 
-async def get_config_value(db_key: str, default: Optional[str] = None) -> Optional[str]:
+async def get_config_value(db_key: str, default: str | None = None) -> str | None:
     """Get a config value: DB override (decrypted) → env var → default."""
     try:
         db = get_database()
-        doc = await db.instance_settings.find_one(
-            {"_id": "api_keys"}, {db_key: 1}
-        )
+        doc = await db.instance_settings.find_one({"_id": "api_keys"}, {db_key: 1})
         if doc and doc.get(db_key):
             if db_key in _ENCRYPTED_KEYS:
                 return _fernet.decrypt(doc[db_key].encode()).decode()
@@ -65,12 +60,14 @@ async def is_x_integration_enabled() -> bool:
     """Check if X integration is enabled (DB override → env var)."""
     try:
         db = get_database()
-        doc = await db.instance_settings.find_one(
-            {"_id": "api_keys"}, {"x_integration_enabled": 1}
-        )
+        doc = await db.instance_settings.find_one({"_id": "api_keys"}, {"x_integration_enabled": 1})
         if doc and doc.get("x_integration_enabled") is not None:
             return bool(doc["x_integration_enabled"])
     except Exception:
         logger.debug("DB config lookup failed for x_integration_enabled")
 
-    return os.environ.get("X_INTEGRATION_ENABLED", "false").lower() in ("true", "1", "yes")
+    return os.environ.get("X_INTEGRATION_ENABLED", "false").lower() in (
+        "true",
+        "1",
+        "yes",
+    )

@@ -20,10 +20,9 @@ import asyncio
 import hashlib
 import os
 import random
-import sys
 import time
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from motor.motor_asyncio import AsyncIOMotorClient
 
@@ -85,23 +84,83 @@ TITLE_TEMPLATES = [
     "Debugging {tech} {noun}: Common Pitfalls",
 ]
 
-VERBS = ["deploy", "configure", "optimize", "debug", "test", "scale", "monitor", "secure"]
+VERBS = [
+    "deploy",
+    "configure",
+    "optimize",
+    "debug",
+    "test",
+    "scale",
+    "monitor",
+    "secure",
+]
 TECH = [
-    "Python", "JavaScript", "React", "FastAPI", "MongoDB", "Docker",
-    "Kubernetes", "Redis", "GraphQL", "TypeScript", "Rust", "Go",
-    "PostgreSQL", "Nginx", "Terraform", "AWS", "Tailwind", "Next.js",
+    "Python",
+    "JavaScript",
+    "React",
+    "FastAPI",
+    "MongoDB",
+    "Docker",
+    "Kubernetes",
+    "Redis",
+    "GraphQL",
+    "TypeScript",
+    "Rust",
+    "Go",
+    "PostgreSQL",
+    "Nginx",
+    "Terraform",
+    "AWS",
+    "Tailwind",
+    "Next.js",
 ]
 NOUNS = [
-    "applications", "microservices", "APIs", "databases", "pipelines",
-    "clusters", "containers", "services", "workflows", "deployments",
-    "architectures", "patterns", "testing", "monitoring", "security",
+    "applications",
+    "microservices",
+    "APIs",
+    "databases",
+    "pipelines",
+    "clusters",
+    "containers",
+    "services",
+    "workflows",
+    "deployments",
+    "architectures",
+    "patterns",
+    "testing",
+    "monitoring",
+    "security",
 ]
-ADJECTIVES = ["scalable", "production-ready", "modern", "efficient", "resilient", "secure"]
+ADJECTIVES = [
+    "scalable",
+    "production-ready",
+    "modern",
+    "efficient",
+    "resilient",
+    "secure",
+]
 TAGS = [
-    "python", "javascript", "react", "fastapi", "mongodb", "docker",
-    "kubernetes", "devops", "tutorial", "guide", "reference", "api",
-    "machine-learning", "web-development", "backend", "frontend",
-    "database", "security", "testing", "performance", "architecture",
+    "python",
+    "javascript",
+    "react",
+    "fastapi",
+    "mongodb",
+    "docker",
+    "kubernetes",
+    "devops",
+    "tutorial",
+    "guide",
+    "reference",
+    "api",
+    "machine-learning",
+    "web-development",
+    "backend",
+    "frontend",
+    "database",
+    "security",
+    "testing",
+    "performance",
+    "architecture",
 ]
 
 
@@ -128,7 +187,7 @@ def _generate_bookmark(user_id: str, index: int):
 
     # Spread creation dates over the last 365 days
     days_ago = random.randint(0, 365)
-    created_at = datetime.now(timezone.utc) - timedelta(days=days_ago)
+    created_at = datetime.now(UTC) - timedelta(days=days_ago)
     updated_at = created_at + timedelta(hours=random.randint(0, 48))
 
     # 60% have been accessed at some point
@@ -155,10 +214,10 @@ def _generate_bookmark(user_id: str, index: int):
         "user_id": user_id,
         "url": url,
         "title": _generate_title(),
-        "description": f"Bookmark {index} description" if random.random() < 0.8 else None,
+        "description": (f"Bookmark {index} description" if random.random() < 0.8 else None),
         "domain": domain,
         "favicon": f"https://{domain}/favicon.ico",
-        "thumbnail": f"https://{domain}/thumb/{path_hash}.jpg" if random.random() < 0.5 else None,
+        "thumbnail": (f"https://{domain}/thumb/{path_hash}.jpg" if random.random() < 0.5 else None),
         "read_status": random.random() < 0.3,  # 30% read
         "reading_time": random.choice([2, 3, 5, 7, 10, 15, 20, None]),
         "version": 1,
@@ -190,7 +249,7 @@ async def ensure_test_user(db, email: str, password: str) -> str:
         "email": email,
         "name": "Load Test User",
         "hashed_password": bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8"),
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
     }
     await db.users.insert_one(user)
     print(f"  Created test user: {email} (id: {user_id})")
@@ -237,10 +296,7 @@ async def seed_bookmarks(
 
     for batch_start in range(0, count, batch_size):
         batch_end = min(batch_start + batch_size, count)
-        batch = [
-            _generate_bookmark(user_id, i)
-            for i in range(batch_start, batch_end)
-        ]
+        batch = [_generate_bookmark(user_id, i) for i in range(batch_start, batch_end)]
 
         try:
             result = await db.bookmarks.insert_many(batch, ordered=False)
@@ -318,7 +374,7 @@ async def main():
 
         # Summary
         bookmark_count = await db.bookmarks.count_documents({"user_id": user_id})
-        print(f"\nSummary:")
+        print("\nSummary:")
         print(f"  User: {args.email} (id: {user_id})")
         print(f"  Total bookmarks: {bookmark_count:,}")
         print(f"  Database: {args.db_name}")

@@ -10,8 +10,7 @@ import io
 import json
 import logging
 import uuid
-from datetime import datetime, timedelta, timezone
-from typing import List
+from datetime import UTC, datetime, timedelta
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
@@ -28,18 +27,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["import-export"])
 
 
-async def process_bulk_import(
-    import_job_id: str, bookmark_ids: List[str], user_id: str
-):
+async def process_bulk_import(import_job_id: str, bookmark_ids: list[str], user_id: str):
     """Background task to process bulk import in two phases"""
     try:
         # Get own db reference inside background task
         db = get_database()
 
         total = len(bookmark_ids)
-        logger.info(
-            f"Starting bulk import processing for job {import_job_id}: {total} bookmarks"
-        )
+        logger.info(f"Starting bulk import processing for job {import_job_id}: {total} bookmarks")
 
         # Phase 1: Fast content fetching (no rate limit)
         content_fetched = 0
@@ -66,7 +61,7 @@ async def process_bulk_import(
                             "text_content": content.get("text_content"),
                             "domain": content.get("domain"),
                             "reading_time": reading_time,
-                            "updated_at": datetime.now(timezone.utc).isoformat(),
+                            "updated_at": datetime.now(UTC).isoformat(),
                         }
                     },
                 )
@@ -79,15 +74,13 @@ async def process_bulk_import(
                         {
                             "$set": {
                                 "content_fetched": content_fetched,
-                                "updated_at": datetime.now(timezone.utc).isoformat(),
+                                "updated_at": datetime.now(UTC).isoformat(),
                             }
                         },
                     )
-            except Exception as e:
+            except Exception:
                 failed += 1
-                logger.exception(
-                    f"Error fetching content for bookmark {bookmark_id}"
-                )
+                logger.exception(f"Error fetching content for bookmark {bookmark_id}")
 
         # Update after Phase 1 completion
         await db.import_jobs.update_one(
@@ -96,14 +89,12 @@ async def process_bulk_import(
                 "$set": {
                     "content_fetched": content_fetched,
                     "failed": failed,
-                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                    "updated_at": datetime.now(UTC).isoformat(),
                 }
             },
         )
 
-        logger.info(
-            f"Phase 1 complete for job {import_job_id}: {content_fetched}/{total} fetched, {failed} failed"
-        )
+        logger.info(f"Phase 1 complete for job {import_job_id}: {content_fetched}/{total} fetched, {failed} failed")
 
         # Phase 2: Rate-limited AI processing
         ai_processed = 0
@@ -114,9 +105,7 @@ async def process_bulk_import(
                 if not bookmark or not bookmark.get("text_content"):
                     continue
 
-                result = await generate_ai_summaries(
-                    bookmark["text_content"], bookmark_id
-                )
+                result = await generate_ai_summaries(bookmark["text_content"], bookmark_id)
                 if result.get("processing_status") == "completed":
                     ai_processed += 1
                 else:
@@ -126,18 +115,12 @@ async def process_bulk_import(
                 if ai_processed % 5 == 0:
                     # Calculate ETA
                     elapsed = (
-                        datetime.now(timezone.utc)
-                        - datetime.fromisoformat(
-                            (await db.import_jobs.find_one({"id": import_job_id}))[
-                                "created_at"
-                            ]
-                        )
+                        datetime.now(UTC)
+                        - datetime.fromisoformat((await db.import_jobs.find_one({"id": import_job_id}))["created_at"])
                     ).total_seconds()
                     remaining = total - ai_processed
-                    eta = datetime.now(timezone.utc) + timedelta(
-                        seconds=(elapsed / ai_processed) * remaining
-                        if ai_processed > 0
-                        else 0
+                    eta = datetime.now(UTC) + timedelta(
+                        seconds=((elapsed / ai_processed) * remaining if ai_processed > 0 else 0)
                     )
 
                     await db.import_jobs.update_one(
@@ -147,15 +130,13 @@ async def process_bulk_import(
                                 "ai_processed": ai_processed,
                                 "failed": failed,
                                 "estimated_completion_time": eta.isoformat(),
-                                "updated_at": datetime.now(timezone.utc).isoformat(),
+                                "updated_at": datetime.now(UTC).isoformat(),
                             }
                         },
                     )
-            except Exception as e:
+            except Exception:
                 failed += 1
-                logger.exception(
-                    f"Error processing AI for bookmark {bookmark_id}"
-                )
+                logger.exception(f"Error processing AI for bookmark {bookmark_id}")
 
         # Mark job as completed
         await db.import_jobs.update_one(
@@ -165,16 +146,14 @@ async def process_bulk_import(
                     "ai_processed": ai_processed,
                     "failed": failed,
                     "status": "completed",
-                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                    "updated_at": datetime.now(UTC).isoformat(),
                 }
             },
         )
 
-        logger.info(
-            f"Bulk import completed for job {import_job_id}: {ai_processed}/{total} AI processed"
-        )
+        logger.info(f"Bulk import completed for job {import_job_id}: {ai_processed}/{total} AI processed")
 
-    except Exception as e:
+    except Exception:
         logger.exception(f"Error in bulk import job {import_job_id}")
         db = get_database()
         await db.import_jobs.update_one(
@@ -182,7 +161,7 @@ async def process_bulk_import(
             {
                 "$set": {
                     "status": "failed",
-                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                    "updated_at": datetime.now(UTC).isoformat(),
                 }
             },
         )
@@ -216,13 +195,9 @@ async def import_bookmarks(
         # Decode and validate file is valid UTF-8 HTML
         try:
             html_content = file.decode("utf-8") if isinstance(file, bytes) else file
-        except UnicodeDecodeError:
-            logger.warning(
-                f"User {current_user['id']} attempted to import non-UTF-8 file"
-            )
-            raise HTTPException(
-                status_code=400, detail="File must be UTF-8 encoded HTML"
-            )
+        except UnicodeDecodeError as err:
+            logger.warning(f"User {current_user['id']} attempted to import non-UTF-8 file")
+            raise HTTPException(status_code=400, detail="File must be UTF-8 encoded HTML") from err
 
         # Validate file contains content
         if not html_content or len(html_content.strip()) == 0:
@@ -239,9 +214,7 @@ async def import_bookmarks(
             # Check if first few lines contain commas (likely CSV)
             first_lines = lines[:5]
             comma_count = sum(1 for line in first_lines if "," in line)
-            is_csv_format = (
-                comma_count >= len(first_lines) * 0.5
-            )  # At least 50% have commas
+            is_csv_format = comma_count >= len(first_lines) * 0.5  # At least 50% have commas
 
         urls_to_import = []
         MAX_BOOKMARKS_PER_IMPORT = 1000
@@ -252,21 +225,15 @@ async def import_bookmarks(
             links = soup.find_all("a")
 
             if not links or len(links) == 0:
-                logger.warning(
-                    f"User {current_user['id']} imported HTML file with no parseable bookmarks"
-                )
-                raise HTTPException(
-                    status_code=400, detail="No bookmarks found in HTML file"
-                )
+                logger.warning(f"User {current_user['id']} imported HTML file with no parseable bookmarks")
+                raise HTTPException(status_code=400, detail="No bookmarks found in HTML file")
 
             for link in links[:MAX_BOOKMARKS_PER_IMPORT]:
                 url = link.get("href")
                 title = link.get_text(strip=True)
 
                 if url and url.startswith("http"):
-                    urls_to_import.append(
-                        {"url": url, "title": title or urlparse(url).netloc}
-                    )
+                    urls_to_import.append({"url": url, "title": title or urlparse(url).netloc})
 
         elif is_csv_format:
             # Process CSV file (URL in first column, optional title in second column)
@@ -290,9 +257,7 @@ async def import_bookmarks(
 
                 # Only import valid HTTP(S) URLs
                 if url and url.startswith("http"):
-                    urls_to_import.append(
-                        {"url": url, "title": title or urlparse(url).netloc}
-                    )
+                    urls_to_import.append({"url": url, "title": title or urlparse(url).netloc})
 
         else:
             # Process plain text URL list (one URL per line)
@@ -309,9 +274,7 @@ async def import_bookmarks(
         if not urls_to_import:
             raise HTTPException(status_code=400, detail="No valid URLs found in file")
 
-        logger.info(
-            f"User {current_user['id']} importing {len(urls_to_import)} bookmarks"
-        )
+        logger.info(f"User {current_user['id']} importing {len(urls_to_import)} bookmarks")
 
         # Create import job
         import_job = {
@@ -322,8 +285,8 @@ async def import_bookmarks(
             "ai_processed": 0,
             "failed": 0,
             "status": "processing",
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
+            "updated_at": datetime.now(UTC).isoformat(),
             "estimated_completion_time": None,
         }
         await db.import_jobs.insert_one(import_job)
@@ -350,8 +313,8 @@ async def import_bookmarks(
                     "domain": urlparse(url).netloc,
                     "reading_time": None,
                     "read_status": False,
-                    "created_at": datetime.now(timezone.utc).isoformat(),
-                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                    "created_at": datetime.now(UTC).isoformat(),
+                    "updated_at": datetime.now(UTC).isoformat(),
                     "version": 1,  # Optimistic locking (REL-03)
                 }
 
@@ -361,7 +324,7 @@ async def import_bookmarks(
                     "id": str(uuid.uuid4()),
                     "bookmark_id": bookmark["id"],
                     "processing_status": "pending",
-                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "created_at": datetime.now(UTC).isoformat(),
                 }
                 await db.ai_summaries.insert_one(ai_summary)
 
@@ -370,13 +333,9 @@ async def import_bookmarks(
 
         # Start background bulk processing
         if background_tasks and bookmark_ids:
-            background_tasks.add_task(
-                process_bulk_import, import_job["id"], bookmark_ids, current_user["id"]
-            )
+            background_tasks.add_task(process_bulk_import, import_job["id"], bookmark_ids, current_user["id"])
 
-        logger.info(
-            f"Successfully imported {imported_count} bookmarks for user {current_user['id']}"
-        )
+        logger.info(f"Successfully imported {imported_count} bookmarks for user {current_user['id']}")
         return {
             "message": f"Imported {imported_count} bookmarks",
             "count": imported_count,
@@ -386,23 +345,15 @@ async def import_bookmarks(
         # Re-raise HTTP exceptions as-is (these are validation errors with proper messages)
         raise
     except Exception as e:
-        logger.exception(
-            f"Error importing bookmarks for user {current_user['id']}"
-        )
-        raise HTTPException(
-            status_code=500, detail=f"Failed to import bookmarks: {str(e)}"
-        )
+        logger.exception(f"Error importing bookmarks for user {current_user['id']}")
+        raise HTTPException(status_code=500, detail=f"Failed to import bookmarks: {str(e)}") from e
 
 
 @router.get("/import-jobs/{job_id}")
-async def get_import_job(
-    job_id: str, current_user: dict = Depends(get_current_user)
-):
+async def get_import_job(job_id: str, current_user: dict = Depends(get_current_user)):
     """Get import job progress"""
     db = get_database()
-    job = await db.import_jobs.find_one(
-        {"id": job_id, "user_id": current_user["id"]}, {"_id": 0}
-    )
+    job = await db.import_jobs.find_one({"id": job_id, "user_id": current_user["id"]}, {"_id": 0})
     if not job:
         raise HTTPException(status_code=404, detail="Import job not found")
     return job
@@ -494,10 +445,7 @@ async def backup_bookmarks(
     # Optionally fetch AI summaries
     if backup_request.include_ai_summaries and bookmarks:
         bookmark_ids = [b["id"] for b in bookmarks]
-        summaries = await db.ai_summaries.find(
-            {"bookmark_id": {"$in": bookmark_ids}},
-            {"_id": 0}
-        ).to_list(None)
+        summaries = await db.ai_summaries.find({"bookmark_id": {"$in": bookmark_ids}}, {"_id": 0}).to_list(None)
         summaries_map = {s["bookmark_id"]: s for s in summaries}
 
         for bookmark in bookmarks:
@@ -509,7 +457,7 @@ async def backup_bookmarks(
         bookmark_ids = [b["id"] for b in bookmarks]
         notes = await db.notes.find(
             {"bookmark_id": {"$in": bookmark_ids}, "user_id": current_user["id"]},
-            {"_id": 0}
+            {"_id": 0},
         ).to_list(None)
         notes_map = {}
         for note in notes:
@@ -526,20 +474,22 @@ async def backup_bookmarks(
 
     # Generate output based on format
     if backup_request.format == "json":
-        content = json.dumps({
-            "exported_at": datetime.now(timezone.utc).isoformat(),
-            "total_bookmarks": len(bookmarks),
-            "include_notes": backup_request.include_notes,
-            "include_ai_summaries": backup_request.include_ai_summaries,
-            "bookmarks": bookmarks
-        }, indent=2, default=str)
+        content = json.dumps(
+            {
+                "exported_at": datetime.now(UTC).isoformat(),
+                "total_bookmarks": len(bookmarks),
+                "include_notes": backup_request.include_notes,
+                "include_ai_summaries": backup_request.include_ai_summaries,
+                "bookmarks": bookmarks,
+            },
+            indent=2,
+            default=str,
+        )
 
         return Response(
             content=content,
             media_type="application/json",
-            headers={
-                "Content-Disposition": f'attachment; filename="arivu_backup_{timestamp}.json"'
-            }
+            headers={"Content-Disposition": f'attachment; filename="arivu_backup_{timestamp}.json"'},
         )
 
     elif backup_request.format == "csv":
@@ -547,7 +497,14 @@ async def backup_bookmarks(
         writer = csv.writer(output)
 
         # Header row
-        headers = ["url", "title", "domain", "created_at", "read_status", "reading_time"]
+        headers = [
+            "url",
+            "title",
+            "domain",
+            "created_at",
+            "read_status",
+            "reading_time",
+        ]
         if backup_request.include_ai_summaries:
             headers.extend(["summary", "tags"])
         if backup_request.include_notes:
@@ -576,9 +533,7 @@ async def backup_bookmarks(
         return Response(
             content=output.getvalue(),
             media_type="text/csv",
-            headers={
-                "Content-Disposition": f'attachment; filename="arivu_backup_{timestamp}.csv"'
-            }
+            headers={"Content-Disposition": f'attachment; filename="arivu_backup_{timestamp}.csv"'},
         )
 
     else:  # HTML format (default)
@@ -587,7 +542,7 @@ async def backup_bookmarks(
             '<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">',
             "<TITLE>Arivu Bookmarks Backup</TITLE>",
             "<H1>Arivu Bookmarks Backup</H1>",
-            f"<!-- Exported: {datetime.now(timezone.utc).isoformat()} -->",
+            f"<!-- Exported: {datetime.now(UTC).isoformat()} -->",
             f"<!-- Total: {len(bookmarks)} bookmarks -->",
             "<DL><p>",
         ]
@@ -609,7 +564,5 @@ async def backup_bookmarks(
         return Response(
             content="\n".join(html_parts),
             media_type="text/html",
-            headers={
-                "Content-Disposition": f'attachment; filename="arivu_backup_{timestamp}.html"'
-            }
+            headers={"Content-Disposition": f'attachment; filename="arivu_backup_{timestamp}.html"'},
         )

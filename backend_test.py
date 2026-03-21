@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
 
 import argparse
-import os
-import requests
-import sys
 import json
+import os
+import sys
 import time
 from datetime import datetime
+
+import requests
 
 
 class ArivuAPITester:
     def __init__(self, base_url="https://arivu.app/"):
-        self.base_url = base_url
-        self.api_url = f"{base_url}/api"
+        self.base_url = base_url.rstrip("/")
+        self.api_url = f"{self.base_url}/api"
         self.token = None
         self.user_id = None
         self.test_email = None
@@ -66,7 +67,7 @@ class ArivuAPITester:
                 try:
                     error_data = response.json()
                     details += f" - {error_data.get('detail', 'Unknown error')}"
-                except:
+                except ValueError:
                     details += f" - {response.text[:100]}"
 
             self.log_test(name, success, details)
@@ -74,11 +75,11 @@ class ArivuAPITester:
             if success:
                 try:
                     return response.json()
-                except:
+                except ValueError:
                     return {}
             return None
 
-        except Exception as e:
+        except requests.RequestException as e:
             self.log_test(name, False, f"Exception: {str(e)}")
             return None
 
@@ -98,7 +99,7 @@ class ArivuAPITester:
 
         if result and ("token" in result or "access_token" in result):
             self.token = result.get("token") or result.get("access_token")
-            self.user_id = result["user"]["id"]
+            self.user_id = (result.get("user") or {}).get("id")
             return True
         return False
 
@@ -118,7 +119,7 @@ class ArivuAPITester:
 
         if result and ("token" in result or "access_token" in result):
             self.token = result.get("token") or result.get("access_token")
-            self.user_id = result["user"]["id"]
+            self.user_id = (result.get("user") or {}).get("id")
             return True
         return False
 
@@ -305,12 +306,14 @@ def parse_args():
 
 def main():
     args = parse_args()
-    base_url = args.base_url
+    base_url = args.base_url.rstrip("/")
 
     print("🚀 Starting Arivu API Testing...")
     print("=" * 50)
     print(f"🌐 Base URL: {base_url}")
     print(f"🧪 Smoke profile: {args.smoke_profile}")
+    if base_url == "https://arivu.app":
+        print("⚠️  Running against production URL. Use --base-url or ARIVU_BASE_URL for local verification.")
 
     tester = ArivuAPITester(base_url=base_url)
 

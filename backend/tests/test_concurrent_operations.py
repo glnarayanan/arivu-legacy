@@ -13,8 +13,7 @@ Verifies:
 """
 
 import asyncio
-import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -32,8 +31,8 @@ def _make_bookmark(bookmark_id: str, user_id: str = "user-1", version: int = 1, 
         "domain": "example.com",
         "read_status": False,
         "version": version,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
+        "updated_at": datetime.now(UTC).isoformat(),
         **extra,
     }
 
@@ -55,7 +54,7 @@ async def test_concurrent_updates_exactly_one_wins(real_db):
                 "$inc": {"version": 1},
                 "$set": {
                     "read_status": True,
-                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                    "updated_at": datetime.now(UTC).isoformat(),
                 },
             },
             return_document=True,
@@ -67,10 +66,7 @@ async def test_concurrent_updates_exactly_one_wins(real_db):
 
     # Exactly one should have succeeded (got a non-None result)
     successes = [r for r in results if r is not None]
-    assert len(successes) == 1, (
-        f"Expected exactly 1 success, got {len(successes)} "
-        f"(total attempts: {len(results)})"
-    )
+    assert len(successes) == 1, f"Expected exactly 1 success, got {len(successes)} " f"(total attempts: {len(results)})"
 
     # Final state should have version=2
     final = await real_db.bookmarks.find_one({"id": "bm-race"})
@@ -97,7 +93,7 @@ async def test_sequential_updates_all_succeed(real_db):
             {"id": "bm-sequential", "version": current_version},
             {
                 "$inc": {"version": 1},
-                "$set": {"updated_at": datetime.now(timezone.utc).isoformat()},
+                "$set": {"updated_at": datetime.now(UTC).isoformat()},
             },
             return_document=True,
         )
@@ -139,9 +135,7 @@ async def test_concurrent_updates_different_bookmarks_all_succeed(real_db):
         results[bm_id] = r
 
     # Fire concurrent updates, each targeting a different bookmark
-    await asyncio.gather(*[
-        update_bookmark(f"bm-parallel-{i}") for i in range(num_bookmarks)
-    ])
+    await asyncio.gather(*[update_bookmark(f"bm-parallel-{i}") for i in range(num_bookmarks)])
 
     # ALL should have succeeded (no false conflicts between different bookmarks)
     for i in range(num_bookmarks):
