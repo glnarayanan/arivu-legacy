@@ -6,7 +6,7 @@ anyio==4.12.0
 attrs==25.4.0
 bcrypt>=4.1.0
 beautifulsoup4==4.14.3
-black==25.12.0
+black==26.3.1
 boto3==1.42.5
 botocore==1.42.5
 cachetools==7.0.1
@@ -78,7 +78,7 @@ pluggy==1.6.0
 propcache==0.4.1
 proto-plus==1.26.1
 protobuf==5.29.6
-pyasn1==0.6.2
+pyasn1==0.6.3
 pyasn1_modules==0.4.2
 pycodestyle==2.14.0
 pycparser==2.23
@@ -87,7 +87,7 @@ pydantic-settings>=2.0.0
 pydantic_core==2.41.5
 pyflakes==3.4.0
 Pygments==2.19.2
-PyJWT==2.10.1
+PyJWT==2.12.0
 pymongo[snappy]==4.11.3
 pyparsing==3.2.5
 pytest==9.0.2
