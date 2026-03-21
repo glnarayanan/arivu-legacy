@@ -5,9 +5,15 @@ Provides mock auth, mock database, test app, and async HTTP client.
 Reusable across all router test modules (collections, analytics, resurfacing).
 """
 
+import os
 from unittest.mock import AsyncMock, MagicMock
 
+os.environ.setdefault("MONGO_URL", "mongodb://localhost:27017")
+os.environ.setdefault("SECRET_KEY", "test-secret-key-with-at-least-32-chars")
+os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
+
 import pytest
+import pytest_asyncio
 from app.core.dependencies import get_current_user
 from app.routers.analytics import router as analytics_router
 from app.routers.auth import router as auth_router
@@ -147,7 +153,7 @@ def app(mock_db):
     test_app.dependency_overrides.clear()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def client(app):
     """Async HTTP client for testing."""
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
@@ -182,7 +188,7 @@ def auth_app(mock_db):
     db_module.db = _original_db
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def auth_client(auth_app):
     """Async HTTP client for auth testing (no auth override)."""
     async with AsyncClient(transport=ASGITransport(app=auth_app), base_url="http://test") as ac:
@@ -211,7 +217,7 @@ if _TESTCONTAINERS_AVAILABLE:
         with MongoDbContainer("mongo:7.0") as mongo:
             yield mongo
 
-    @pytest.fixture
+    @pytest_asyncio.fixture
     async def real_db(mongo_container):
         """Per-test async database connected to real MongoDB.
 

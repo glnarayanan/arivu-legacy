@@ -6,7 +6,7 @@ and bookmark content processing orchestration.
 """
 
 import logging
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from urllib.parse import urlparse
 
 import html2text
@@ -24,6 +24,8 @@ from app.services.ai_service import (
     generate_embedding,
     has_substantial_change,
 )
+
+UTC = timezone.utc
 
 logger = logging.getLogger(__name__)
 

@@ -5,7 +5,7 @@ Covers: resurfacing suggestions, snooze, archive, unarchive,
 memory-jogger get, and memory-jogger dismiss.
 """
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -265,3 +265,4 @@ async def test_dismiss_memory_jogger_not_found(client, mock_db):
         json={"bookmark_id": "nonexistent"},
     )
     assert response.status_code == 404
+UTC = timezone.utc

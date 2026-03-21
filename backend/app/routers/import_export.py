@@ -10,7 +10,7 @@ import io
 import json
 import logging
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
@@ -21,6 +21,8 @@ from app.core.dependencies import get_current_user, limiter
 from app.models.import_job import BackupRequest
 from app.services.ai_service import generate_ai_summaries
 from app.services.content_service import calculate_reading_time, fetch_webpage_content
+
+UTC = timezone.utc
 
 logger = logging.getLogger(__name__)
 
@@ -566,3 +568,4 @@ async def backup_bookmarks(
             media_type="text/html",
             headers={"Content-Disposition": f'attachment; filename="arivu_backup_{timestamp}.html"'},
         )
+UTC = timezone.utc

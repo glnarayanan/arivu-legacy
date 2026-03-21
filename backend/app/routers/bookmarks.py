@@ -8,7 +8,7 @@ and related bookmarks via embedding similarity.
 import logging
 import re
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
@@ -22,6 +22,8 @@ from app.models.bookmark import (
     QuickConnection,
 )
 from app.services.content_service import process_bookmark_content
+
+UTC = timezone.utc
 
 logger = logging.getLogger(__name__)
 
@@ -659,3 +661,4 @@ async def merge_bookmarks(bookmark_ids: list[str], current_user: dict = Depends(
     await db.ai_summaries.delete_many({"bookmark_id": {"$in": delete_ids}})
 
     return {"message": "Bookmarks merged", "kept_bookmark": keep_bookmark}
+UTC = timezone.utc

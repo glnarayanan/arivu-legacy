@@ -7,10 +7,12 @@ Shared Pydantic models used by bookmarks router and other consumers.
 import ipaddress
 import logging
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, validator
+
+UTC = timezone.utc
 
 logger = logging.getLogger(__name__)
 

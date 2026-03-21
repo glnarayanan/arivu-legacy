@@ -5,13 +5,15 @@ Provides pure functions for authentication - no database access.
 """
 
 import re
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import bcrypt
 import jwt
 
 from app.core.config import settings
+
+UTC = timezone.utc
 
 
 def create_access_token(
