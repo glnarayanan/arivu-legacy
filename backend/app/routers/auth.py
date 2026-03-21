@@ -10,7 +10,7 @@ import logging
 import re
 import secrets
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, EmailStr, validator
@@ -21,6 +21,7 @@ from app.core.dependencies import get_current_user, limiter
 from app.core.security import (
     create_access_token,
     create_refresh_token,
+    decode_token,
     hash_password,
     validate_password_strength,
     verify_password,
@@ -31,6 +32,8 @@ from app.services.lockout_service import (
     is_account_locked,
     record_failed_login,
 )
+
+UTC = timezone.utc
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +74,24 @@ class TokenResponse(BaseModel):
 
 class RefreshTokenRequest(BaseModel):
     refresh_token: str
+
+
+class CLIAuthLoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class CLIAuthRefreshRequest(BaseModel):
+    refresh_token: str
+
+
+class CLIAuthTokenResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    access_token_expires_at: str
+    refresh_token_expires_at: str
+    user: dict
 
 
 class PasswordResetRequest(BaseModel):
@@ -225,6 +246,50 @@ async def login(request: Request, login_data: UserLogin, response: Response):
     return {"token_type": "bearer", "user": user_response}
 
 
+@router.post("/auth/cli/login", response_model=CLIAuthTokenResponse)
+@limiter.limit("5/minute")
+async def cli_login(request: Request, login_data: CLIAuthLoginRequest):
+    """Authenticate a CLI user and return bearer tokens in the response body."""
+    email_lower = login_data.email.lower()
+
+    if await is_account_locked(email_lower):
+        logger.warning(f"CLI login attempt on locked account: {email_lower}")
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    db = get_database()
+    user = await db.users.find_one({"email": login_data.email})
+
+    if user and user.get("banned"):
+        raise HTTPException(status_code=403, detail="Account has been suspended")
+    if user and user.get("invite_pending"):
+        raise HTTPException(
+            status_code=403,
+            detail="Please complete your account setup using the invite link sent to your email.",
+        )
+    if not user or not verify_password(login_data.password, user["password_hash"]):
+        await record_failed_login(email_lower)
+        logger.warning(f"CLI login failed: invalid credentials for {login_data.email}")
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    await clear_failed_logins(email_lower)
+
+    access_token = create_access_token(data={"sub": user["id"]})
+    refresh_token = create_refresh_token(data={"sub": user["id"]})
+    access_payload = decode_token(access_token)
+    refresh_payload = decode_token(refresh_token)
+
+    user_response = {"id": user["id"], "email": user["email"], "name": user["name"]}
+    logger.info(f"CLI user logged in successfully: {user['id']}")
+
+    return CLIAuthTokenResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        access_token_expires_at=datetime.fromtimestamp(access_payload["exp"], tz=UTC).isoformat(),
+        refresh_token_expires_at=datetime.fromtimestamp(refresh_payload["exp"], tz=UTC).isoformat(),
+        user=user_response,
+    )
+
+
 @router.get("/auth/me")
 async def get_current_user_info(current_user: dict = Depends(get_current_user)):
     """Get current authenticated user info from cookies"""
@@ -266,6 +331,48 @@ async def refresh_token_endpoint(request: Request):
     # This endpoint is kept for backwards compatibility
     # The actual refresh logic is handled by client-side axios interceptor
     pass
+
+
+@router.post("/auth/cli/refresh", response_model=CLIAuthTokenResponse)
+async def cli_refresh_token(refresh_request: CLIAuthRefreshRequest):
+    """Refresh CLI bearer tokens using a refresh token."""
+    try:
+        payload = decode_token(refresh_request.refresh_token)
+    except Exception as err:
+        raise HTTPException(status_code=401, detail="Invalid refresh token") from err
+
+    if payload.get("type") != "refresh":
+        raise HTTPException(status_code=401, detail="Invalid token type")
+
+    user_id = payload.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+
+    db = get_database()
+    user = await db.users.find_one({"id": user_id})
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+    if user.get("banned"):
+        raise HTTPException(status_code=403, detail="Account has been suspended")
+    if user.get("invite_pending"):
+        raise HTTPException(
+            status_code=403,
+            detail="Please complete your account setup using the invite link sent to your email.",
+        )
+
+    access_token = create_access_token(data={"sub": user["id"]})
+    refresh_token = create_refresh_token(data={"sub": user["id"]})
+    access_payload = decode_token(access_token)
+    refresh_payload = decode_token(refresh_token)
+    user_response = {"id": user["id"], "email": user["email"], "name": user["name"]}
+
+    return CLIAuthTokenResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        access_token_expires_at=datetime.fromtimestamp(access_payload["exp"], tz=UTC).isoformat(),
+        refresh_token_expires_at=datetime.fromtimestamp(refresh_payload["exp"], tz=UTC).isoformat(),
+        user=user_response,
+    )
 
 
 # ============================================
