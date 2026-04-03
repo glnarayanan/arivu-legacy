@@ -13,7 +13,7 @@
 git clone https://github.com/glnarayanan/arivu.git
 cd arivu
 cp .env.example .env  # Add GEMINI_API_KEY and SECRET_KEY
-docker compose up -d --build
+docker-compose up -d --build
 
 # Access: http://localhost/auth
 ```
@@ -67,7 +67,7 @@ Four containers — frontend nginx is the entry point:
 - **Backend:** FastAPI + MongoDB + Gemini 2.5 Flash
 - **Frontend:** React 19 + Vite + Shadcn/ui + Tailwind CSS + Framer Motion
 - **Extension:** Chrome/Firefox Manifest V3
-- **Design:** Brutalist aesthetic (see `documentation/design/DESIGN_SYSTEM.md`)
+- **Design:** Brutalist aesthetic with sharp corners, 2px black borders, and offset shadows
 
 ---
 
@@ -117,7 +117,6 @@ documentation/
 - **X Integration:** `documentation/features/x-api-bookmarks.md`
 - **Deployment:** `documentation/deployment/DEPLOYMENT.md`
 - **Environment Variables:** `documentation/deployment/ENVIRONMENT_VARIABLES.md`
-- **Security:** `documentation/development/SECURITY_IMPROVEMENTS.md`
 
 ---
 

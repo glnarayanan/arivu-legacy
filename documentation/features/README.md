@@ -52,5 +52,4 @@ See:
 
 - API reference: `documentation/api/README.md`
 - Deployment and self-hosting: `documentation/deployment/DEPLOYMENT.md`
-- Design system: `documentation/design/DESIGN_SYSTEM.md`
 - Architecture history: `documentation/archive/CLAUDE-verbose.md`

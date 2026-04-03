@@ -319,20 +319,6 @@ X_MAX_BOOKMARKS=300
 
 ---
 
-#### `LOG_LEVEL` (Optional)
-**Purpose:** Application logging verbosity
-**Default:** `info`
-**Values:** `debug`, `info`, `warning`, `error`
-
-**Example:**
-```bash
-# Development (verbose)
-LOG_LEVEL=debug
-
-# Production (minimal)
-LOG_LEVEL=warning
-```
-
 ### Production with X Integration
 ```bash
 MONGO_URL=mongodb+srv://<user>:<password>@<cluster>.mongodb.net/
@@ -355,6 +341,22 @@ LOG_LEVEL=info
 - `info`: Normal operations (recommended)
 - `warning`: Only warnings and errors
 - `error`: Only errors
+
+---
+
+#### `LOG_LEVEL` (Optional)
+**Purpose:** Application logging verbosity
+**Default:** `info`
+**Values:** `debug`, `info`, `warning`, `error`
+
+**Example:**
+```bash
+# Development (verbose)
+LOG_LEVEL=debug
+
+# Production (minimal)
+LOG_LEVEL=warning
+```
 
 ---
 

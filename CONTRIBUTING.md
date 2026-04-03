@@ -10,7 +10,7 @@ Thanks for your interest in contributing! This guide will help you get started.
 git clone https://github.com/glnarayanan/arivu.git
 cd arivu
 cp .env.example .env
-docker compose up -d --build
+docker-compose up -d --build
 ```
 
 Access the app at `http://localhost/auth`.
@@ -39,7 +39,7 @@ yarn dev
 
 - **`backend/server.py` is monolithic by design.** Do not split it into separate modules.
 - The frontend uses a relative `/api` path behind the nginx proxy. No explicit backend URL config is needed in production.
-- The design system follows a **brutalist aesthetic**: sharp corners, 2px black borders, offset shadows. See `documentation/design/DESIGN_SYSTEM.md`.
+- The design system follows a **brutalist aesthetic**: sharp corners, 2px black borders, offset shadows.
 - **Light mode only.** No dark mode.
 
 ## Making Changes

@@ -1082,7 +1082,7 @@ add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsaf
 
 ### Common Issues
 
-See detailed troubleshooting guide: [troubleshooting.md](troubleshooting.md)
+See detailed troubleshooting guide: [TROUBLESHOOTING.md](../../TROUBLESHOOTING.md)
 
 **Quick Fixes:**
 
@@ -1098,7 +1098,7 @@ See detailed troubleshooting guide: [troubleshooting.md](troubleshooting.md)
 **Get Help:**
 
 1. Check container logs: `docker logs <container-name>`
-2. Review [troubleshooting.md](troubleshooting.md)
+2. Review [TROUBLESHOOTING.md](../../TROUBLESHOOTING.md)
 3. Check Docker container logs: `docker-compose logs -f`
 4. Verify environment variables
 5. Test health endpoints
@@ -1134,10 +1134,9 @@ See detailed troubleshooting guide: [troubleshooting.md](troubleshooting.md)
 
 ### Support Resources
 
-- **Troubleshooting Guide:** [troubleshooting.md](troubleshooting.md)
-- **Codebase Guide:** [CLAUDE.md](CLAUDE.md)
-- **Implementation Plan:** [plan.md](plan.md)
-- **Session History:** [SESSION_CONTEXT.md](SESSION_CONTEXT.md)
+- **Troubleshooting Guide:** [TROUBLESHOOTING.md](../../TROUBLESHOOTING.md)
+- **Architecture:** [ARCHITECTURE.md](../../ARCHITECTURE.md)
+- **Contributing:** [CONTRIBUTING.md](../../CONTRIBUTING.md)
 
 ### External Documentation
 
