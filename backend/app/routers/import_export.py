@@ -189,10 +189,10 @@ async def import_bookmarks(
         if not file:
             raise HTTPException(status_code=400, detail="No file provided")
 
-        # Validate file size (max 10MB)
-        MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+        # Validate file size (max 50MB to match CLI)
+        MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
         if len(file) > MAX_FILE_SIZE:
-            raise HTTPException(status_code=413, detail="File too large (max 10MB)")
+            raise HTTPException(status_code=413, detail="File too large (max 50MB)")
 
         # Decode and validate file is valid UTF-8 HTML
         try:
@@ -568,4 +568,6 @@ async def backup_bookmarks(
             media_type="text/html",
             headers={"Content-Disposition": f'attachment; filename="arivu_backup_{timestamp}.html"'},
         )
+
+
 UTC = timezone.utc
