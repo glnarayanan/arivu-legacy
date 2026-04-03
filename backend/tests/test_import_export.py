@@ -185,3 +185,17 @@ async def test_import_rejects_unauthenticated(mock_db):
         assert response.status_code == 401
 
     db_module.db = _original_db
+
+
+@pytest.mark.anyio
+async def test_import_bookmarks_rejects_large_files(client):
+    """POST /api/bookmarks/import rejects files over 50MB."""
+    # Create a payload that's just over 50MB
+    large_content = b"x" * (50 * 1024 * 1024 + 1)  # 50MB + 1 byte
+
+    response = await client.post(
+        "/api/bookmarks/import",
+        content=large_content,
+    )
+    assert response.status_code == 413
+    assert "50MB" in response.json()["detail"]
