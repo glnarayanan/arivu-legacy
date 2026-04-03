@@ -35,7 +35,7 @@ google-generativeai>=0.8.5
 googleapis-common-protos>=1.72.0
 grpcio==1.68.0
 grpcio-status==1.68.0
-h11==0.16.1
+h11==0.16.0
 hf-xet==1.4.2
 html2text>=2024.2.26
 resend>=2.0.015
