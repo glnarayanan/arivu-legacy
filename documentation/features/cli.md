@@ -30,11 +30,56 @@ arivu auth logout
 ### Save and Read
 
 ```bash
+# Save a single bookmark
 arivu save https://example.com/article
 arivu save https://example.com/article --collection Inbox
+
+# Save multiple bookmarks at once
+arivu save https://example.com/article1 https://example.com/article2 --collection Research
+
+# List bookmarks with filters
+arivu list
+arivu list --unread
+arivu list --collection Research
+arivu list --since 2026-01-01
+arivu list --limit 50
+
+# Search bookmarks
 arivu search "python embeddings"
+arivu search "memory systems" --limit 20
+
+# Show bookmark details
 arivu show <bookmark-id>
+
+# Open bookmark in browser
 arivu open <bookmark-id>
+
+# Delete a bookmark
+arivu delete <bookmark-id>
+arivu delete <bookmark-id> --force  # Skip confirmation
+```
+
+### Import Bookmarks
+
+```bash
+# Import from Pocket HTML export
+arivu import pocket pocket_export.html
+
+# Import from Raindrop.io JSON export
+arivu import raindrop raindrop_export.json
+```
+
+### Analytics and Preview
+
+```bash
+# Show reading statistics
+arivu stats
+arivu stats --weekly
+arivu stats --monthly
+
+# Preview a URL before saving
+arivu preview https://example.com/article
+arivu preview https://example.com/article --collection Inbox
 ```
 
 ### Power-User Commands
@@ -51,6 +96,25 @@ arivu resurface archive <bookmark-id>
 arivu graph search "memory systems"
 arivu graph overview
 ```
+
+### Interactive Mode
+
+Start an interactive REPL session for a more conversational experience:
+
+```bash
+arivu interactive
+```
+
+Supported commands in interactive mode:
+- `save <url> [--collection NAME]` - Save a bookmark
+- `search <query> [--limit N]` - Search bookmarks
+- `list [--unread] [--limit N]` - List bookmarks
+- `show <bookmark-id>` - Show bookmark details
+- `open <bookmark-id>` - Open bookmark in browser
+- `delete <bookmark-id> [--force]` - Delete a bookmark
+- `stats [--weekly|--monthly]` - Show analytics
+- `help` - Show available commands
+- `quit` - Exit interactive mode
 
 ---
 
@@ -88,9 +152,71 @@ python -m app.cli --help
 
 ---
 
+## Shell Completion
+
+The CLI supports shell completion for bash, zsh, and fish:
+
+```bash
+# Install completion for your current shell
+arivu --install-completion
+
+# Show completion script to customize installation
+arivu --show-completion
+```
+
+After installing completion, restart your shell or source your shell config file:
+
+```bash
+# bash
+source ~/.bashrc
+
+# zsh
+source ~/.zshrc
+
+# fish
+source ~/.config/fish/config.fish
+```
+
+---
+
 ## Auth Model
 
 - Browser and frontend auth remain cookie-based
 - CLI auth is bearer-token based and separate from the browser session
 - Tokens are stored in the user config directory with restrictive file permissions
 - Logout removes stored CLI credentials locally; v1 does not implement server-side token revocation
+
+---
+
+## Environment Variables
+
+The CLI respects these environment variables:
+
+- `ARIVU_PROFILE` - Default profile to use
+- `ARIVU_CONFIG_DIR` - Custom config directory path
+
+---
+
+## Tips and Tricks
+
+### Quick Save with Clipboard
+
+```bash
+# macOS
+arivu save $(pbpaste)
+
+# Linux
+arivu save $(xclip -o)
+```
+
+### Pipe URLs from File
+
+```bash
+cat bookmarks.txt | xargs -n1 arivu save
+```
+
+### Search and Open First Result
+
+```bash
+arivu search "python" --json | jq -r '.[0].id' | xargs arivu open
+```
