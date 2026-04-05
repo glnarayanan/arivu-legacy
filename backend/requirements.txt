@@ -50,7 +50,7 @@ isort==7.0.0
 Jinja2==3.1.6
 jiter==0.13.0
 jmespath==1.0.1
-jq==1.10.0
+jq==1.11.0
 jsonschema==4.26.0
 jsonschema-specifications==2025.9.1
 librt==0.7.3
