@@ -78,7 +78,7 @@
     "jsdom": "^28.1.0",
     "postcss": "^8.4.49",
     "tailwindcss": "3.4.17",
-    "vite": "^6.4.1",
+    "vite": "^6.4.2",
     "vitest": "^3.2.4"
   },
   "resolutions": {
@@ -88,7 +88,9 @@
     "undici": "^7.24.0",
     "flatted": "^3.4.2",
     "picomatch": "^2.3.2 || ^4.0.4",
-    "brace-expansion": "^1.1.13"
+    "brace-expansion": "^1.1.13",
+    "vitest/vite": "7.3.2",
+    "vite-node/vite": "7.3.2"
   },
   "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
 }
