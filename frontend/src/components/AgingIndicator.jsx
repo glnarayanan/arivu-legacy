@@ -1,4 +1,4 @@
-import React from 'react';
+import _u1_React from 'react';
 
 const AgingIndicator = ({ bookmark, size = 'normal' }) => {
   const lastAccessed = bookmark.last_accessed || bookmark.created_at;

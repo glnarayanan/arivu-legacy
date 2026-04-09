@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axiosInstance from '../utils/axiosConfig';
 import { Button } from '../components/ui/button';
@@ -6,7 +6,7 @@ import { Input } from '../components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { toast } from 'sonner';
-import { BookmarkIcon, PlusIcon, SearchIcon, SparklesIcon, CheckSquare, Square, Trash2, CheckCircle, Circle, BookOpen, Grid3x3, List, Clock, Globe } from 'lucide-react';
+import { BookmarkIcon, PlusIcon, SearchIcon, SparklesIcon as _u9_SparklesIcon, CheckSquare, Square, Trash2, CheckCircle, Circle, BookOpen, Grid3x3, List, Clock, Globe } from 'lucide-react';
 import { motion } from 'framer-motion';
 import KeyboardShortcutsModal from '../components/KeyboardShortcutsModal';
 import BookmarkCard from '../components/BookmarkCard';
@@ -34,7 +34,7 @@ const DashboardPage = ({ onLogout }) => {
   const [addingBookmark, setAddingBookmark] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [allTags, setAllTags] = useState([]);
-  const [allDomains, setAllDomains] = useState([]);
+  const [_u37_allDomains, setAllDomains] = useState([]);
   const [selectedBookmarks, setSelectedBookmarks] = useState([]);
   const [bulkMode, setBulkMode] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(-1);
@@ -60,7 +60,7 @@ const DashboardPage = ({ onLogout }) => {
     }
   }, []);
 
-  const fetchBookmarks = async () => {
+  const fetchBookmarks = useCallback(async () => {
     try {
       setError(null);
       const params = new URLSearchParams();
@@ -94,36 +94,36 @@ const DashboardPage = ({ onLogout }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [searchQuery, filterTag, filterDomain, filterCollection, readFilter, sourceFilter, sortBy]);
 
-  const fetchCollections = async () => {
+  const fetchCollections = useCallback(async () => {
     try {
       const response = await axiosInstance.get(`/collections`);
       setCollections(response.data);
-    } catch (error) {
+    } catch (_u103_error) {
       console.error('Failed to fetch collections');
     }
-  };
+  }, []);
 
-  const fetchAgedCount = async () => {
+  const fetchAgedCount = useCallback(async () => {
     try {
       const response = await axiosInstance.get(`/bookmarks/aged?min_days=30&limit=100`);
       setAgedCount(response.data.count);
     } catch (error) {
       console.error('Failed to fetch aged count:', error);
     }
-  };
+  }, []);
 
-  const fetchResurfacing = async () => {
+  const fetchResurfacing = useCallback(async () => {
     try {
       const response = await axiosInstance.get(`/resurfacing?limit=3`);
       setResurfacingSuggestions(response.data.suggestions || []);
     } catch (error) {
       console.error('Failed to fetch resurfacing suggestions:', error);
     }
-  };
+  }, []);
 
-  const fetchMemoryJogger = async () => {
+  const fetchMemoryJogger = useCallback(async () => {
     const dismissed = localStorage.getItem('memoryJoggerDismissed');
     if (dismissed === new Date().toDateString()) {
       setMemoryJoggerDismissed(true);
@@ -137,7 +137,7 @@ const DashboardPage = ({ onLogout }) => {
     } catch (error) {
       console.error('Failed to fetch memory jogger:', error);
     }
-  };
+  }, []);
 
   const handleMemoryRevisit = async (bookmarkId) => {
     try {
@@ -163,7 +163,7 @@ const DashboardPage = ({ onLogout }) => {
       await axiosInstance.post(`/resurfacing/${bookmarkId}/snooze`, { days });
       toast.success(`Snoozed for ${days} days`);
       setResurfacingSuggestions(prev => prev.filter(s => s.id !== bookmarkId));
-    } catch (error) {
+    } catch (_u166_error) {
       toast.error('Failed to snooze bookmark');
     }
   };
@@ -173,7 +173,7 @@ const DashboardPage = ({ onLogout }) => {
       await axiosInstance.post(`/resurfacing/${bookmarkId}/archive`);
       toast.success('Removed from resurfacing');
       setResurfacingSuggestions(prev => prev.filter(s => s.id !== bookmarkId));
-    } catch (error) {
+    } catch (_u176_error) {
       toast.error('Failed to archive bookmark');
     }
   };
@@ -193,7 +193,7 @@ const DashboardPage = ({ onLogout }) => {
     fetchAgedCount();
     fetchResurfacing();
     fetchMemoryJogger();
-  }, [searchQuery, filterTag, filterDomain, filterCollection, readFilter, sourceFilter, sortBy]);
+  }, [fetchBookmarks, fetchCollections, fetchAgedCount, fetchResurfacing, fetchMemoryJogger]);
 
   useEffect(() => {
     const hasPendingAI = bookmarks.some(b => b.ai_summary?.processing_status === 'pending');
@@ -203,7 +203,7 @@ const DashboardPage = ({ onLogout }) => {
       }, 5000);
       return () => clearInterval(interval);
     }
-  }, [bookmarks]);
+  }, [bookmarks, fetchBookmarks]);
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -325,7 +325,7 @@ const DashboardPage = ({ onLogout }) => {
         // Check for bookmark count milestones
         // We need to get the updated count after the new bookmark is added
         try {
-          const countResponse = await axiosInstance.get('/bookmarks?limit=1');
+          const _u328_countResponse = await axiosInstance.get('/bookmarks?limit=1');
           // The backend returns paginated results, but we can estimate count from the current bookmarks length + 1
           // Or better, check the current bookmarks array after fetch
           const currentCount = bookmarks.length + 1; // +1 for the just-added bookmark
@@ -344,7 +344,7 @@ const DashboardPage = ({ onLogout }) => {
           console.error('Failed to check milestones:', err);
         }
       }, 2000);
-    } catch (error) {
+    } catch (_u347_error) {
       toast.error('Failed to save bookmark');
     } finally {
       setAddingBookmark(false);
@@ -356,12 +356,12 @@ const DashboardPage = ({ onLogout }) => {
       await axiosInstance.delete(`/bookmarks/${bookmarkId}`);
       toast.success('Bookmark deleted');
       fetchBookmarks();
-    } catch (error) {
+    } catch (_u359_error) {
       toast.error('Failed to delete bookmark');
     }
   };
 
-  const handleExportBookmarks = async () => {
+  const _u364_handleExportBookmarks = async () => {
     try {
       const response = await axiosInstance.get(`/bookmarks/export`, {
         responseType: 'blob'
@@ -374,7 +374,7 @@ const DashboardPage = ({ onLogout }) => {
       link.click();
       link.remove();
       toast.success('Bookmarks exported successfully!');
-    } catch (error) {
+    } catch (_u377_error) {
       toast.error('Failed to export bookmarks');
     }
   };
@@ -389,7 +389,7 @@ const DashboardPage = ({ onLogout }) => {
       setSelectedBookmarks([]);
       setBulkMode(false);
       fetchBookmarks();
-    } catch (error) {
+    } catch (_u392_error) {
       toast.error('Failed to delete bookmarks');
     }
   };
@@ -406,7 +406,7 @@ const DashboardPage = ({ onLogout }) => {
       setSelectedBookmarks([]);
       setBulkMode(false);
       fetchBookmarks();
-    } catch (error) {
+    } catch (_u409_error) {
       toast.error('Failed to update bookmarks');
     }
   };

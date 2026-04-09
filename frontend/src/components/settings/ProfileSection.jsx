@@ -28,7 +28,7 @@ const ProfileSection = () => {
         name: response.data.name || '',
         email: response.data.email || ''
       });
-    } catch (error) {
+    } catch (_u31_error) {
       toast.error('Failed to load profile');
     } finally {
       setLoading(false);
@@ -113,7 +113,7 @@ const ProfileSection = () => {
         setUploadingAvatar(false);
       };
       reader.readAsDataURL(file);
-    } catch (error) {
+    } catch (_u116_error) {
       toast.error('Failed to process image');
       setUploadingAvatar(false);
     }
@@ -127,7 +127,7 @@ const ProfileSection = () => {
       await axiosInstance.delete('/user/avatar');
       await fetchProfile();
       toast.success('Avatar removed');
-    } catch (error) {
+    } catch (_u130_error) {
       toast.error('Failed to remove avatar');
     }
   };

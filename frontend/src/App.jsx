@@ -26,7 +26,7 @@ function App() {
         if (response.data) {
           setIsAuthenticated(true);
         }
-      } catch (error) {
+      } catch (_u29_error) {
         setIsAuthenticated(false);
       } finally {
         setLoading(false);
@@ -36,7 +36,7 @@ function App() {
     checkAuth();
   }, []);
 
-  const handleLogin = (user) => {
+  const handleLogin = (_u39_user) => {
     // Tokens are set as HTTP-only cookies by backend
     // No need to store them in localStorage
     setIsAuthenticated(true);
@@ -47,7 +47,7 @@ function App() {
       // Call logout endpoint to clear cookies and revoke tokens
       await axiosInstance.post('/auth/logout');
       setIsAuthenticated(false);
-    } catch (error) {
+    } catch (_u50_error) {
       // Even if logout fails, clear local state
       setIsAuthenticated(false);
     }

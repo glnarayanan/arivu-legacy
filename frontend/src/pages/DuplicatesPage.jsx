@@ -7,7 +7,7 @@ import { ArrowLeftIcon, CopyIcon, MergeIcon, TrashIcon, ExternalLinkIcon } from 
 import { motion } from 'framer-motion';
 import { HardReveal, StaggerContainer, StaggerItem } from '../components/motion/PageOrchestrator';
 
-const DuplicatesPage = ({ onLogout }) => {
+const DuplicatesPage = ({ _u10_onLogout }) => {
   const navigate = useNavigate();
   const [duplicates, setDuplicates] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -20,7 +20,7 @@ const DuplicatesPage = ({ onLogout }) => {
     try {
       const response = await axiosInstance.get(`/bookmarks/duplicates/detect`);
       setDuplicates(response.data.duplicates || []);
-    } catch (error) {
+    } catch (_u23_error) {
       toast.error('Failed to detect duplicates');
     } finally {
       setLoading(false);
@@ -33,7 +33,7 @@ const DuplicatesPage = ({ onLogout }) => {
       await axiosInstance.post(`/bookmarks/merge`, ids);
       toast.success('Duplicates merged!');
       fetchDuplicates();
-    } catch (error) {
+    } catch (_u36_error) {
       toast.error('Failed to merge bookmarks');
     }
   };
@@ -43,7 +43,7 @@ const DuplicatesPage = ({ onLogout }) => {
       await axiosInstance.delete(`/bookmarks/${bookmarkId}`);
       toast.success('Bookmark deleted');
       fetchDuplicates();
-    } catch (error) {
+    } catch (_u46_error) {
       toast.error('Failed to delete bookmark');
     }
   };

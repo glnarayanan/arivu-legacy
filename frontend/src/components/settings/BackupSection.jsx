@@ -56,7 +56,7 @@ const BackupSection = () => {
       window.URL.revokeObjectURL(url);
 
       toast.success('Backup downloaded successfully');
-    } catch (error) {
+    } catch (_u59_error) {
       toast.error('Failed to create backup');
     } finally {
       setLoading(false);

@@ -16,7 +16,7 @@ const brutalSpring = {
 export const EmptyStateGuide = ({
   type = 'bookmarks',
   onPrimaryAction,
-  onSecondaryAction,
+  _u19_onSecondaryAction,
 }) => {
   const shouldReduceMotion = useReducedMotion();
 

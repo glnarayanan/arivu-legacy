@@ -3,13 +3,13 @@ import { useParams, useNavigate } from 'react-router-dom';
 import axiosInstance from '../utils/axiosConfig';
 import { Button } from '../components/ui/button';
 import { toast } from 'sonner';
-import { ArrowLeftIcon, ExternalLinkIcon, SparklesIcon, ListIcon, NetworkIcon, Shield, CheckCircle2, AlertTriangle, Clock } from 'lucide-react';
+import { ArrowLeftIcon, ExternalLinkIcon, SparklesIcon, ListIcon, NetworkIcon, Shield, CheckCircle2, AlertTriangle, Clock as _u6_Clock } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { motion } from 'framer-motion';
 import DOMPurify from 'dompurify';
 import { HardReveal, StaggerContainer, StaggerItem } from '../components/motion/PageOrchestrator';
 
-const BookmarkDetailPage = ({ onLogout }) => {
+const BookmarkDetailPage = ({ _u12_onLogout }) => {
   const { id } = useParams();
   const navigate = useNavigate();
   const [bookmark, setBookmark] = useState(null);
@@ -23,7 +23,7 @@ const BookmarkDetailPage = ({ onLogout }) => {
       try {
         const response = await axiosInstance.get(`/bookmarks/${id}`);
         setBookmark(response.data);
-      } catch (error) {
+      } catch (_u26_error) {
         toast.error('Failed to load bookmark');
         navigate('/dashboard');
       } finally {

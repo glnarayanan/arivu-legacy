@@ -1,4 +1,4 @@
-import React from 'react';
+import _u1_React from 'react';
 import { Clock, RefreshCw, AlarmClockOff, Archive, ExternalLink } from 'lucide-react';
 import { Button } from './ui/button';
 
@@ -27,7 +27,7 @@ const ResurfacingCard = ({
     favicon,
     reading_time,
     resurfacing_reason,
-    days_since_access,
+    _u30_days_since_access,
     ai_summary
   } = bookmark;
 

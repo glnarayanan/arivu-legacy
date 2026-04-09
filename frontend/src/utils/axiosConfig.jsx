@@ -63,7 +63,7 @@ axiosInstance.interceptors.response.use(
 
       try {
         // Try to refresh token - cookies are sent automatically
-        const response = await axios.post(`${API}/auth/refresh`, {}, {
+        const _u66_response = await axios.post(`${API}/auth/refresh`, {}, {
           withCredentials: true,
         });
 

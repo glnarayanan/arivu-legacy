@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect as _u1_useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Bookmark,
@@ -92,7 +92,7 @@ const Sidebar = ({
       setNewCollectionName('');
       setCollectionDialogOpen(false);
       if (onCreateCollection) onCreateCollection();
-    } catch (error) {
+    } catch (_u95_error) {
       toast.error('Failed to create collection');
     }
   };

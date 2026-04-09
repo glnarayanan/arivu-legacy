@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
-import { X, BookmarkIcon, Brain, Sparkles, Network, ArrowRight } from 'lucide-react';
+import { X, BookmarkIcon, Brain as _u3_Brain, Sparkles, Network, ArrowRight } from 'lucide-react';
 import { Button } from '../ui/button';
 
 const brutalSpring = {

@@ -1,10 +1,10 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef as _u1_useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axiosInstance from '../utils/axiosConfig';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
-import { Progress } from '../components/ui/progress';
+import { Progress as _u7_Progress } from '../components/ui/progress';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from '../components/ui/dialog';
@@ -131,7 +131,7 @@ const OverviewPanel = () => {
     try {
       const res = await axiosInstance.get('/admin/overview');
       setData(res.data);
-    } catch (err) {
+    } catch (_u134_err) {
       toast.error('Failed to load overview');
     } finally {
       setLoading(false);
@@ -208,7 +208,7 @@ const ApiUsagePanel = () => {
     try {
       const res = await axiosInstance.get('/admin/api-usage');
       setData(res.data);
-    } catch (err) {
+    } catch (_u211_err) {
       toast.error('Failed to load API usage');
     } finally {
       setLoading(false);
@@ -286,7 +286,7 @@ const UserManagementPanel = () => {
     try {
       const res = await axiosInstance.get(`/admin/users?sort=${sortBy}&order=${sortOrder}`);
       setUsers(res.data);
-    } catch (err) {
+    } catch (_u289_err) {
       toast.error('Failed to load users');
     } finally {
       setLoading(false);
@@ -600,7 +600,7 @@ const SystemHealthPanel = () => {
     try {
       const res = await axiosInstance.get('/admin/system');
       setData(res.data);
-    } catch (err) {
+    } catch (_u603_err) {
       toast.error('Failed to load system info');
     } finally {
       setLoading(false);
@@ -748,7 +748,7 @@ const TABS = [
 
 ];
 
-const AdminPage = ({ onLogout }) => {
+const AdminPage = ({ _u751_onLogout }) => {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('overview');
   const [authorized, setAuthorized] = useState(null);

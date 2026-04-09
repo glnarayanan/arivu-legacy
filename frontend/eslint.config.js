@@ -29,10 +29,19 @@ export default [
     },
     rules: {
       "react/react-in-jsx-scope": "off",
+      "react/jsx-uses-vars": "error",
       "react/prop-types": "off",
       "react-hooks/rules-of-hooks": "error",
       "react-hooks/exhaustive-deps": "warn",
-      "no-unused-vars": ["warn", { argsIgnorePattern: "^_" }],
+      "no-unused-vars": [
+        "warn",
+        {
+          argsIgnorePattern: "^_",
+          varsIgnorePattern: "^_",
+          caughtErrorsIgnorePattern: "^_",
+          destructuredArrayIgnorePattern: "^_",
+        },
+      ],
       "no-console": ["warn", { allow: ["warn", "error"] }],
     },
   },

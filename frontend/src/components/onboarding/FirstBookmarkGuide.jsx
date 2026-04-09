@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
-import { X, Sparkles, Network, FolderPlus, ArrowRight, CheckCircle2 } from 'lucide-react';
+import { X, Sparkles, Network, FolderPlus as _u3_FolderPlus, ArrowRight, CheckCircle2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../ui/button';
 

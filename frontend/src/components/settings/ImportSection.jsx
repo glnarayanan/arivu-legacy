@@ -67,14 +67,14 @@ const ImportSection = () => {
           setImportFile(null);
           setImportDialogOpen(false);
           fetchImportJobs();
-        } catch (error) {
+        } catch (_u70_error) {
           toast.error('Failed to import bookmarks');
         } finally {
           setImporting(false);
         }
       };
       reader.readAsText(importFile);
-    } catch (error) {
+    } catch (_u77_error) {
       toast.error('Failed to read file');
       setImporting(false);
     }

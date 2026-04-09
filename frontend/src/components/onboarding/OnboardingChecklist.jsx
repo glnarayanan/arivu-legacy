@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
-import { CheckCircle2, Circle, ChevronDown, ChevronUp, X, Bookmark, Network, FolderPlus, Tag } from 'lucide-react';
+import { CheckCircle2, Circle, ChevronDown, ChevronUp, X, Bookmark, Network, FolderPlus, Tag as _u3_Tag } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 const brutalSpring = {
@@ -167,7 +167,7 @@ export const OnboardingChecklist = ({
             <div className="p-3 pt-2 space-y-2">
               {checklistItems.map((item) => {
                 const isCompleted = completedItems.includes(item.id);
-                const Icon = item.icon;
+                const _u170_Icon = item.icon;
 
                 return (
                   <div

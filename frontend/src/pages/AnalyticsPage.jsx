@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import axiosInstance from '../utils/axiosConfig';
 import { Button } from '../components/ui/button';
 import {
@@ -19,7 +19,7 @@ const AnalyticsPage = ({ onLogout }) => {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
 
-  const fetchAnalytics = async () => {
+  const fetchAnalytics = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -34,11 +34,11 @@ const AnalyticsPage = ({ onLogout }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [days]);
 
   useEffect(() => {
     fetchAnalytics();
-  }, [days]);
+  }, [fetchAnalytics]);
 
   const StatCard = ({ icon: Icon, label, value, sublabel }) => (
     <div className="bg-card border-2 border-foreground p-5 shadow-brutal">

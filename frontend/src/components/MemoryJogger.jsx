@@ -1,4 +1,4 @@
-import React from 'react';
+import _u1_React from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 import { Sparkles, ExternalLink, X, Link2 } from 'lucide-react';
 import { Button } from './ui/button';

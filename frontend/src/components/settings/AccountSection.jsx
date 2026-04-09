@@ -4,7 +4,7 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { toast } from 'sonner';
-import { Loader2, Check, Eye, EyeOff, ShieldCheck } from 'lucide-react';
+import { Loader2, Check as _u7_Check, Eye, EyeOff, ShieldCheck } from 'lucide-react';
 
 const PasswordStrengthIndicator = ({ password }) => {
   const getStrength = () => {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import axiosInstance from '../../utils/axiosConfig';
 import { Button } from '../ui/button';
@@ -29,7 +29,7 @@ const ConnectionsSection = () => {
   const [disconnecting, setDisconnecting] = useState(false);
   const [syncResult, setSyncResult] = useState(null);
 
-  const fetchStatus = async () => {
+  const fetchStatus = useCallback(async () => {
     try {
       const response = await axiosInstance.get('/auth/x/status');
       setStatus(response.data);
@@ -39,7 +39,7 @@ const ConnectionsSection = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   // Handle OAuth callback (code + state in URL)
   useEffect(() => {
@@ -64,11 +64,11 @@ const ConnectionsSection = () => {
       };
       handleCallback();
     }
-  }, []);
+  }, [searchParams, setSearchParams, fetchStatus]);
 
   useEffect(() => {
     fetchStatus();
-  }, []);
+  }, [fetchStatus]);
 
   // Poll while syncing
   useEffect(() => {
@@ -76,7 +76,7 @@ const ConnectionsSection = () => {
       const interval = setInterval(fetchStatus, 3000);
       return () => clearInterval(interval);
     }
-  }, [status?.sync_status]);
+  }, [status?.sync_status, fetchStatus]);
 
   const handleConnect = async () => {
     setConnecting(true);
@@ -116,7 +116,7 @@ const ConnectionsSection = () => {
       setStatus({ connected: false });
       setSyncResult(null);
       setDisconnectDialogOpen(false);
-    } catch (error) {
+    } catch (_u119_error) {
       toast.error('Failed to disconnect');
     } finally {
       setDisconnecting(false);

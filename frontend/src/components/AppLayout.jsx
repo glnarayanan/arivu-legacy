@@ -31,7 +31,7 @@ const AppLayout = ({
     try {
       const response = await axiosInstance.get('/collections');
       setCollections(response.data);
-    } catch (error) {
+    } catch (_u34_error) {
       console.error('Failed to fetch collections');
     }
   };
@@ -46,7 +46,7 @@ const AppLayout = ({
         }
       });
       setAllTags([...tags]);
-    } catch (error) {
+    } catch (_u49_error) {
       console.error('Failed to fetch tags');
     }
   };

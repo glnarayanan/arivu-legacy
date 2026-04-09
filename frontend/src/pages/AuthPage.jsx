@@ -72,7 +72,7 @@ const AuthPage = ({ onLogin }) => {
       );
       setForgotPasswordOpen(false);
       setForgotPasswordEmail("");
-    } catch (error) {
+    } catch (_u75_error) {
       // Still show success to prevent email enumeration
       toast.success(
         "If an account exists with this email, you will receive a reset link.",
