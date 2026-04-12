@@ -36,7 +36,7 @@ googleapis-common-protos>=1.72.0
 grpcio==1.67.1
 grpcio-status==1.67.1
 h11==0.16.0
-hf-xet==1.4.2
+hf-xet==1.4.3
 html2text>=2024.2.26
 resend>=2.0.015
 httpcore==1.0.9
