@@ -347,6 +347,35 @@ Create a new bookmark.
 
 ---
 
+### POST /api/bookmarks/preview
+Fetch URL metadata before saving a bookmark.
+
+**Authentication:** Required
+
+**Request Body:**
+```json
+{
+  "url": "https://example.com/article"
+}
+```
+
+**Response:** `200 OK`
+```json
+{
+  "url": "https://example.com/article",
+  "title": "Article Title",
+  "description": "Short page description",
+  "domain": "example.com",
+  "favicon": "https://example.com/favicon.ico",
+  "thumbnail": null,
+  "reading_time": 5
+}
+```
+
+**Security:** Uses the same server-side URL safety checks as bookmark ingestion, including DNS-aware private-address blocking and redirect revalidation.
+
+---
+
 ### GET /api/bookmarks
 List all bookmarks for the authenticated user.
 
@@ -955,20 +984,14 @@ Import bookmarks from external services.
 **Authentication:** Required
 
 **Request Body:**
-```json
-{
-  "source": "pocket",
-  "file_content": "... (HTML or JSON export)",
-  "format": "html"
-}
-```
+Raw UTF-8 file contents. Browser bookmark HTML, CSV, plain URL lists, and Raindrop JSON are accepted. Send `X-Import-Source: raindrop` for Raindrop JSON exports.
 
 **Response:** `200 OK`
 ```json
 {
-  "job_id": "import_job_123",
-  "status": "processing",
-  "message": "Import started"
+  "message": "Imported 2 bookmarks",
+  "count": 2,
+  "import_job_id": "import_job_123"
 }
 ```
 
@@ -977,7 +1000,9 @@ Import bookmarks from external services.
 - Raindrop.io
 - Chrome Bookmarks
 - Firefox Bookmarks
-- Generic HTML/JSON
+- Generic HTML, CSV, plain text URL lists, and Raindrop-style JSON
+
+Unsafe URLs are skipped during import before placeholder bookmarks are created.
 
 ---
 

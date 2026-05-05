@@ -13,6 +13,8 @@ The Arivu CLI gives users a terminal-first way to save links and query their sec
 
 The CLI also includes Docker-based local orchestration commands so a user can run a full local Arivu stack and use the CLI against `http://localhost/api` instead of deploying the product online.
 
+The CLI preview command now fetches URL metadata through the authenticated API (`POST /api/bookmarks/preview`) instead of making unauthenticated local HTTP requests from the terminal. That keeps redirect handling, size limits, and SSRF protections shared with normal bookmark ingestion.
+
 ---
 
 ## Command Surface
@@ -185,6 +187,12 @@ source ~/.config/fish/config.fish
 - CLI auth is bearer-token based and separate from the browser session
 - Tokens are stored in the user config directory with restrictive file permissions
 - Logout removes stored CLI credentials locally; v1 does not implement server-side token revocation
+
+## Security Notes
+
+- URL preview and bookmark ingestion reject embedded credentials, private IPs, loopback, link-local, multicast, reserved, and unresolved unsafe hosts.
+- Server-side fetches revalidate the URL before each redirect hop and do not rely on client-side preview filtering.
+- Import parsing skips unsafe URLs before creating placeholder bookmarks.
 
 ---
 

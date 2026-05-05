@@ -2,12 +2,8 @@
 
 from __future__ import annotations
 
-import ipaddress
-import re
-import socket
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from urllib.parse import urlparse
 
 import httpx
 
@@ -29,7 +25,7 @@ class ArivuAPIClient:
         if not self.profile.access_token_expires_at:
             return True
         expires_at = datetime.fromisoformat(self.profile.access_token_expires_at)
-        return expires_at <= datetime.now(timezone.utc) + timedelta(seconds=30)
+        return expires_at <= datetime.now(UTC) + timedelta(seconds=30)
 
     def _headers(self, extra: dict | None = None) -> dict[str, str]:
         headers = {"Accept": "application/json"}
@@ -81,11 +77,11 @@ class ArivuAPIClient:
                         params=params,
                     )
         except httpx.TimeoutException as e:
-            raise CLIClientError(f"Request timeout: {e}")
+            raise CLIClientError(f"Request timeout: {e}") from e
         except httpx.ConnectError as e:
-            raise CLIClientError(f"Connection failed: {e}")
+            raise CLIClientError(f"Connection failed: {e}") from e
         except httpx.RequestError as e:
-            raise CLIClientError(f"Network error: {e}")
+            raise CLIClientError(f"Network error: {e}") from e
 
         if response.status_code == 401 and require_auth and retry_on_401:
             self.refresh_tokens()
@@ -105,8 +101,8 @@ class ArivuAPIClient:
             try:
                 payload = response.json()
                 detail = payload.get("detail") or payload.get("message")
-            except Exception:
-                pass
+            except ValueError:
+                detail = None
             if not detail:
                 detail = f"Request failed with status {response.status_code}"
             raise CLIClientError(detail)
@@ -205,7 +201,10 @@ class ArivuAPIClient:
             raise CLIClientError(f"File too large: {file_size / (1024 * 1024):.1f}MB. Maximum allowed: 50MB")
 
         content = file_path.read_bytes()
-        headers = {"Content-Type": "application/octet-stream", "X-Import-Source": source}
+        headers = {
+            "Content-Type": "application/octet-stream",
+            "X-Import-Source": source,
+        }
 
         response = self._request(
             "POST",
@@ -220,163 +219,10 @@ class ArivuAPIClient:
         response = self._request("GET", "/analytics/summary", params={"days": days})
         return response.json()
 
-    def _is_safe_preview_url(self, url: str) -> tuple[bool, str]:
-        """Check if URL is safe to fetch (not localhost/private IP).
-
-        Security: Resolves DNS and checks ALL resolved IPs for private/loopback.
-        Rejects URLs with embedded credentials.
-        """
-        try:
-            parsed = urlparse(url)
-            if parsed.scheme not in ("http", "https"):
-                return False, "Only http/https URLs are supported"
-
-            hostname = parsed.hostname
-            if not hostname:
-                return False, "Invalid URL: no hostname"
-
-            # Security: Reject URLs with embedded credentials
-            if parsed.username or parsed.password:
-                return False, "URLs with embedded credentials are not supported"
-
-            # Check for localhost names
-            if hostname in ("localhost", "127.0.0.1", "::1"):
-                return False, "Cannot preview localhost URLs"
-
-            # Security: Check for private IPs by resolving DNS - check ALL addresses
-            try:
-                # Get all resolved addresses
-                addr_info = socket.getaddrinfo(hostname, None)
-                if not addr_info:
-                    return False, f"Cannot resolve hostname: {hostname}"
-
-                # Check EVERY resolved IP address
-                for addr in addr_info:
-                    ip_str = addr[4][0]
-                    try:
-                        ip = ipaddress.ip_address(ip_str)
-                        if (
-                            ip.is_private
-                            or ip.is_loopback
-                            or ip.is_reserved
-                            or ip.is_link_local
-                            or ip.is_multicast
-                            or ip.is_unspecified
-                        ):
-                            return False, "Cannot preview private/reserved network URLs"
-                    except ValueError:
-                        continue  # Skip invalid IPs
-
-            except socket.gaierror:
-                return False, f"Cannot resolve hostname: {hostname}"
-
-            return True, ""
-        except Exception as e:
-            return False, f"URL validation error: {e}"
-
-    def _is_response_url_safe(self, url: str) -> tuple[bool, str]:
-        """Re-validate URL after redirects."""
-        return self._is_safe_preview_url(url)
-
-    def _extract_preview_metadata(self, html: str, url: str) -> dict:
-        """Extract title and description from HTML."""
-        # Extract title
-        title_match = re.search(r"<title[^>]*>([^<]+)</title>", html, re.IGNORECASE)
-        title = title_match.group(1).strip() if title_match else None
-
-        # Extract meta description
-        desc_match = (
-            re.search(
-                r'<meta[^>]+name=["\']description["\'][^>]+content=["\']([^"\']+)["\']',
-                html,
-                re.IGNORECASE,
-            )
-            or re.search(
-                r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+name=["\']description["\']',
-                html,
-                re.IGNORECASE,
-            )
-            or re.search(
-                r'<meta[^>]+property=["\']og:description["\'][^>]+content=["\']([^"\']+)["\']',
-                html,
-                re.IGNORECASE,
-            )
-        )
-        description = desc_match.group(1).strip() if desc_match else None
-
-        # Extract og:title if available
-        og_title_match = re.search(
-            r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']+)["\']',
-            html,
-            re.IGNORECASE,
-        )
-        if og_title_match:
-            title = og_title_match.group(1).strip()
-
-        parsed = urlparse(url)
-        domain = parsed.netloc or "unknown"
-
-        return {
-            "url": url,
-            "title": title or "Untitled",
-            "description": description or "",
-            "domain": domain,
-        }
-
     def preview_url(self, url: str) -> dict:
-        """Fetch basic metadata from URL for preview.
-
-        Security: Manually follows redirects with validation at each hop.
-        Prevents SSRF via redirect chains.
-        """
-        # Security: Validate initial URL
-        is_safe, error = self._is_safe_preview_url(url)
-        if not is_safe:
-            raise CLIClientError(error)
-
-        try:
-            # Security: Disable automatic redirects, manually validate each hop
-            with httpx.Client(timeout=10.0, follow_redirects=False, trust_env=False) as client:
-                current_url = url
-                max_redirects = 5
-
-                for _ in range(max_redirects):
-                    # Security: Validate URL before each request
-                    is_safe, error = self._is_safe_preview_url(current_url)
-                    if not is_safe:
-                        raise CLIClientError(f"Redirect blocked: {error}")
-
-                    response = client.get(
-                        current_url,
-                        headers={"User-Agent": "Mozilla/5.0 (compatible; ArivuCLI/1.0)"},
-                    )
-
-                    # Check if it's a redirect
-                    if response.status_code in (301, 302, 303, 307, 308):
-                        location = response.headers.get("Location")
-                        if not location:
-                            raise CLIClientError("Redirect missing Location header")
-
-                        # Resolve relative URLs
-                        current_url = str(response.url.join(location))
-                        continue  # Loop to validate and follow the redirect
-
-                    # Not a redirect, process the response
-                    response.raise_for_status()
-                    html = response.text[:50000]  # Limit size
-                    return self._extract_preview_metadata(html, current_url)
-
-                # Exceeded max redirects
-                raise CLIClientError(f"Too many redirects (max: {max_redirects})")
-
-        except httpx.TimeoutException:
-            raise CLIClientError("Timeout fetching URL (10s limit)")
-        except httpx.HTTPStatusError as e:
-            raise CLIClientError(f"HTTP error {e.response.status_code} fetching URL")
-        except Exception as e:
-            if isinstance(e, CLIClientError):
-                raise
-            raise CLIClientError(f"Failed to fetch URL: {e}")
+        """Fetch URL preview metadata through the authenticated API."""
+        response = self._request("POST", "/bookmarks/preview", json_body={"url": url})
+        return response.json()
 
     def search(
         self,

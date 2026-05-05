@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -13,7 +13,7 @@ from platformdirs import user_config_dir
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def normalize_api_url(raw_url: str) -> str:
@@ -104,7 +104,7 @@ class ConfigStore:
                 # Skip invalid profiles (e.g., HTTP remote URLs that are no longer allowed)
                 import warnings
 
-                warnings.warn(f"Skipping invalid profile '{name}': {e}")
+                warnings.warn(f"Skipping invalid profile '{name}': {e}", stacklevel=2)
                 continue
 
         # Security: Repair active_profile if it was filtered out

@@ -8,7 +8,6 @@ import shlex
 import webbrowser
 from datetime import datetime
 from pathlib import Path
-from typing import List
 
 import typer
 
@@ -29,7 +28,12 @@ from app.cli.formatters import (
     print_url_preview,
     print_user,
 )
-from app.cli.local import DockerOrchestrator, LocalEnvironmentError, discover_repo_root, validate_root_env
+from app.cli.local import (
+    DockerOrchestrator,
+    LocalEnvironmentError,
+    discover_repo_root,
+    validate_root_env,
+)
 
 app = typer.Typer(help="Arivu command line interface")
 profile_app = typer.Typer(help="Manage CLI profiles")
@@ -47,6 +51,19 @@ app.add_typer(resurface_app, name="resurface")
 app.add_typer(graph_app, name="graph")
 app.add_typer(local_app, name="local")
 app.add_typer(import_app, name="import")
+
+POCKET_IMPORT_FILE_ARGUMENT = typer.Argument(
+    ...,
+    help="Path to Pocket export HTML file",
+    exists=True,
+    readable=True,
+)
+RAINDROP_IMPORT_FILE_ARGUMENT = typer.Argument(
+    ...,
+    help="Path to Raindrop.io export JSON file",
+    exists=True,
+    readable=True,
+)
 
 
 def get_store() -> ConfigStore:
@@ -154,7 +171,7 @@ def auth_whoami(profile: str | None = typer.Option(None, "--profile", help="Prof
 
 @app.command("save")
 def save_bookmark(
-    urls: List[str],
+    urls: list[str],
     collection: str | None = typer.Option(None, "--collection", help="Collection name or ID"),
     profile: str | None = typer.Option(None, "--profile", help="Profile name"),
 ) -> None:
@@ -170,7 +187,10 @@ def save_bookmark(
             # Single URL - use simple output
             result = client.save_bookmark(urls[0], collection_id=collection_id)
             bookmark = result["bookmark"]
-            print_status("Bookmark Saved", f"{bookmark.get('id')}\n{bookmark.get('title')}\nAI status: pending")
+            print_status(
+                "Bookmark Saved",
+                f"{bookmark.get('id')}\n{bookmark.get('title')}\nAI status: pending",
+            )
         else:
             # Multiple URLs - show progress and summary
             results = client.save_bookmarks(urls, collection_id=collection_id)
@@ -486,28 +506,34 @@ def local_logs(service: str | None = typer.Argument(None, help="Optional service
 
 @import_app.command("pocket")
 def import_pocket(
-    file_path: Path = typer.Argument(..., help="Path to Pocket export HTML file", exists=True, readable=True),
+    file_path: Path = POCKET_IMPORT_FILE_ARGUMENT,
     profile: str | None = typer.Option(None, "--profile", help="Profile name"),
 ) -> None:
     """Import bookmarks from a Pocket HTML export file."""
     try:
         _, client = get_client(profile)
         result = client.import_bookmarks(file_path, source="pocket")
-        print_status("Import Complete", f"Imported {result.get('imported', 0)} bookmarks from Pocket")
+        print_status(
+            "Import Complete",
+            f"Imported {result.get('imported', 0)} bookmarks from Pocket",
+        )
     except (ValueError, CLIClientError) as err:
         exit_with_error(str(err))
 
 
 @import_app.command("raindrop")
 def import_raindrop(
-    file_path: Path = typer.Argument(..., help="Path to Raindrop.io export JSON file", exists=True, readable=True),
+    file_path: Path = RAINDROP_IMPORT_FILE_ARGUMENT,
     profile: str | None = typer.Option(None, "--profile", help="Profile name"),
 ) -> None:
     """Import bookmarks from a Raindrop.io JSON export file."""
     try:
         _, client = get_client(profile)
         result = client.import_bookmarks(file_path, source="raindrop")
-        print_status("Import Complete", f"Imported {result.get('imported', 0)} bookmarks from Raindrop.io")
+        print_status(
+            "Import Complete",
+            f"Imported {result.get('imported', 0)} bookmarks from Raindrop.io",
+        )
     except (ValueError, CLIClientError) as err:
         exit_with_error(str(err))
 
@@ -640,7 +666,8 @@ def interactive(
                             collection = args[i + 1]
                             break
                 result = client.save_bookmarks(
-                    urls, collection_id=resolve_collection_id(client, collection) if collection else None
+                    urls,
+                    collection_id=(resolve_collection_id(client, collection) if collection else None),
                 )
                 print_bulk_save_summary(result["saved"], result["failed"])
 
@@ -723,7 +750,6 @@ def interactive(
 
             elif cmd == "stats":
                 weekly = "--weekly" in args
-                monthly = "--monthly" in args
                 days = 7 if weekly else 30
                 payload = client.get_analytics_summary(days=days)
                 label = "Last 7 days" if weekly else "Last 30 days"

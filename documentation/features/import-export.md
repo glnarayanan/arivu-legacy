@@ -23,9 +23,9 @@ The Import/Export feature allows seamless migration of bookmarks from other serv
 - Notes: Pocket archive includes read/unread status
 
 #### 2. **Raindrop.io**
-- Format: HTML or CSV export
-- Data imported: URLs, titles, tags, collections, timestamps
-- Notes: Collections mapped to Arivu collections
+- Format: JSON export from Raindrop.io, plus generic CSV/plain URL imports through the same endpoint
+- Data imported: URLs and titles
+- Notes: The API accepts `X-Import-Source: raindrop` for Raindrop JSON and skips unsafe URLs before bookmark creation
 
 #### 3. **Chrome Bookmarks**
 - Format: HTML export (Bookmarks Manager → Export)
@@ -111,9 +111,10 @@ https://example.com/article,Article Title,"ai,technology",One-sentence summary,2
 
 2. **Parsing**
    - HTML parsed with BeautifulSoup
-   - JSON validated against schema
-   - CSV parsed with pandas
+   - Raindrop JSON accepts top-level arrays or objects containing `items`, `bookmarks`, `raindrops`, or `result`
+   - CSV parsed with Python's CSV parser
    - Metadata extracted (URLs, titles, tags, timestamps)
+   - Unsafe URLs are skipped before database insertion
 
 3. **Background Processing**
    - Import job created with unique ID

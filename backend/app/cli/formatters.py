@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
 
 from rich.console import Console
 from rich.panel import Panel
@@ -131,7 +130,10 @@ def print_bulk_save_summary(saved: list[dict], failed: list[dict]) -> None:
         )
     else:
         console.print(
-            Panel(f"[bold green]Successfully saved {len(saved)} bookmarks[/bold green]", title="Bulk Save Summary")
+            Panel(
+                f"[bold green]Successfully saved {len(saved)} bookmarks[/bold green]",
+                title="Bulk Save Summary",
+            )
         )
 
     # List saved bookmarks

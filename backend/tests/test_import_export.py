@@ -5,6 +5,7 @@ Covers: import bookmarks, get import jobs, get single job, job not found,
 export bookmarks, backup bookmarks.
 """
 
+import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -31,6 +32,7 @@ async def test_import_bookmarks(client, mock_db):
     </DL><p>
     """
     mock_db.bookmarks.insert_one = AsyncMock()
+    mock_db.bookmarks.find_one = AsyncMock(return_value=None)
     mock_db.ai_summaries.insert_one = AsyncMock()
     mock_db.import_jobs.insert_one = AsyncMock()
 
@@ -44,6 +46,46 @@ async def test_import_bookmarks(client, mock_db):
     assert data["count"] == 2
     assert "import_job_id" in data
     assert "Imported 2 bookmarks" in data["message"]
+
+
+@pytest.mark.anyio
+async def test_import_raindrop_json(client, mock_db):
+    """POST /api/bookmarks/import accepts Raindrop JSON exports."""
+    payload = {
+        "items": [
+            {"link": "https://example.com/one", "title": "One"},
+            {"link": "https://python.org/two", "title": "Two"},
+            {"link": "http://127.0.0.1/admin", "title": "Unsafe"},
+        ]
+    }
+    mock_db.bookmarks.insert_one = AsyncMock()
+    mock_db.bookmarks.find_one = AsyncMock(return_value=None)
+    mock_db.ai_summaries.insert_one = AsyncMock()
+    mock_db.import_jobs.insert_one = AsyncMock()
+
+    response = await client.post(
+        "/api/bookmarks/import",
+        content=json.dumps(payload).encode("utf-8"),
+        headers={"X-Import-Source": "raindrop"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["count"] == 2
+    assert mock_db.bookmarks.insert_one.await_count == 2
+
+
+@pytest.mark.anyio
+async def test_import_raindrop_rejects_invalid_json(client):
+    """Raindrop imports must be parseable JSON."""
+    response = await client.post(
+        "/api/bookmarks/import",
+        content=b"{not-json",
+        headers={"X-Import-Source": "raindrop"},
+    )
+
+    assert response.status_code == 400
+    assert "valid JSON" in response.json()["detail"]
 
 
 @pytest.mark.anyio
@@ -143,9 +185,6 @@ async def test_backup_bookmarks(client, mock_db):
     )
     assert response.status_code == 200
     assert "application/json" in response.headers["content-type"]
-
-    # Verify JSON content
-    import json
 
     data = json.loads(response.text)
     assert data["total_bookmarks"] == 1

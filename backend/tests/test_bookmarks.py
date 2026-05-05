@@ -8,6 +8,7 @@ accessed tracking, aged bookmarks, duplicates detection, merge, and related.
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from app.models.bookmark import is_safe_url
 
 # --- Helpers for cursor mocking ---
 
@@ -80,6 +81,72 @@ async def test_create_bookmark_localhost_url(client):
     """POST /api/bookmarks with localhost URL returns 422 (SSRF protection)."""
     response = await client.post("/api/bookmarks", json={"url": "http://localhost:8080/admin"})
     assert response.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_preview_bookmark_rejects_localhost_url(client):
+    """POST /api/bookmarks/preview rejects local network targets."""
+    response = await client.post("/api/bookmarks/preview", json={"url": "http://localhost:8080/admin"})
+    assert response.status_code == 400
+
+
+@pytest.mark.anyio
+async def test_preview_bookmark_returns_metadata(client, monkeypatch):
+    """POST /api/bookmarks/preview returns fetched metadata for safe URLs."""
+    monkeypatch.setattr("app.routers.bookmarks.is_safe_url", lambda url, resolve_host=False: (True, ""))
+
+    async def mock_fetch(url, **kwargs):
+        return {
+            "url": url,
+            "title": "Example Preview",
+            "description": "Preview description",
+            "domain": "example.com",
+            "text_content": "word " * 250,
+        }
+
+    monkeypatch.setattr("app.routers.bookmarks.fetch_webpage_content", mock_fetch)
+
+    response = await client.post("/api/bookmarks/preview", json={"url": "https://example.com/article"})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["title"] == "Example Preview"
+    assert data["reading_time"] == 1
+
+
+@pytest.mark.anyio
+async def test_preview_bookmark_rejects_fetch_safety_error(client, monkeypatch):
+    """POST /api/bookmarks/preview fails closed when fetch-time validation blocks a URL."""
+    monkeypatch.setattr("app.routers.bookmarks.is_safe_url", lambda url, resolve_host=False: (True, ""))
+
+    async def mock_fetch(url, **kwargs):
+        raise ValueError("Unsafe URL: Hostname resolves to private or reserved IP addresses")
+
+    monkeypatch.setattr("app.routers.bookmarks.fetch_webpage_content", mock_fetch)
+
+    response = await client.post("/api/bookmarks/preview", json={"url": "https://example.com/redirect"})
+
+    assert response.status_code == 400
+    assert "Unsafe URL" in response.json()["detail"]
+
+
+def test_is_safe_url_rejects_embedded_credentials():
+    """URL validation rejects credentials embedded in the authority."""
+    safe, error = is_safe_url("https://user:pass@example.com")
+    assert safe is False
+    assert "embedded credentials" in error
+
+
+def test_is_safe_url_blocks_dns_private_resolution(monkeypatch):
+    """Resolved private IPs are blocked before network fetches."""
+    monkeypatch.setattr(
+        "socket.getaddrinfo",
+        lambda *args, **kwargs: [(None, None, None, None, ("10.0.0.10", 443))],
+    )
+
+    safe, error = is_safe_url("https://internal.example", resolve_host=True)
+
+    assert safe is False
+    assert "private or reserved" in error
 
 
 # ============================================

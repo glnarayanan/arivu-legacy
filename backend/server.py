@@ -7,7 +7,7 @@ import re
 import secrets
 import sys
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
 
@@ -2098,4 +2098,3 @@ async def migrate_bookmark_version_field():
 async def shutdown_db_client():
     close_core_db()
     client.close()
-UTC = timezone.utc

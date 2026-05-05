@@ -65,7 +65,8 @@ class DockerOrchestrator:
     def _run(self, args: list[str], *, capture_output: bool = True) -> subprocess.CompletedProcess:
         command = ["docker", "compose", *args]
         try:
-            return subprocess.run(
+            # Args are selected by CLI commands; service names are passed as a single argv element.
+            return subprocess.run(  # noqa: S603
                 command,
                 cwd=self.repo_root,
                 check=True,
@@ -117,4 +118,3 @@ class DockerOrchestrator:
             "frontend_health": frontend_health,
             "backend_health": backend_health,
         }
-

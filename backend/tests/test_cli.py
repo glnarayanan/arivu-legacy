@@ -3,11 +3,10 @@
 from pathlib import Path
 
 import pytest
-from typer.testing import CliRunner
-
 from app.cli.client import resolve_collection_id
 from app.cli.config import ConfigStore, normalize_api_url
 from app.cli.main import app
+from typer.testing import CliRunner
 
 runner = CliRunner()
 
@@ -53,7 +52,12 @@ class FakeClient:
         ]
 
     def list_bookmarks(self, *, limit=20, tag=None, collection_id=None, read_status=None):
-        self.list_kwargs = {"limit": limit, "tag": tag, "collection_id": collection_id, "read_status": read_status}
+        self.list_kwargs = {
+            "limit": limit,
+            "tag": tag,
+            "collection_id": collection_id,
+            "read_status": read_status,
+        }
         bookmarks = [
             {
                 "id": "bm-1",
@@ -383,6 +387,42 @@ def test_import_bookmarks_enforces_file_size_limit(monkeypatch, tmp_path):
         client.import_bookmarks(large_file, source="pocket")
 
 
+def test_preview_url_uses_api_endpoint(tmp_path, monkeypatch):
+    """Preview should call the authenticated API instead of fetching arbitrary URLs locally."""
+    from app.cli.client import ArivuAPIClient
+
+    store = ConfigStore(config_dir=tmp_path)
+    profile = store.upsert_profile("test", "http://localhost/api", is_local_profile=True)
+    client = ArivuAPIClient(store, profile)
+
+    calls = []
+
+    class MockResponse:
+        def json(self):
+            return {
+                "url": "https://example.com",
+                "title": "Example",
+                "domain": "example.com",
+            }
+
+    def mock_request(method, path, *, json_body=None, **kwargs):
+        calls.append({"method": method, "path": path, "json_body": json_body})
+        return MockResponse()
+
+    monkeypatch.setattr(client, "_request", mock_request)
+
+    result = client.preview_url("https://example.com")
+
+    assert result["title"] == "Example"
+    assert calls == [
+        {
+            "method": "POST",
+            "path": "/bookmarks/preview",
+            "json_body": {"url": "https://example.com"},
+        }
+    ]
+
+
 def test_config_store_uses_env_var(tmp_path, monkeypatch):
     """ARIVU_CONFIG_DIR environment variable should be respected."""
     env_dir = tmp_path / "env_config"
@@ -401,33 +441,8 @@ def test_normalize_api_url_blocks_private_ips():
     with pytest.raises(ValueError):
         normalize_api_url("http://10.0.0.1")
 
-    # But 127.0.0.1 should work
+    # But localhost profile URLs are allowed for local development
     assert normalize_api_url("http://127.0.0.1") == "http://127.0.0.1/api"
-
-
-def test_is_safe_preview_url_rejects_embedded_credentials():
-    """URLs with embedded credentials should be rejected."""
-    from app.cli.client import ArivuAPIClient, CLIClientError
-    from app.cli.config import ConfigStore
-
-    store = ConfigStore()
-    # Create a minimal mock profile for testing
-    profile = type(
-        "Profile",
-        (),
-        {
-            "name": "test",
-            "access_token": None,
-            "refresh_token": None,
-            "access_token_expires_at": None,
-        },
-    )()
-    client = ArivuAPIClient(store, profile)
-
-    # Test URL with credentials
-    is_safe, error = client._is_safe_preview_url("https://user:pass@example.com")
-    assert not is_safe
-    assert "embedded credentials" in error
 
 
 def test_config_store_repairs_active_profile(tmp_path, monkeypatch):

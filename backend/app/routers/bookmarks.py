@@ -8,10 +8,11 @@ and related bookmarks via embedding similarity.
 import logging
 import re
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from pydantic import BaseModel
 
 from app.core.database import get_database
 from app.core.dependencies import get_current_user, get_user_identifier, limiter
@@ -20,10 +21,13 @@ from app.models.bookmark import (
     BookmarkCreate,
     BookmarkWithConnections,
     QuickConnection,
+    is_safe_url,
 )
-from app.services.content_service import process_bookmark_content
-
-UTC = timezone.utc
+from app.services.content_service import (
+    calculate_reading_time,
+    fetch_webpage_content,
+    process_bookmark_content,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +35,10 @@ router = APIRouter(tags=["bookmarks"])
 
 # Minimum semantic similarity score for related bookmarks
 MIN_SEMANTIC_SCORE = 0.3
+
+
+class BookmarkPreviewRequest(BaseModel):
+    url: str
 
 
 # --- Helper Functions ---
@@ -156,6 +164,34 @@ async def create_bookmark(
         connections=connections,
         connections_count=len(connections),
     )
+
+
+@router.post("/bookmarks/preview")
+@limiter.limit("20/minute")
+async def preview_bookmark(
+    request: Request,
+    preview_data: BookmarkPreviewRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Fetch safe metadata for a URL before saving it."""
+    safe, error_msg = is_safe_url(preview_data.url, resolve_host=True)
+    if not safe:
+        raise HTTPException(status_code=400, detail=error_msg)
+
+    try:
+        content = await fetch_webpage_content(preview_data.url, raise_on_error=True)
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err)) from err
+
+    return {
+        "url": content.get("url") or preview_data.url,
+        "title": content.get("title") or urlparse(preview_data.url).netloc,
+        "description": content.get("description") or "",
+        "domain": content.get("domain") or urlparse(preview_data.url).netloc,
+        "favicon": content.get("favicon"),
+        "thumbnail": content.get("thumbnail"),
+        "reading_time": calculate_reading_time(content.get("text_content", "")),
+    }
 
 
 @router.get("/bookmarks", response_model=list[dict])
@@ -661,4 +697,3 @@ async def merge_bookmarks(bookmark_ids: list[str], current_user: dict = Depends(
     await db.ai_summaries.delete_many({"bookmark_id": {"$in": delete_ids}})
 
     return {"message": "Bookmarks merged", "kept_bookmark": keep_bookmark}
-UTC = timezone.utc

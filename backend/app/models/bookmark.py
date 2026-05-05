@@ -6,19 +6,34 @@ Shared Pydantic models used by bookmarks router and other consumers.
 
 import ipaddress
 import logging
+import socket
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, validator
 
-UTC = timezone.utc
-
 logger = logging.getLogger(__name__)
 
 
-def is_safe_url(url: str) -> tuple:
-    """Validate URL to prevent SSRF attacks (non-blocking validation)"""
+def _is_blocked_ip(ip_address: str) -> bool:
+    ip_obj = ipaddress.ip_address(ip_address)
+    return (
+        ip_obj.is_private
+        or ip_obj.is_loopback
+        or ip_obj.is_link_local
+        or ip_obj.is_reserved
+        or ip_obj.is_multicast
+        or ip_obj.is_unspecified
+    )
+
+
+def is_safe_url(url: str, *, resolve_host: bool = False) -> tuple[bool, str]:
+    """Validate URL to prevent SSRF attacks.
+
+    Set resolve_host=True immediately before network fetches so DNS names that
+    resolve to private or reserved addresses are blocked as well.
+    """
     try:
         parsed = urlparse(url)
 
@@ -32,6 +47,9 @@ def is_safe_url(url: str) -> tuple:
 
         hostname = parsed.hostname.lower()
 
+        if parsed.username or parsed.password:
+            return False, "URLs with embedded credentials are not allowed"
+
         # Block localhost and loopback addresses (check hostname directly)
         if hostname in ["localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"]:
             return False, "Cannot fetch from localhost or loopback addresses"
@@ -43,21 +61,33 @@ def is_safe_url(url: str) -> tuple:
         # Block private IP ranges (check if hostname is already an IP)
         try:
             # If hostname is an IP address, validate it directly (no DNS lookup needed)
-            ip_obj = ipaddress.ip_address(hostname)
-
-            # Block private, loopback, link-local, and reserved ranges
-            if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local or ip_obj.is_reserved:
+            if _is_blocked_ip(hostname):
                 return False, "Cannot fetch from private or reserved IP addresses"
 
             # Block cloud metadata endpoints (AWS, GCP, Azure)
-            if str(ip_obj) == "169.254.169.254":
+            if hostname == "169.254.169.254":
                 return False, "Cannot fetch from cloud metadata endpoints"
 
         except ValueError:
-            # hostname is not an IP address, it's a domain name
-            # Skip DNS resolution to avoid blocking - the requests library will handle it
-            # and will timeout if the domain resolves to a bad IP
-            pass
+            if resolve_host:
+                try:
+                    addresses = socket.getaddrinfo(hostname, parsed.port, type=socket.SOCK_STREAM)
+                except socket.gaierror:
+                    return False, "Cannot resolve hostname"
+
+                resolved_ips = {addr[4][0] for addr in addresses}
+                if not resolved_ips:
+                    return False, "Cannot resolve hostname"
+
+                for resolved_ip in resolved_ips:
+                    try:
+                        if _is_blocked_ip(resolved_ip):
+                            return (
+                                False,
+                                "Hostname resolves to private or reserved IP addresses",
+                            )
+                    except ValueError:
+                        logger.warning(f"Skipping invalid resolved IP address: {resolved_ip}")
 
         return True, ""
 
