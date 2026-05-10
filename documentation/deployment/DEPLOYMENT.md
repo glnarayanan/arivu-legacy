@@ -1,4 +1,5 @@
 # Arivu Deployment Guide
+
 ## Complete Setup for Local Development & Production
 
 **Version:** 2.2 (Updated with Marketing Site Integration)
@@ -77,13 +78,14 @@
 
 ### Deployment Options
 
-| Environment | Entry Point | Frontend | Backend | MongoDB | Use Case |
-|-------------|-------------|----------|---------|---------|----------|
-| **Local (Docker)** | Marketing:80 | Container | Container | Container | Full local testing |
-| **Local (Manual)** | Frontend:3000 | 3000 | 8001 | Local/Cloud | Development |
-| **Production** | Marketing:80 | Internal | Internal | Container | Live deployment |
+| Environment        | Entry Point   | Frontend  | Backend   | MongoDB     | Use Case           |
+| ------------------ | ------------- | --------- | --------- | ----------- | ------------------ |
+| **Local (Docker)** | Marketing:80  | Container | Container | Container   | Full local testing |
+| **Local (Manual)** | Frontend:3000 | 3000      | 8001      | Local/Cloud | Development        |
+| **Production**     | Marketing:80  | Internal  | Internal  | Container   | Live deployment    |
 
 ### Key Features
+
 - ✅ **Single-domain architecture** - Marketing + App on same domain
 - ✅ **Hugo landing page** - Fast static marketing site
 - ✅ **Seamless auth flow** - /auth proxied to React app
@@ -100,6 +102,7 @@
 ### Option 1: Docker Compose (Recommended)
 
 **Prerequisites:**
+
 - Docker Desktop installed and running
 - 8GB+ RAM available
 - Ports 80, 8001, 27017 available
@@ -207,7 +210,10 @@ arivu search "example topic"
 ```
 
 Notes:
-- `arivu local up` expects the repo root `.env` to exist and contain a real `SECRET_KEY`
+
+- Run these commands from an Arivu repo checkout that includes the root `docker-compose.yml`
+- `arivu local up` expects the repo root `.env` to exist and contain a real 32+ character `SECRET_KEY`
+- Create the user account in the web app first; `arivu auth login --profile local` signs in an existing user
 - The generated local profile targets `http://localhost/api`
 - `arivu local status` and `arivu local logs` can be used for troubleshooting
 
@@ -218,6 +224,7 @@ Notes:
 **Use Case:** When Docker is not available or for faster development iteration
 
 **Prerequisites:**
+
 - Python 3.11+
 - Node.js 18+ and Yarn
 - MongoDB 7.0+ (local or cloud)
@@ -288,6 +295,7 @@ yarn start
 ```
 
 **Access Points:**
+
 - Frontend: http://localhost:3000
 - Backend: http://localhost:8001/api
 - API Docs: http://localhost:8001/docs
@@ -403,6 +411,7 @@ LOG_LEVEL=info
 ```
 
 **Important Notes:**
+
 - Replace ALL `<placeholder>` values with actual values
 - `REACT_APP_BACKEND_URL` must be set BEFORE build (it's baked into the React bundle)
 - Use the same domain for both `CORS_ORIGINS` and `REACT_APP_BACKEND_URL`
@@ -424,12 +433,14 @@ openssl rand -base64 24
 ### Step 4: Configure Domain & Networking
 
 **Port Configuration:**
+
 - Frontend nginx listens on port 80
 - Backend on port 8001 (internal only)
 - MongoDB on port 27017 (internal only)
 - Only the marketing/frontend container needs to be publicly accessible
 
 **Firewall:**
+
 ```bash
 # Open HTTP/HTTPS ports
 sudo ufw allow 80/tcp
@@ -457,6 +468,7 @@ server {
 ```
 
 For SSL with Let's Encrypt:
+
 ```bash
 sudo apt install certbot python3-certbot-nginx
 sudo certbot --nginx -d your-domain.com
@@ -509,6 +521,7 @@ docker-compose -f docker-compose.prod.yml up -d --build
    - TTL: Auto
 
 2. **Verify DNS Propagation:**
+
 ```bash
 # Check DNS resolution
 dig your-domain.com
@@ -572,7 +585,7 @@ Docker: arivu-mongodb (Port 27017)
 
 1. **Firewall Rules:**
    - Consider rate limiting for API endpoints
-   - Example: Max 100 requests/minute per IP for /api/*
+   - Example: Max 100 requests/minute per IP for /api/\*
 
 2. **Bot Fight Mode:**
    - Enable for basic bot protection
@@ -588,21 +601,22 @@ Docker: arivu-mongodb (Port 27017)
 
 ### Complete Variable List
 
-| Variable | Required | Default | Description | Example |
-|----------|----------|---------|-------------|---------|
-| **MONGO_URL** | ✅ Yes | - | MongoDB connection string | `mongodb://admin:pass@mongodb:27017/arivu_db?authSource=admin` |
-| **DB_NAME** | ✅ Yes | `arivu_db` | Database name | `arivu_db` |
-| **MONGO_ROOT_USERNAME** | ✅ Yes | `admin` | MongoDB root user | `admin` |
-| **MONGO_ROOT_PASSWORD** | ✅ Yes | - | MongoDB root password | `<secure-password>` |
-| **SECRET_KEY** | ✅ Yes | - | JWT signing key (32+ chars) | `<32-hex-chars>` |
-| **GEMINI_API_KEY** | ✅ Yes | - | Google AI API key | `AIzaSy...` |
-| **REACT_APP_BACKEND_URL** | ✅ Yes | - | Frontend → Backend URL | `https://your-domain.com` |
-| **CORS_ORIGINS** | ✅ Yes | `*` | Allowed CORS origins | `https://your-domain.com` |
-| **LOG_LEVEL** | ❌ No | `info` | Logging verbosity | `debug`, `info`, `warning`, `error` |
+| Variable                  | Required | Default    | Description                 | Example                                                        |
+| ------------------------- | -------- | ---------- | --------------------------- | -------------------------------------------------------------- |
+| **MONGO_URL**             | ✅ Yes   | -          | MongoDB connection string   | `mongodb://admin:pass@mongodb:27017/arivu_db?authSource=admin` |
+| **DB_NAME**               | ✅ Yes   | `arivu_db` | Database name               | `arivu_db`                                                     |
+| **MONGO_ROOT_USERNAME**   | ✅ Yes   | `admin`    | MongoDB root user           | `admin`                                                        |
+| **MONGO_ROOT_PASSWORD**   | ✅ Yes   | -          | MongoDB root password       | `<secure-password>`                                            |
+| **SECRET_KEY**            | ✅ Yes   | -          | JWT signing key (32+ chars) | `<32-hex-chars>`                                               |
+| **GEMINI_API_KEY**        | ✅ Yes   | -          | Google AI API key           | `AIzaSy...`                                                    |
+| **REACT_APP_BACKEND_URL** | ✅ Yes   | -          | Frontend → Backend URL      | `https://your-domain.com`                                      |
+| **CORS_ORIGINS**          | ✅ Yes   | `*`        | Allowed CORS origins        | `https://your-domain.com`                                      |
+| **LOG_LEVEL**             | ❌ No    | `info`     | Logging verbosity           | `debug`, `info`, `warning`, `error`                            |
 
 ### Environment-Specific Configurations
 
 **Local Development:**
+
 ```bash
 MONGO_URL=mongodb://admin:changeme123@localhost:27017/
 REACT_APP_BACKEND_URL=http://localhost:8001
@@ -611,6 +625,7 @@ LOG_LEVEL=debug
 ```
 
 **Local Docker:**
+
 ```bash
 MONGO_URL=mongodb://admin:changeme123@mongodb:27017/
 REACT_APP_BACKEND_URL=http://localhost:8001
@@ -619,6 +634,7 @@ LOG_LEVEL=debug
 ```
 
 **Production:**
+
 ```bash
 MONGO_URL=mongodb://admin:<secure-pass>@mongodb:27017/arivu_db?authSource=admin
 REACT_APP_BACKEND_URL=https://your-domain.com
@@ -652,6 +668,7 @@ LOG_LEVEL=info
 ### Step 1: Health Checks
 
 **Backend Health:**
+
 ```bash
 # Test via curl
 curl https://your-domain.com/api/health
@@ -669,6 +686,7 @@ https://your-domain.com/api/health
 ```
 
 **Frontend Health:**
+
 ```bash
 # Test nginx health endpoint
 curl https://your-domain.com/health
@@ -685,6 +703,7 @@ curl https://your-domain.com
 ### Step 2: Functional Testing
 
 **Create Test Account:**
+
 1. Open https://your-domain.com
 2. Click "Sign Up"
 3. Enter email and password
@@ -692,6 +711,7 @@ curl https://your-domain.com
 5. Should redirect to dashboard
 
 **Create Test Bookmark:**
+
 1. Click "Add Bookmark" (or press Q key)
 2. Enter URL: `https://paulgraham.com/greatwork.html`
 3. Bookmark should save immediately (placeholder)
@@ -704,6 +724,7 @@ curl https://your-domain.com
    - Suggested tags
 
 **Test Search & Filters:**
+
 1. Create 2-3 bookmarks
 2. Test search functionality
 3. Test filters (read/unread, collections)
@@ -712,6 +733,7 @@ curl https://your-domain.com
 ### Step 3: Performance Verification
 
 **Response Time Testing:**
+
 ```bash
 # Test API response time
 curl -w "\nTime: %{time_total}s\n" https://your-domain.com/api/health
@@ -722,6 +744,7 @@ curl -w "\nTime: %{time_total}s\n" https://your-domain.com/api/health
 ```
 
 **Load Testing (Optional):**
+
 ```bash
 # Using Apache Bench
 ab -n 100 -c 10 https://your-domain.com/api/health
@@ -735,6 +758,7 @@ ab -n 100 -c 10 https://your-domain.com/api/health
 ### Step 4: Log Verification
 
 **Check Container Logs:**
+
 ```bash
 # Via SSH to server:
 docker logs arivu-backend --tail 50
@@ -743,6 +767,7 @@ docker logs arivu-mongodb --tail 50
 ```
 
 **Healthy Backend Logs:**
+
 ```
 INFO: Started server process [1]
 INFO: Waiting for application startup
@@ -752,11 +777,13 @@ INFO: 172.20.0.5:xxxxx - "GET /api/health HTTP/1.1" 200 OK
 ```
 
 **Healthy Frontend Logs:**
+
 ```
 /docker-entrypoint.sh: Configuration complete; ready for start up
 ```
 
 **Common Warning Logs (Safe to Ignore):**
+
 ```
 WARNING: Gemini API quota approaching limit (safe if < 80%)
 INFO: Background task completed for bookmark_id=...
@@ -765,6 +792,7 @@ INFO: Background task completed for bookmark_id=...
 ### Step 5: Database Verification
 
 **Connect to MongoDB:**
+
 ```bash
 # Via Docker exec
 docker exec -it arivu-mongodb mongosh \
@@ -777,6 +805,7 @@ test>
 ```
 
 **Verify Collections:**
+
 ```javascript
 // Switch to database
 use arivu_db
@@ -845,6 +874,7 @@ done
 ```
 
 **Setup Monitoring:**
+
 ```bash
 chmod +x /home/ubuntu/monitor-arivu.sh
 
@@ -895,6 +925,7 @@ echo "Backup completed: $BACKUP_DIR/backup-$DATE.tar.gz"
 ```
 
 **Setup Daily Cron:**
+
 ```bash
 # Edit crontab
 crontab -e
@@ -904,6 +935,7 @@ crontab -e
 ```
 
 **Restore from Backup:**
+
 ```bash
 # Extract backup
 tar -xzf /home/ubuntu/backups/backup-20251229.tar.gz
@@ -984,6 +1016,7 @@ Create `/etc/logrotate.d/arivu`:
 ```
 
 Test log rotation:
+
 ```bash
 sudo logrotate -f /etc/logrotate.d/arivu
 ```
@@ -1080,18 +1113,21 @@ add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsaf
 ### Regular Security Maintenance
 
 **Weekly Tasks:**
+
 - Review access logs for suspicious activity
 - Check for failed login attempts
 - Monitor API rate limit violations
 - Review Cloudflare security events
 
 **Monthly Tasks:**
+
 - Update Docker images (`docker-compose pull`)
 - Review and rotate secrets if compromised
 - Audit user accounts and permissions
 - Check for outdated dependencies (`pip list --outdated`, `yarn outdated`)
 
 **Quarterly Tasks:**
+
 - Perform security audit
 - Review and update firewall rules
 - Test disaster recovery procedures
@@ -1107,14 +1143,14 @@ See detailed troubleshooting guide: [TROUBLESHOOTING.md](../../TROUBLESHOOTING.m
 
 **Quick Fixes:**
 
-| Issue | Quick Fix |
-|-------|-----------|
-| Backend won't start | Check MongoDB connection, verify `MONGO_URL` |
-| Frontend blank page | Rebuild with correct `REACT_APP_BACKEND_URL` |
-| CORS errors | Update `CORS_ORIGINS` to match frontend domain |
-| AI summaries stuck | Verify `GEMINI_API_KEY`, check quota |
-| 504 Gateway Timeout | Check backend logs, restart backend container |
-| MongoDB connection refused | Ensure MongoDB container is healthy |
+| Issue                      | Quick Fix                                      |
+| -------------------------- | ---------------------------------------------- |
+| Backend won't start        | Check MongoDB connection, verify `MONGO_URL`   |
+| Frontend blank page        | Rebuild with correct `REACT_APP_BACKEND_URL`   |
+| CORS errors                | Update `CORS_ORIGINS` to match frontend domain |
+| AI summaries stuck         | Verify `GEMINI_API_KEY`, check quota           |
+| 504 Gateway Timeout        | Check backend logs, restart backend container  |
+| MongoDB connection refused | Ensure MongoDB container is healthy            |
 
 **Get Help:**
 
@@ -1131,6 +1167,7 @@ See detailed troubleshooting guide: [TROUBLESHOOTING.md](../../TROUBLESHOOTING.m
 ### Quick Deployment Checklist
 
 **Local Development:**
+
 - [ ] Docker installed and running
 - [ ] `.env` file created with `GEMINI_API_KEY`
 - [ ] `docker-compose up -d` executed
@@ -1139,6 +1176,7 @@ See detailed troubleshooting guide: [TROUBLESHOOTING.md](../../TROUBLESHOOTING.m
 - [ ] Backend health check passes
 
 **Production Deployment:**
+
 - [ ] VPS provisioned with Docker and Docker Compose
 - [ ] Repository cloned on server
 - [ ] `.env` file configured with production values
@@ -1171,9 +1209,10 @@ See detailed troubleshooting guide: [TROUBLESHOOTING.md](../../TROUBLESHOOTING.m
 **Deployment Status:** Production Ready ✅
 
 **Estimated Deployment Time:**
+
 - Local: 5-10 minutes
 - Production: 20-30 minutes
 
 ---
 
-*End of Deployment Guide - Version 2.2*
+_End of Deployment Guide - Version 2.2_

@@ -108,8 +108,9 @@ arivu interactive
 ```
 
 Supported commands in interactive mode:
+
 - `save <url> [--collection NAME]` - Save a bookmark
-- `search <query> [--limit N]` - Search bookmarks
+- `search <query> [--limit N]` - Search bookmarks; quote multi-word queries, for example `search "python embeddings"`
 - `list [--unread] [--limit N]` - List bookmarks
 - `show <bookmark-id>` - Show bookmark details
 - `open <bookmark-id>` - Open bookmark in browser
@@ -122,6 +123,8 @@ Supported commands in interactive mode:
 
 ## Local Stack Commands
 
+Run local stack commands from inside an Arivu repo checkout. The checkout must include the root `docker-compose.yml`, and the root `.env` must exist before `arivu local up` runs.
+
 ```bash
 arivu local up
 arivu local status
@@ -130,14 +133,17 @@ arivu local down
 ```
 
 Behavior:
-- Uses the repo `docker-compose.yml`
-- Validates the root `.env` before startup
+
+- Discovers and uses the repo root `docker-compose.yml`
+- Validates the root `.env` before startup and requires a real 32+ character `SECRET_KEY`
 - Creates or updates a `local` profile pointing at `http://localhost/api`
 - Boots the full frontend + backend + MongoDB + Redis stack
 
 ---
 
 ## Install Notes
+
+The backend and CLI require Python 3.11 or newer.
 
 From the `backend/` directory:
 
@@ -185,6 +191,7 @@ source ~/.config/fish/config.fish
 
 - Browser and frontend auth remain cookie-based
 - CLI auth is bearer-token based and separate from the browser session
+- `arivu auth login` authenticates an existing Arivu user; create the account in the web app first because the CLI does not provide a signup command
 - Tokens are stored in the user config directory with restrictive file permissions
 - Logout removes stored CLI credentials locally; v1 does not implement server-side token revocation
 
