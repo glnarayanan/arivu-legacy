@@ -461,10 +461,10 @@ Current limitations:
 - No detection for video/image duplicates
 - English content optimized (TF-IDF)
 
-**Planned Improvements (Q2 2026):**
-- Multi-language similarity detection
-- Image duplicate detection (visual similarity)
-- Fuzzy URL matching (URL shorteners)
+Not currently implemented:
+- Multi-language similarity tuning
+- Image duplicate detection
+- URL shortener expansion for fuzzy URL matching
 - Automatic merge suggestions
 - Scheduled duplicate detection
 
@@ -566,6 +566,5 @@ Current limitations:
 
 ---
 
-**Last Updated:** January 12, 2026
-**Status:** Fully Implemented
-**Next Enhancements:** Q2 2026 (Multi-language, Image duplicates, Auto-merge)
+**Last Updated:** May 10, 2026
+**Status:** Implemented for URL/text duplicate detection and manual merge

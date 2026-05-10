@@ -1,6 +1,6 @@
 # Arivu - AI-Native Bookmarking Application
 
-**Status:** Production Ready ✅  
+**Status:** Production Ready
 **License:** MIT
 
 > Transform saved web pages into instantly useful knowledge with AI-powered summaries, highlights, and smart organization.
@@ -28,13 +28,13 @@ This runs four containers: frontend (port 80), backend, MongoDB, and Redis.
 # Backend (Terminal 1)
 cd backend
 pip install -r requirements.txt
-cp .env.example .env  # Add MONGO_URL and GEMINI_API_KEY
+cp ../.env.example .env  # Add MONGO_URL, SECRET_KEY, and GEMINI_API_KEY
 uvicorn server:app --host 0.0.0.0 --port 8001 --reload
 
 # Frontend (Terminal 2)
 cd frontend
 yarn install
-yarn start
+yarn dev
 ```
 
 ### Browser Extension
@@ -76,24 +76,26 @@ Four containers — frontend nginx is the entry point:
 
 ### Core Features
 
-✅ **Instant Bookmarking** - Non-blocking save with background AI processing
-✅ **AI Summaries** - Automatic one-sentence, bullet points, and long-form summaries
-✅ **Smart Highlights** - AI-extracted key quotes from content
-✅ **Auto-Tagging** - Intelligent tag suggestions
-✅ **Duplicate Detection** - URL + text similarity matching with smart merging
-✅ **Dual Views** - List and grid view modes
-✅ **Keyboard Shortcuts** - Power user navigation
-✅ **Reading List** - Auto-calculated reading times
+- **Instant Bookmarking** - Non-blocking save with background AI processing
+- **AI Summaries** - Automatic one-sentence, bullet points, and long-form summaries
+- **Smart Highlights** - AI-extracted key quotes from content
+- **Auto-Tagging** - Intelligent tag suggestions
+- **Duplicate Detection** - URL + text similarity matching with smart merging
+- **Dual Views** - List and grid view modes
+- **Keyboard Shortcuts** - Power user navigation
+- **Reading List** - Auto-calculated reading times
 
 ### Advanced Features
 
-✅ **Knowledge Graph** - Semantic AI-powered entity and relationship mapping
-✅ **Intelligent Resurfacing** - Spaced repetition engine with context-aware suggestions
-✅ **Learning Analytics** - Reading stats, topic analysis, and pattern detection
-✅ **Content Intelligence** - Quality scoring and content evaluation
-✅ **Import/Export** - Seamless migration from Pocket, Raindrop.io, and other services
-✅ **Collections** - Organize bookmarks into custom collections  
-✅ **X Bookmarks Sync** - OAuth-based import from X bookmarks API
+- **Knowledge Graph** - Semantic AI-powered entity and relationship mapping
+- **Intelligent Resurfacing** - Spaced repetition engine with context-aware suggestions
+- **Learning Analytics** - Reading stats, topic analysis, and pattern detection
+- **Content Intelligence** - Quality scoring and content evaluation
+- **Import/Export** - Seamless migration from Pocket, Raindrop.io, and other services
+- **Collections** - Organize bookmarks into custom collections
+- **X Bookmarks Sync** - OAuth-based import from X bookmarks API
+- **Admin Console** - User management, system health, and runtime API key configuration
+- **CLI** - Save, search, list, import, and manage local stacks from the terminal
 
 ---
 
@@ -103,16 +105,13 @@ Four containers — frontend nginx is the entry point:
 
 ```
 documentation/
-├── api/               # API reference (35+ endpoints)
+├── api/               # API reference (60+ endpoints)
 ├── features/          # Feature guides (Knowledge Graph, Resurfacing, Analytics)
 ├── deployment/        # Production deployment and restoration
-├── development/       # Security patterns and architecture
-├── design/            # Brutalist design system
-├── roadmap/           # Roadmap and planning
-└── archive/           # Historical docs and verbose guides
+├── architecture.md    # System architecture
+├── troubleshooting.md # Common operational and development fixes
+└── security.md        # Security notes and recent security fixes
 ```
-
-📖 **User-facing docs** are also available at [arivu.app/documentation](https://arivu.app/documentation/)
 
 ### Quick Links
 
@@ -121,14 +120,17 @@ documentation/
 - **X Integration:** `documentation/features/x-api-bookmarks.md`
 - **Deployment:** `documentation/deployment/DEPLOYMENT.md`
 - **Environment Variables:** `documentation/deployment/ENVIRONMENT_VARIABLES.md`
+- **Architecture:** `documentation/architecture.md`
+- **Troubleshooting:** `documentation/troubleshooting.md`
 
 ---
 
 ## Testing
 
 ```bash
-cd backend
-python backend_test.py
+cd backend && pytest tests/ -m "not integration"
+cd frontend && yarn test --run
+cd frontend && yarn lint
 ```
 
 ---

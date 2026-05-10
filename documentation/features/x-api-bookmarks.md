@@ -1,6 +1,6 @@
 # X (Twitter) Bookmarks Integration
 
-**Last Updated:** February 19, 2026
+**Last Updated:** May 10, 2026
 **Status:** Active (API-based)
 
 This document describes the current X integration implemented in Arivu.

@@ -406,8 +406,8 @@ Current limitations:
 - Quality evaluation is subjective (AI-based)
 - Slower for very long articles (>50k characters)
 
-**Planned Improvements (Q2 2026):**
-- Multi-language support
+Not currently implemented:
+- Multi-language quality scoring
 - Paywall detection and handling
 - User-customizable quality criteria
 - Bulk evaluation of existing bookmarks
@@ -504,11 +504,10 @@ Current limitations:
 
 ## References
 
-- **Roadmap:** [documentation/roadmap/2026-roadmap/11-advanced-content-intelligence-curation.md](../roadmap/2026-roadmap/11-advanced-content-intelligence-curation.md)
 - **API Docs:** [documentation/api/README.md](../api/README.md#content-intelligence-endpoints)
+- **Architecture:** [documentation/architecture.md](../architecture.md)
 
 ---
 
-**Last Updated:** January 12, 2026
-**Status:** Backend Implemented, Frontend Integration In Progress
-**Next Phase:** Q2 2026 (Multi-language, Bulk evaluation, Custom criteria)
+**Last Updated:** May 10, 2026
+**Status:** Implemented for URL quality evaluation and bookmark detail quality display

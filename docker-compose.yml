@@ -4,11 +4,11 @@ version: '3.8'
 # Arivu — Self-Hosted Deployment
 # ===================================
 # Minimal stack: Frontend (entry point), Backend, MongoDB, Redis.
-# No marketing site — docs are at https://arivu.app/documentation/
+# Frontend nginx is the entry point.
 #
 # Usage:
 #   cp .env.example .env   # edit with your values
-#   docker compose -f docker-compose.selfhosted.yml up -d --build
+#   docker compose up -d --build
 # ===================================
 
 services:

@@ -1,6 +1,6 @@
 # Arivu Features Documentation
 
-**Last Updated:** February 19, 2026
+**Last Updated:** May 10, 2026
 
 This folder documents shipped behavior and active feature integrations.
 
@@ -43,8 +43,9 @@ See:
 - Browser extension quick-save flow
 - CLI token-based terminal workflow
 - Import/export workflows
+- Admin user management and runtime API key configuration
 
-### Planned / Roadmap
+### Not Currently Implemented
 - Real-time collaboration
 - Mobile-native clients
 - Public developer API ecosystem
@@ -54,4 +55,4 @@ See:
 
 - API reference: `documentation/api/README.md`
 - Deployment and self-hosting: `documentation/deployment/DEPLOYMENT.md`
-- Architecture history: `documentation/archive/CLAUDE-verbose.md`
+- Architecture: `documentation/architecture.md`
