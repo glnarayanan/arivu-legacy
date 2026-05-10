@@ -91,6 +91,7 @@ def _open_validated_response(url: str, headers: dict[str, str]) -> StreamingFetc
     connection = socket.create_connection((parsed.hostname, port), timeout=15)
     if parsed.scheme == "https":
         context = ssl.create_default_context()
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
         connection = context.wrap_socket(connection, server_hostname=parsed.hostname)
 
     request_headers = {**headers, "Host": parsed.netloc, "Connection": "close"}
