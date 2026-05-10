@@ -108,6 +108,7 @@ arivu interactive
 ```
 
 Supported commands in interactive mode:
+
 - `save <url> [--collection NAME]` - Save a bookmark
 - `search <query> [--limit N]` - Search bookmarks; quote multi-word queries, for example `search "python embeddings"`
 - `list [--unread] [--limit N]` - List bookmarks
@@ -132,6 +133,7 @@ arivu local down
 ```
 
 Behavior:
+
 - Discovers and uses the repo root `docker-compose.yml`
 - Validates the root `.env` before startup and requires a real 32+ character `SECRET_KEY`
 - Creates or updates a `local` profile pointing at `http://localhost/api`
