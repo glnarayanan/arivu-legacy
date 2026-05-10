@@ -56,7 +56,8 @@ async def fetch_webpage_content(url: str, *, raise_on_error: bool = False):
         session.trust_env = False
         for _ in range(MAX_REDIRECTS):
             fetch_url = _validate_fetch_target(current_url)
-            # lgtm[py/full-ssrf] URL is scheme/host/IP validated immediately before every request.
+            # CodeQL does not infer _validate_fetch_target as a sanitizer, so suppress the false positive at the sink.
+            # codeql[py/full-ssrf]
             response = session.get(
                 fetch_url,
                 headers=headers,
