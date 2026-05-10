@@ -2,13 +2,13 @@
 
 **Base URL:** `/api`
 **Authentication:** HTTP-only cookies (access_token, refresh_token)
-**Last Updated:** February 19, 2026
+**Last Updated:** May 10, 2026
 
 ---
 
 ## Overview
 
-The Arivu API is a RESTful API built with FastAPI. All endpoints require authentication except for signup, login, and health check.
+The Arivu API is a RESTful API built with FastAPI. Most endpoints require authentication. Public endpoints include health checks, login/signup flows, token refresh flows that use a refresh token, password reset entry points, invite acceptance, and the X integration enabled check.
 
 ### Authentication
 
@@ -16,13 +16,13 @@ Authentication uses HTTP-only cookies set by the backend:
 - `access_token` - Valid for 60 minutes
 - `refresh_token` - Valid for 30 days
 
-The frontend automatically sends cookies with each request via `axios.defaults.withCredentials = true`.
+The frontend axios instance automatically sends cookies with each request via `withCredentials: true`.
 
 ---
 
 ## API Categories
 
-1. [Authentication](#authentication-endpoints) - Login, logout, token refresh, profile
+1. [Authentication and User](#authentication-and-user-endpoints) - Login, logout, token refresh, profile, password, extension token
 2. [X Integration](#x-integration-endpoints) - OAuth connect, sync, status, disconnect
 3. [Bookmarks](#bookmarks-endpoints) - CRUD operations for bookmarks
 4. [Search](#search-endpoints) - Hybrid keyword + semantic search
@@ -33,15 +33,17 @@ The frontend automatically sends cookies with each request via `axios.defaults.w
 9. [Collections](#collections-endpoints) - Bookmark collections
 10. [Import/Export](#importexport-endpoints) - Data migration
 11. [Content Intelligence](#content-intelligence-endpoints) - Content evaluation
+12. [Admin](#admin-endpoints) - User management, runtime API keys, and system health
+13. [Health](#health-endpoints) - Service health checks
 
 ---
 
-## Authentication Endpoints
+## Authentication and User Endpoints
 
 ### POST /api/auth/signup
 Create a new user account.
 
-**Note:** Signups are currently disabled in the running application and return `403` unless re-enabled in backend configuration.
+**Note:** Signups return `403` when `SIGNUPS_ENABLED=false`.
 
 **Request Body:**
 ```json
@@ -141,6 +143,21 @@ Get current user information.
 
 ---
 
+### POST /api/auth/extension-token
+Generate bearer tokens for the browser extension from an authenticated web session.
+
+**Authentication:** Required cookie session
+
+**Response:** `200 OK`
+```json
+{
+  "access_token": "...",
+  "refresh_token": "..."
+}
+```
+
+---
+
 ### POST /api/auth/logout
 Logout and clear authentication cookies.
 
@@ -203,6 +220,93 @@ Refresh CLI bearer tokens using a refresh token.
 **Notes:**
 - Rejects access tokens and invalid token types
 - Rotates both access and refresh tokens for CLI consumers
+
+---
+
+### POST /api/auth/forgot-password
+Request a password reset email when Resend email configuration is available.
+
+**Authentication:** Not required
+
+**Request Body:**
+```json
+{
+  "email": "user@example.com"
+}
+```
+
+---
+
+### POST /api/auth/reset-password
+Complete password reset with a reset token.
+
+**Authentication:** Not required
+
+**Request Body:**
+```json
+{
+  "token": "reset-token",
+  "new_password": "new-secure-password"
+}
+```
+
+---
+
+### POST /api/auth/change-password
+Change the current authenticated user's password.
+
+**Authentication:** Required
+
+**Request Body:**
+```json
+{
+  "current_password": "old-password",
+  "new_password": "new-secure-password"
+}
+```
+
+---
+
+### POST /api/auth/accept-invite
+Accept an admin-created invite and set the account password.
+
+**Authentication:** Not required
+
+**Request Body:**
+```json
+{
+  "token": "invite-token",
+  "password": "secure-password"
+}
+```
+
+---
+
+### GET /api/user/profile
+Return the current user's profile document excluding password hash.
+
+**Authentication:** Required
+
+---
+
+### PUT /api/user/profile
+Update the current user's `name` and/or `email`.
+
+**Authentication:** Required
+
+---
+
+### POST /api/user/avatar
+Upload a base64-encoded avatar image. The decoded image limit is 1.5 MB.
+
+**Authentication:** Required
+
+---
+
+### DELETE /api/user/avatar
+Remove the current user's avatar.
+
+**Authentication:** Required
 
 ---
 
@@ -625,6 +729,18 @@ Search for entities in the knowledge graph.
 
 ---
 
+### GET /api/knowledge-graph/expand-query
+Expand a search query with semantically related entities and concepts.
+
+**Authentication:** Required
+
+**Query Parameters:**
+- `query`: Search query string
+
+**Response:** `200 OK` - Returns expanded query terms and related concepts.
+
+---
+
 ### POST /api/knowledge-graph/regenerate-embeddings
 Regenerate embeddings for the knowledge graph (admin operation).
 
@@ -934,8 +1050,8 @@ List all collections for the user.
   {
     "id": "collection_1",
     "name": "AI Research",
-    "description": "Articles about AI",
-    "bookmark_count": 23,
+    "bookmark_ids": ["bookmark_1", "bookmark_2"],
+    "user_id": "user_123",
     "created_at": "2026-01-01T00:00:00Z"
   }
 ]
@@ -951,8 +1067,7 @@ Create a new collection.
 **Request Body:**
 ```json
 {
-  "name": "New Collection",
-  "description": "Optional description"
+  "name": "New Collection"
 }
 ```
 
@@ -1055,6 +1170,26 @@ Export all bookmarks.
   "total_bookmarks": 156
 }
 ```
+
+---
+
+### POST /api/bookmarks/backup
+Create a bookmark backup in the requested format.
+
+**Authentication:** Required
+
+**Request Body:**
+```json
+{
+  "format": "json",
+  "include_notes": true,
+  "include_ai_summaries": true,
+  "date_from": null,
+  "date_to": null
+}
+```
+
+**Response:** `200 OK` - Returns backup payload for the selected format.
 
 ---
 
@@ -1186,9 +1321,39 @@ Response includes pagination metadata:
 
 ---
 
-## Webhooks
+## Admin Endpoints
 
-*Coming soon in Q2 2026*
+Admin endpoints require an authenticated user whose email is listed in `ADMIN_EMAILS`.
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| GET | `/api/admin/overview` | High-level usage and system overview |
+| GET | `/api/admin/api-usage` | API usage metrics |
+| GET | `/api/admin/users` | Paginated user list |
+| GET | `/api/admin/users/{user_id}` | User detail |
+| POST | `/api/admin/users/invite` | Create an invite for a new user |
+| POST | `/api/auth/accept-invite` | Accept an invite and create credentials |
+| POST | `/api/admin/users/{user_id}/ban` | Ban a user |
+| POST | `/api/admin/users/{user_id}/unban` | Unban a user |
+| POST | `/api/admin/users/{user_id}/reset-password` | Admin-triggered password reset |
+| DELETE | `/api/admin/users/{user_id}` | Delete a user and their data |
+| GET | `/api/admin/api-keys` | Show runtime API key configuration status |
+| PUT | `/api/admin/api-keys` | Save runtime API key overrides |
+| DELETE | `/api/admin/api-keys/{key_name}` | Remove a runtime API key override |
+| GET | `/api/admin/system` | Database and service health summary |
+| GET | `/api/admin/activity` | Recent admin/system activity feed |
+| GET | `/api/admin/collections-stats` | Collection usage stats |
+
+Runtime API key overrides are stored in MongoDB `instance_settings`; sensitive values are encrypted with a Fernet key derived from `SECRET_KEY`. Environment variables remain the fallback when no DB override exists.
+
+---
+
+## Health Endpoints
+
+### GET /api/health
+Returns backend health and database connectivity status.
+
+**Authentication:** Not required
 
 ---
 
@@ -1200,6 +1365,6 @@ Future versions will use explicit versioning: `/api/v2`
 
 ---
 
-**Last Updated:** February 19, 2026
+**Last Updated:** May 10, 2026
 **API Version:** 1.0
 **Questions?** See main documentation at `/documentation/`

@@ -1,6 +1,6 @@
 # Environment Variables Guide
 
-**Last Updated:** February 20, 2026
+**Last Updated:** May 10, 2026
 **Purpose:** Comprehensive guide to all Arivu environment variables
 
 ---
@@ -197,38 +197,9 @@ GEMINI_API_KEY=<your-gemini-api-key>
 
 ### Frontend Configuration
 
-#### `REACT_APP_BACKEND_URL` (Required for Frontend)
-**Purpose:** Backend API URL for frontend to connect to
-**Format:** Full URL with protocol, no trailing slash
+The current frontend uses a relative `/api` base path (`frontend/src/utils/axiosConfig.jsx`). In Docker, `frontend/nginx.conf` proxies `/api/*` to the backend container.
 
-**Values by Environment:**
-```bash
-# Local development
-REACT_APP_BACKEND_URL=http://localhost:8001
-
-# Docker Compose (internal)
-REACT_APP_BACKEND_URL=http://backend:8001
-
-# Production
-REACT_APP_BACKEND_URL=https://your-domain.com
-```
-
-**Note:**
-- Must be accessible from browser (user's machine)
-- Use HTTPS in production
-- Docker internal URLs won't work from browser
-
----
-
-#### `WDS_SOCKET_PORT` (Development Only)
-**Purpose:** Webpack Dev Server socket port for hot reload
-**Default:** `3000`
-**Example:**
-```bash
-WDS_SOCKET_PORT=3000
-```
-
-**Note:** Only needed for local development, not used in production builds
+`VITE_API_URL` is accepted as a Docker build argument but is not used by the current frontend code path. If local Vite development needs API forwarding, configure a Vite dev proxy or run through the Docker nginx entry point.
 
 ---
 
@@ -326,7 +297,7 @@ DB_NAME=arivu_production
 SECRET_KEY=a1b2c3...long-secure-key...x4y5z6
 CORS_ORIGINS=https://your-domain.example
 GEMINI_API_KEY=AIza...your-key...
-REACT_APP_BACKEND_URL=https://your-domain.example/api
+# The frontend normally uses relative /api behind nginx.
 X_INTEGRATION_ENABLED=true
 X_CLIENT_ID=your_x_client_id
 X_CLIENT_SECRET=your_x_client_secret
@@ -366,10 +337,9 @@ LOG_LEVEL=warning
 ```bash
 MONGO_URL=mongodb://localhost:27017/
 DB_NAME=arivu_db
-SECRET_KEY=dev-secret-key-not-for-production
+SECRET_KEY=dev-secret-key-not-for-production-32chars
 CORS_ORIGINS=*
 GEMINI_API_KEY=AIza...your-key...
-REACT_APP_BACKEND_URL=http://localhost:8001
 LOG_LEVEL=debug
 ```
 
@@ -379,10 +349,9 @@ MONGO_URL=mongodb://admin:changeme123@mongodb:27017/
 DB_NAME=arivu_db
 MONGO_ROOT_USERNAME=admin
 MONGO_ROOT_PASSWORD=changeme123
-SECRET_KEY=docker-secret-key-change-me
+SECRET_KEY=docker-secret-key-change-me-32chars
 CORS_ORIGINS=http://localhost:80,http://localhost:3000
 GEMINI_API_KEY=AIza...your-key...
-REACT_APP_BACKEND_URL=http://localhost:8001
 LOG_LEVEL=info
 ```
 
@@ -393,7 +362,6 @@ DB_NAME=arivu_production
 SECRET_KEY=a1b2c3...long-secure-key...x4y5z6
 CORS_ORIGINS=https://your-domain.com,https://www.your-domain.com
 GEMINI_API_KEY=AIza...your-key...
-REACT_APP_BACKEND_URL=https://your-domain.com
 LOG_LEVEL=warning
 ```
 
@@ -540,7 +508,7 @@ Before deploying to production:
 - [ ] Changed default `MONGO_ROOT_PASSWORD`
 - [ ] Set production `MONGO_URL`
 - [ ] Restricted `CORS_ORIGINS` to actual domains
-- [ ] Set production `REACT_APP_BACKEND_URL`
+- [ ] Confirm frontend nginx proxies `/api` to backend
 - [ ] Added valid `GEMINI_API_KEY`
 - [ ] Set `LOG_LEVEL=warning` or `error`
 - [ ] All URLs use HTTPS
@@ -553,11 +521,11 @@ Before deploying to production:
 ## Related Documentation
 
 - **Deployment Guide:** [DEPLOYMENT.md](DEPLOYMENT.md)
-- **Security Best Practices:** [../development/SECURITY_IMPROVEMENTS.md](../development/SECURITY_IMPROVEMENTS.md)
-- **Backup & Restoration:** [RESTORATION.md](RESTORATION.md)
+- **Security Notes:** [../security.md](../security.md)
+- **Troubleshooting:** [../troubleshooting.md](../troubleshooting.md)
 
 ---
 
-**Last Updated:** February 20, 2026
+**Last Updated:** May 10, 2026
 **Version:** 1.1
 **Status:** Production Ready
