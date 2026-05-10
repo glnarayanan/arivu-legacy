@@ -22,7 +22,7 @@ This runs four containers: frontend (port 80), backend, MongoDB, and Redis.
 
 ### Manual Development
 
-**Prerequisites:** Python 3.9+, Node.js 18+, MongoDB, Gemini API Key
+**Prerequisites:** Python 3.11+, Node.js 18+, MongoDB, Gemini API Key
 
 ```bash
 # Backend (Terminal 1)

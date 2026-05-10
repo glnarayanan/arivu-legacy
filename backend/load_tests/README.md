@@ -4,7 +4,7 @@ Load testing infrastructure for the Arivu bookmarks API using [Locust](https://l
 
 ## Prerequisites
 
-- Python 3.10+ with `locust` and `motor` installed (`pip install -r requirements.txt`)
+- Python 3.11+ with `locust` and `motor` installed (`pip install -r requirements.txt`)
 - MongoDB running (local or Docker)
 - Backend API running on target host
 

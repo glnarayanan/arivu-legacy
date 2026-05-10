@@ -207,7 +207,9 @@ arivu search "example topic"
 ```
 
 Notes:
-- `arivu local up` expects the repo root `.env` to exist and contain a real `SECRET_KEY`
+- Run these commands from an Arivu repo checkout that includes the root `docker-compose.yml`
+- `arivu local up` expects the repo root `.env` to exist and contain a real 32+ character `SECRET_KEY`
+- Create the user account in the web app first; `arivu auth login --profile local` signs in an existing user
 - The generated local profile targets `http://localhost/api`
 - `arivu local status` and `arivu local logs` can be used for troubleshooting
 
