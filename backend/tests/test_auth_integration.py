@@ -11,7 +11,7 @@ Uses a persistent AsyncClient session that tracks cookies automatically.
 Each test creates its own app and client for complete isolation.
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -313,4 +313,3 @@ async def test_change_password_flow():
         import app.core.database as db_module
 
         db_module.db = _original_db
-UTC = timezone.utc

@@ -6,11 +6,13 @@ and bookmark content processing orchestration.
 """
 
 import logging
+import socket
+import ssl
 from datetime import UTC, datetime
+from http.client import HTTPResponse
 from urllib.parse import urljoin, urlparse
 
 import html2text
-import requests
 from bs4 import BeautifulSoup
 from readability import Document
 from tenacity import RetryError
@@ -29,6 +31,77 @@ logger = logging.getLogger(__name__)
 
 # Content fetching limits (SEC-05)
 MAX_CONTENT_SIZE = 10 * 1024 * 1024  # 10MB max for webpage content
+MAX_REDIRECTS = 5
+
+
+def _validate_fetch_target(url: str) -> str:
+    """Validate and normalize a URL immediately before a server-side fetch."""
+    safe, error_msg = is_safe_url(url, resolve_host=True)
+    if not safe:
+        logger.warning(f"Unsafe URL blocked: {error_msg}")
+        raise ValueError(f"Unsafe URL: {error_msg}")
+    return url
+
+
+class StreamingFetchResponse:
+    """Small response adapter for validated stdlib HTTP fetches."""
+
+    def __init__(self, connection, response: HTTPResponse):
+        self._connection = connection
+        self._response = response
+        self.status_code = response.status
+        self.reason = response.reason
+        self.headers = response.headers
+        self.encoding = response.headers.get_content_charset()
+        self.is_redirect = 300 <= response.status < 400
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close()
+
+    def close(self):
+        self._response.close()
+        self._connection.close()
+
+    def raise_for_status(self):
+        if 400 <= self.status_code:
+            raise ValueError(f"HTTP {self.status_code}: {self.reason}")
+
+    def iter_content(self, chunk_size: int):
+        while chunk := self._response.read(chunk_size):
+            yield chunk
+
+
+def _request_target(url: str) -> str:
+    parsed = urlparse(url)
+    target = parsed.path or "/"
+    if parsed.params:
+        target = f"{target};{parsed.params}"
+    if parsed.query:
+        target = f"{target}?{parsed.query}"
+    return target
+
+
+def _open_validated_response(url: str, headers: dict[str, str]) -> StreamingFetchResponse:
+    fetch_url = _validate_fetch_target(url)
+    parsed = urlparse(fetch_url)
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    connection = socket.create_connection((parsed.hostname, port), timeout=15)
+    if parsed.scheme == "https":
+        context = ssl.create_default_context()
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
+        connection = context.wrap_socket(connection, server_hostname=parsed.hostname)
+
+    request_headers = {**headers, "Host": parsed.netloc, "Connection": "close"}
+    header_lines = [f"{name}: {value}" for name, value in request_headers.items()]
+    request = f"GET {_request_target(fetch_url)} HTTP/1.1\r\n" + "\r\n".join(header_lines) + "\r\n\r\n"
+    connection.sendall(request.encode("utf-8"))
+
+    response = HTTPResponse(connection)
+    response.begin()
+    return StreamingFetchResponse(connection, response)
 
 
 async def fetch_webpage_content(url: str, *, raise_on_error: bool = False):
@@ -42,21 +115,8 @@ async def fetch_webpage_content(url: str, *, raise_on_error: bool = False):
         }
 
         response = None
-        session = requests.Session()
-        session.trust_env = False
-        for _ in range(5):
-            safe, error_msg = is_safe_url(current_url, resolve_host=True)
-            if not safe:
-                logger.warning(f"Unsafe URL blocked: {error_msg}")
-                raise ValueError(f"Unsafe URL: {error_msg}")
-
-            response = session.get(
-                current_url,
-                headers=headers,
-                timeout=15,
-                allow_redirects=False,
-                stream=True,
-            )
+        for _ in range(MAX_REDIRECTS):
+            response = _open_validated_response(current_url, headers)
 
             if response.is_redirect:
                 location = response.headers.get("location")
@@ -64,6 +124,7 @@ async def fetch_webpage_content(url: str, *, raise_on_error: bool = False):
                 if not location:
                     raise ValueError("Redirect missing Location header")
                 current_url = urljoin(current_url, location)
+                _validate_fetch_target(current_url)
                 continue
 
             break

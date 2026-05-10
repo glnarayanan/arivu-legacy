@@ -11,7 +11,7 @@ This module implements the resurfacing score algorithm based on:
 """
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -204,4 +204,3 @@ def should_resurface(bookmark: dict) -> bool:
         return False
 
     return True
-UTC = timezone.utc

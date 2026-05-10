@@ -7,7 +7,7 @@ query expansion using related concepts, and embedding regeneration.
 
 import logging
 import math
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 
@@ -18,8 +18,6 @@ from app.services.ai_service import (
     generate_embedding,
 )
 from app.services.search_utils import calculate_entity_boost, tokenize_text
-
-UTC = timezone.utc
 
 logger = logging.getLogger(__name__)
 
@@ -572,4 +570,3 @@ async def regenerate_embeddings(
         "queued": needs_embedding_count,
         "status": "processing",
     }
-UTC = timezone.utc

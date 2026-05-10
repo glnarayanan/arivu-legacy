@@ -5,11 +5,9 @@ Pydantic model for AI-generated bookmark summaries.
 """
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from pydantic import BaseModel, ConfigDict, Field
-
-UTC = timezone.utc
 
 
 class AISummary(BaseModel):

@@ -26,6 +26,7 @@ Infrastructure and operations documentation.
 | CLI usage | `documentation/features/cli.md` |
 | Self-hosting and deployment | `documentation/deployment/DEPLOYMENT.md` |
 | Environment configuration | `documentation/deployment/ENVIRONMENT_VARIABLES.md` |
+| Security notes | `documentation/security.md` |
 
 ## Documentation Maintenance Rules
 

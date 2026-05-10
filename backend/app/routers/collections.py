@@ -6,15 +6,13 @@ Manages user bookmark collections: create, list, and add bookmarks.
 
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, validator
 
 from app.core.database import get_database
 from app.core.dependencies import get_current_user
-
-UTC = timezone.utc
 
 router = APIRouter(tags=["collections"])
 
@@ -90,4 +88,3 @@ async def add_to_collection(
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Collection not found")
     return {"message": "Bookmark added to collection"}
-UTC = timezone.utc

@@ -5,11 +5,9 @@ Pydantic models for bookmark import/export operations.
 """
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from pydantic import BaseModel, ConfigDict, Field
-
-UTC = timezone.utc
 
 
 class BackupRequest(BaseModel):

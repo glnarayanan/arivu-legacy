@@ -7,7 +7,7 @@ Part of Personal Learning Analytics & Insight Engine (Roadmap Item 12)
 
 import logging
 from collections import Counter, defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -355,4 +355,3 @@ async def get_learning_insights(user_id: str, db) -> list[dict]:
         )
 
     return insights
-UTC = timezone.utc

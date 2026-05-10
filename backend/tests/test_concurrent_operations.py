@@ -13,7 +13,7 @@ Verifies:
 """
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -214,4 +214,3 @@ async def test_concurrent_mixed_operations_no_data_loss(real_db):
     assert final["title"] == "Bookmark bm-mixed"
     assert final["domain"] == "example.com"
     assert final["user_id"] == "user-1"
-UTC = timezone.utc
