@@ -14,23 +14,16 @@ class RedirectResponse:
         pass
 
 
-class RecordingSession:
-    trust_env = False
-
-    def __init__(self):
-        self.requested_urls = []
-
-    def get(self, url, **kwargs):
-        self.requested_urls.append(url)
-        return RedirectResponse()
-
-
 @pytest.mark.anyio
 async def test_fetch_webpage_content_blocks_unsafe_redirect_before_following(monkeypatch):
     """Redirect targets are validated before any follow-up network request."""
-    session = RecordingSession()
+    requested_urls = []
 
-    monkeypatch.setattr("app.services.content_service.requests.Session", lambda: session)
+    def open_response(url, headers):
+        requested_urls.append(url)
+        return RedirectResponse()
+
+    monkeypatch.setattr("app.services.content_service._open_validated_response", open_response)
     monkeypatch.setattr(
         "app.services.content_service.is_safe_url",
         lambda url, resolve_host=False: (not url.startswith("http://127.0.0.1"), "blocked loopback"),
@@ -39,4 +32,4 @@ async def test_fetch_webpage_content_blocks_unsafe_redirect_before_following(mon
     with pytest.raises(ValueError, match="Unsafe URL"):
         await fetch_webpage_content("https://example.com/article", raise_on_error=True)
 
-    assert session.requested_urls == ["https://example.com/article"]
+    assert requested_urls == ["https://example.com/article"]

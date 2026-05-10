@@ -7,10 +7,10 @@ and bookmark content processing orchestration.
 
 import logging
 from datetime import UTC, datetime
+from http.client import HTTPConnection, HTTPResponse, HTTPSConnection
 from urllib.parse import urljoin, urlparse
 
 import html2text
-import requests
 from bs4 import BeautifulSoup
 from readability import Document
 from tenacity import RetryError
@@ -41,6 +41,56 @@ def _validate_fetch_target(url: str) -> str:
     return url
 
 
+class StreamingFetchResponse:
+    """Small response adapter for validated stdlib HTTP fetches."""
+
+    def __init__(self, connection: HTTPConnection, response: HTTPResponse):
+        self._connection = connection
+        self._response = response
+        self.status_code = response.status
+        self.reason = response.reason
+        self.headers = response.headers
+        self.encoding = response.headers.get_content_charset()
+        self.is_redirect = 300 <= response.status < 400
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close()
+
+    def close(self):
+        self._response.close()
+        self._connection.close()
+
+    def raise_for_status(self):
+        if 400 <= self.status_code:
+            raise ValueError(f"HTTP {self.status_code}: {self.reason}")
+
+    def iter_content(self, chunk_size: int):
+        while chunk := self._response.read(chunk_size):
+            yield chunk
+
+
+def _request_target(url: str) -> str:
+    parsed = urlparse(url)
+    target = parsed.path or "/"
+    if parsed.params:
+        target = f"{target};{parsed.params}"
+    if parsed.query:
+        target = f"{target}?{parsed.query}"
+    return target
+
+
+def _open_validated_response(url: str, headers: dict[str, str]) -> StreamingFetchResponse:
+    fetch_url = _validate_fetch_target(url)
+    parsed = urlparse(fetch_url)
+    connection_cls = HTTPSConnection if parsed.scheme == "https" else HTTPConnection
+    connection = connection_cls(parsed.hostname, parsed.port, timeout=15)
+    connection.request("GET", _request_target(fetch_url), headers=headers)
+    return StreamingFetchResponse(connection, connection.getresponse())
+
+
 async def fetch_webpage_content(url: str, *, raise_on_error: bool = False):
     """Fetch and parse webpage content with security validation"""
     current_url = url
@@ -52,19 +102,8 @@ async def fetch_webpage_content(url: str, *, raise_on_error: bool = False):
         }
 
         response = None
-        session = requests.Session()
-        session.trust_env = False
         for _ in range(MAX_REDIRECTS):
-            fetch_url = _validate_fetch_target(current_url)
-            # CodeQL does not infer _validate_fetch_target as a sanitizer, so suppress the false positive at the sink.
-            # codeql[py/full-ssrf]
-            response = session.get(
-                fetch_url,
-                headers=headers,
-                timeout=15,
-                allow_redirects=False,
-                stream=True,
-            )
+            response = _open_validated_response(current_url, headers)
 
             if response.is_redirect:
                 location = response.headers.get("location")
