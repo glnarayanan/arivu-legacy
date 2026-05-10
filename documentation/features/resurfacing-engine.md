@@ -147,9 +147,9 @@ The dashboard shows resurfacing suggestions in a dedicated section:
 - "Resurface" button to view all suggestions
 - One-click snooze/archive actions
 
-### Notification System (Planned)
+### Notification System
 
-Email or push notifications for:
+Email or push notifications are not currently implemented. Possible future notification surfaces include:
 - Daily digest of resurfacing suggestions
 - Weekly summary of unreviewed bookmarks
 - Monthly "rediscovery" highlights
@@ -250,19 +250,19 @@ The engine provides human-readable reasons:
 Current limitations:
 - English content only (NLP-based relevance)
 - Maximum 50 suggestions per request
-- No cross-device sync of snooze/archive state (planned)
-- No manual interval adjustment (planned)
+- No cross-device notification delivery
+- No manual interval adjustment
 
 ---
 
-## Planned Enhancements (Q2 2026)
+## Not Currently Implemented
 
-- **Smart Notifications** - Email/push based on user preferences
-- **Customizable Intervals** - Adjust algorithm parameters per user
-- **Reading Goals** - "Review 5 bookmarks per day" challenges
-- **Habit Tracking** - Visualize review consistency over time
-- **Priority Boosting** - Manually mark bookmarks as "priority"
-- **Team Resurfacing** - Share resurfacing suggestions with team
+- Email/push notifications based on user preferences
+- User-adjustable resurfacing intervals
+- Reading goals
+- Habit tracking
+- Manual priority boosting
+- Team resurfacing
 
 ---
 
@@ -344,11 +344,11 @@ The resurfacing algorithm is based on:
 - Wozniak, P. (1990). "SuperMemo 2 Algorithm"
 - Ebbinghaus, H. (1885). "Memory: A Contribution to Experimental Psychology"
 
-**Roadmap:**
-- [documentation/roadmap/2026-roadmap/02-intelligent-resurfacing-engine.md](../roadmap/2026-roadmap/02-intelligent-resurfacing-engine.md)
+**Implementation references:**
+- [documentation/api/README.md](../api/README.md#resurfacing-endpoints)
+- [documentation/architecture.md](../architecture.md)
 
 ---
 
-**Last Updated:** January 12, 2026
-**Status:** Fully Implemented
-**Next Enhancements:** Q2 2026 (Notifications, Custom intervals, Reading goals)
+**Last Updated:** May 10, 2026
+**Status:** Implemented for in-app suggestions, snooze, archive, unarchive, and Memory Jogger

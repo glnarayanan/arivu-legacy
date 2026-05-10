@@ -391,10 +391,10 @@ Current limitations:
 - Limited to past 12 months of data
 - English content only for topic analysis
 
-**Planned Improvements (Q2 2026):**
+Not currently implemented:
 - Real-time analytics updates
 - Custom date range selection
-- Comparative analytics (vs. other users, anonymized)
+- Comparative analytics
 - Goal setting and tracking
 - Advanced filters and segmentation
 
@@ -499,11 +499,10 @@ Reading Streak,7 days
 
 ## References
 
-- **Roadmap:** [documentation/roadmap/2026-roadmap/12-personal-learning-analytics-insight-engine.md](../roadmap/2026-roadmap/12-personal-learning-analytics-insight-engine.md)
 - **API Docs:** [documentation/api/README.md](../api/README.md#analytics-endpoints)
+- **Architecture:** [documentation/architecture.md](../architecture.md)
 
 ---
 
-**Last Updated:** January 12, 2026
-**Status:** Fully Implemented
-**Next Enhancements:** Q2 2026 (Real-time updates, Goal tracking, Custom date ranges)
+**Last Updated:** May 10, 2026
+**Status:** Implemented for reading stats, topic analysis, patterns, insights, and summary endpoints

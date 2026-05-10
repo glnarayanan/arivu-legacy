@@ -500,12 +500,12 @@ Current limitations:
 - No real-time import (background processing)
 - No incremental/sync imports
 
-**Planned Improvements (Q2 2026):**
-- Sync imports (automatic periodic sync from Pocket, etc.)
-- Multi-language support
-- Larger file support (streaming processing)
+Not currently implemented:
+- Automatic periodic sync imports
+- Multi-language import-specific processing
+- Streaming imports above the configured file limit
 - Custom field mapping
-- Scheduled exports (automatic backups)
+- Scheduled exports
 
 ---
 
@@ -615,6 +615,5 @@ Current limitations:
 
 ---
 
-**Last Updated:** January 12, 2026
-**Status:** Fully Implemented
-**Next Enhancements:** Q2 2026 (Sync imports, Multi-language, Scheduled backups)
+**Last Updated:** May 10, 2026
+**Status:** Implemented for Pocket/Raindrop import, import job tracking, export, and backup

@@ -174,7 +174,7 @@ Knowledge graph uses these MongoDB indexes:
 - Graph depth limited to 5 levels
 - No manual entity editing
 
-**Planned Improvements (Phase 2):**
+Not currently implemented:
 - Multi-language support
 - Custom entity types
 - Manual relationship editing
@@ -249,11 +249,10 @@ Knowledge graph uses these MongoDB indexes:
 
 ## References
 
-- **Roadmap:** [documentation/roadmap/2026-roadmap/01-semantic-ai-knowledge-graph.md](../roadmap/2026-roadmap/01-semantic-ai-knowledge-graph.md)
 - **API Docs:** [documentation/api/README.md](../api/README.md#knowledge-graph-endpoints)
+- **Architecture:** [documentation/architecture.md](../architecture.md)
 
 ---
 
-**Last Updated:** January 12, 2026
-**Status:** Phase 1 Complete
-**Next Phase:** Q2 2026 (Multi-language, custom entities, manual editing)
+**Last Updated:** May 10, 2026
+**Status:** Implemented for graph exploration, semantic search, query expansion, and embedding regeneration
