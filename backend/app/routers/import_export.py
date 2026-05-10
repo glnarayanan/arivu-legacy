@@ -18,6 +18,7 @@ from fastapi.responses import Response
 
 from app.core.database import get_database
 from app.core.dependencies import get_current_user, limiter
+from app.models.bookmark import is_safe_url
 from app.models.import_job import BackupRequest
 from app.services.ai_service import generate_ai_summaries
 from app.services.content_service import calculate_reading_time, fetch_webpage_content
@@ -25,6 +26,44 @@ from app.services.content_service import calculate_reading_time, fetch_webpage_c
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["import-export"])
+
+MAX_BOOKMARKS_PER_IMPORT = 1000
+
+
+def _append_safe_import_url(urls_to_import: list[dict], url: str | None, title: str | None = None) -> None:
+    if not url:
+        return
+
+    url = url.strip()
+    safe, _ = is_safe_url(url)
+    if not safe:
+        return
+
+    parsed = urlparse(url)
+    urls_to_import.append({"url": url, "title": (title or "").strip() or parsed.netloc})
+
+
+def _extract_raindrop_bookmarks(payload: object) -> list[dict]:
+    if isinstance(payload, list):
+        items = payload
+    elif isinstance(payload, dict):
+        items = (
+            payload.get("items") or payload.get("bookmarks") or payload.get("raindrops") or payload.get("result") or []
+        )
+    else:
+        items = []
+
+    bookmarks = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        bookmarks.append(
+            {
+                "url": item.get("link") or item.get("url") or item.get("href"),
+                "title": item.get("title") or item.get("name"),
+            }
+        )
+    return bookmarks
 
 
 async def process_bulk_import(import_job_id: str, bookmark_ids: list[str], user_id: str):
@@ -187,10 +226,10 @@ async def import_bookmarks(
         if not file:
             raise HTTPException(status_code=400, detail="No file provided")
 
-        # Validate file size (max 10MB)
-        MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+        # Validate file size (max 50MB to match CLI)
+        MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
         if len(file) > MAX_FILE_SIZE:
-            raise HTTPException(status_code=413, detail="File too large (max 10MB)")
+            raise HTTPException(status_code=413, detail="File too large (max 50MB)")
 
         # Decode and validate file is valid UTF-8 HTML
         try:
@@ -202,6 +241,23 @@ async def import_bookmarks(
         # Validate file contains content
         if not html_content or len(html_content.strip()) == 0:
             raise HTTPException(status_code=400, detail="File is empty")
+
+        source = request.headers.get("x-import-source", "").strip().lower()
+        stripped_content = html_content.lstrip()
+
+        json_payload = None
+        if source == "raindrop" or stripped_content.startswith(("{", "[")):
+            try:
+                json_payload = json.loads(html_content)
+            except json.JSONDecodeError as err:
+                if source == "raindrop":
+                    raise HTTPException(status_code=400, detail="Raindrop import must be valid JSON") from err
+
+        urls_to_import = []
+
+        if json_payload is not None:
+            for item in _extract_raindrop_bookmarks(json_payload)[:MAX_BOOKMARKS_PER_IMPORT]:
+                _append_safe_import_url(urls_to_import, item.get("url"), item.get("title"))
 
         # Detect file format: HTML bookmark file, CSV, or plain text URL list
         html_lower = html_content.lower()
@@ -216,10 +272,10 @@ async def import_bookmarks(
             comma_count = sum(1 for line in first_lines if "," in line)
             is_csv_format = comma_count >= len(first_lines) * 0.5  # At least 50% have commas
 
-        urls_to_import = []
-        MAX_BOOKMARKS_PER_IMPORT = 1000
+        if json_payload is not None:
+            pass
 
-        if is_html_format:
+        elif is_html_format:
             # Process HTML bookmark file (browser export format)
             soup = BeautifulSoup(html_content, "html.parser")
             links = soup.find_all("a")
@@ -231,44 +287,28 @@ async def import_bookmarks(
             for link in links[:MAX_BOOKMARKS_PER_IMPORT]:
                 url = link.get("href")
                 title = link.get_text(strip=True)
-
-                if url and url.startswith("http"):
-                    urls_to_import.append({"url": url, "title": title or urlparse(url).netloc})
+                _append_safe_import_url(urls_to_import, url, title)
 
         elif is_csv_format:
             # Process CSV file (URL in first column, optional title in second column)
-            for line in lines[:MAX_BOOKMARKS_PER_IMPORT]:
-                line = line.strip()
-                if not line:
+            for parts in list(csv.reader(lines))[:MAX_BOOKMARKS_PER_IMPORT]:
+                if not parts:
                     continue
 
-                # Split by comma
-                parts = [p.strip().strip('"').strip("'") for p in line.split(",")]
-
-                if len(parts) == 0:
-                    continue
-
-                url = parts[0]
-                title = parts[1] if len(parts) > 1 and parts[1] else None
+                url = parts[0].strip()
+                title = parts[1].strip() if len(parts) > 1 and parts[1] else None
 
                 # Skip header row (common CSV headers)
                 if url.lower() in ["url", "link", "website", "address", "bookmark"]:
                     continue
 
-                # Only import valid HTTP(S) URLs
-                if url and url.startswith("http"):
-                    urls_to_import.append({"url": url, "title": title or urlparse(url).netloc})
+                _append_safe_import_url(urls_to_import, url, title)
 
         else:
             # Process plain text URL list (one URL per line)
             for line in lines[:MAX_BOOKMARKS_PER_IMPORT]:
                 url = line.strip()
-
-                # Skip empty lines and non-URL lines
-                if not url or not url.startswith("http"):
-                    continue
-
-                urls_to_import.append({"url": url, "title": urlparse(url).netloc})
+                _append_safe_import_url(urls_to_import, url)
 
         # Validate at least one URL was found
         if not urls_to_import:
@@ -299,7 +339,8 @@ async def import_bookmarks(
             url = item["url"]
             title = item["title"]
 
-            if url and url.startswith("http"):
+            safe, _ = is_safe_url(url)
+            if safe:
                 bookmark = {
                     "id": str(uuid.uuid4()),
                     "user_id": current_user["id"],

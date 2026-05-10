@@ -7,12 +7,14 @@ override) for authenticated profile/password endpoints.
 """
 
 import base64
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from app.core.config import settings
-from app.core.security import hash_password
+from app.core.security import create_access_token, create_refresh_token, hash_password
+
+UTC = timezone.utc
 
 # ============================================
 # Auth Endpoint Tests (auth_client -- no auth override)
@@ -80,6 +82,45 @@ async def test_login_success(auth_client, mock_db):
 
 
 @pytest.mark.anyio
+async def test_cli_login_success(auth_client, mock_db):
+    """POST /api/auth/cli/login returns bearer tokens for CLI clients."""
+    test_password = "ValidPass1!"
+    mock_db.users.find_one = AsyncMock(
+        return_value={
+            "id": "user-123",
+            "email": "test@example.com",
+            "name": "Test User",
+            "password_hash": hash_password(test_password),
+        }
+    )
+
+    with (
+        patch(
+            "app.routers.auth.is_account_locked",
+            new_callable=AsyncMock,
+            return_value=False,
+        ),
+        patch(
+            "app.routers.auth.clear_failed_logins",
+            new_callable=AsyncMock,
+        ),
+    ):
+        response = await auth_client.post(
+            "/api/auth/cli/login",
+            json={"email": "test@example.com", "password": test_password},
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["token_type"] == "bearer"
+    assert data["access_token"]
+    assert data["refresh_token"]
+    assert data["user"]["email"] == "test@example.com"
+    assert data["access_token_expires_at"]
+    assert data["refresh_token_expires_at"]
+
+
+@pytest.mark.anyio
 async def test_login_invalid_credentials(auth_client, mock_db):
     """POST /api/auth/login with wrong password returns 401."""
     mock_db.users.find_one = AsyncMock(return_value=None)
@@ -102,6 +143,55 @@ async def test_login_invalid_credentials(auth_client, mock_db):
 
     assert response.status_code == 401
     assert "Invalid credentials" in response.json()["detail"]
+
+
+@pytest.mark.anyio
+async def test_cli_refresh_success(auth_client, mock_db):
+    """POST /api/auth/cli/refresh returns rotated bearer tokens."""
+    mock_db.users.find_one = AsyncMock(
+        return_value={
+            "id": "user-123",
+            "email": "test@example.com",
+            "name": "Test User",
+            "password_hash": hash_password("ValidPass1!"),
+        }
+    )
+
+    refresh_token = create_refresh_token({"sub": "user-123"})
+
+    response = await auth_client.post(
+        "/api/auth/cli/refresh",
+        json={"refresh_token": refresh_token},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["access_token"]
+    assert data["refresh_token"]
+    assert data["user"]["id"] == "user-123"
+
+
+@pytest.mark.anyio
+async def test_cli_refresh_rejects_access_token(auth_client, mock_db):
+    """POST /api/auth/cli/refresh rejects access tokens."""
+    mock_db.users.find_one = AsyncMock(
+        return_value={
+            "id": "user-123",
+            "email": "test@example.com",
+            "name": "Test User",
+            "password_hash": hash_password("ValidPass1!"),
+        }
+    )
+
+    access_token = create_access_token({"sub": "user-123"})
+
+    response = await auth_client.post(
+        "/api/auth/cli/refresh",
+        json={"refresh_token": access_token},
+    )
+
+    assert response.status_code == 401
+    assert "Invalid token type" in response.json()["detail"]
 
 
 @pytest.mark.anyio

@@ -14,6 +14,7 @@ This folder documents shipped behavior and active feature integrations.
 - Read-state tracking and reading time
 
 ### Advanced Capabilities
+- [CLI](cli.md)
 - [Knowledge Graph](knowledge-graph.md)
 - [Intelligent Resurfacing](resurfacing-engine.md)
 - [Analytics](analytics.md)
@@ -40,6 +41,7 @@ See:
 - Single-user bookmark knowledge system with AI enrichment
 - Cookie-based authentication
 - Browser extension quick-save flow
+- CLI token-based terminal workflow
 - Import/export workflows
 
 ### Planned / Roadmap

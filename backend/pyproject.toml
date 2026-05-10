@@ -1,3 +1,20 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "arivu-backend"
+version = "0.1.0"
+description = "Backend and CLI for Arivu"
+requires-python = ">=3.11"
+
+[project.scripts]
+arivu = "app.cli.main:app"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 markers = [

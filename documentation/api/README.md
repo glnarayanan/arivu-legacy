@@ -90,6 +90,41 @@ Login to existing account.
 
 ---
 
+### POST /api/auth/cli/login
+Authenticate a CLI user and return bearer tokens in the response body.
+
+**Authentication:** Not required
+
+**Request Body:**
+```json
+{
+  "email": "user@example.com",
+  "password": "securepassword"
+}
+```
+
+**Response:** `200 OK`
+```json
+{
+  "access_token": "...",
+  "refresh_token": "...",
+  "token_type": "bearer",
+  "access_token_expires_at": "2026-03-21T12:00:00+00:00",
+  "refresh_token_expires_at": "2026-04-20T12:00:00+00:00",
+  "user": {
+    "id": "user_123",
+    "email": "user@example.com",
+    "name": "Example User"
+  }
+}
+```
+
+**Notes:**
+- Intended for terminal and non-browser clients
+- Uses the same credential validation and lockout rules as `/api/auth/login`
+
+---
+
 ### GET /api/auth/me
 Get current user information.
 
@@ -134,6 +169,40 @@ Refresh access token using refresh token.
   "token_type": "bearer"
 }
 ```
+
+---
+
+### POST /api/auth/cli/refresh
+Refresh CLI bearer tokens using a refresh token.
+
+**Authentication:** Refresh token required in request body
+
+**Request Body:**
+```json
+{
+  "refresh_token": "..."
+}
+```
+
+**Response:** `200 OK`
+```json
+{
+  "access_token": "...",
+  "refresh_token": "...",
+  "token_type": "bearer",
+  "access_token_expires_at": "2026-03-21T12:00:00+00:00",
+  "refresh_token_expires_at": "2026-04-20T12:00:00+00:00",
+  "user": {
+    "id": "user_123",
+    "email": "user@example.com",
+    "name": "Example User"
+  }
+}
+```
+
+**Notes:**
+- Rejects access tokens and invalid token types
+- Rotates both access and refresh tokens for CLI consumers
 
 ---
 
@@ -247,12 +316,16 @@ Create a new bookmark.
 
 **Authentication:** Required
 
+**Clients:**
+- Web app via HTTP-only cookies
+- Browser extension via bearer token from `/api/auth/extension-token`
+- CLI via bearer token from `/api/auth/cli/login`
+
 **Request Body:**
 ```json
 {
   "url": "https://example.com/article",
-  "title": "Optional custom title",
-  "tags": ["optional", "tags"]
+  "collection_id": "optional-collection-id"
 }
 ```
 
@@ -271,6 +344,35 @@ Create a new bookmark.
 ```
 
 **Note:** Content fetching and AI processing happens in background. Status will change to "completed" once processing finishes.
+
+---
+
+### POST /api/bookmarks/preview
+Fetch URL metadata before saving a bookmark.
+
+**Authentication:** Required
+
+**Request Body:**
+```json
+{
+  "url": "https://example.com/article"
+}
+```
+
+**Response:** `200 OK`
+```json
+{
+  "url": "https://example.com/article",
+  "title": "Article Title",
+  "description": "Short page description",
+  "domain": "example.com",
+  "favicon": "https://example.com/favicon.ico",
+  "thumbnail": null,
+  "reading_time": 5
+}
+```
+
+**Security:** Uses the same server-side URL safety checks as bookmark ingestion, including DNS-aware private-address blocking and redirect revalidation.
 
 ---
 
@@ -882,20 +984,14 @@ Import bookmarks from external services.
 **Authentication:** Required
 
 **Request Body:**
-```json
-{
-  "source": "pocket",
-  "file_content": "... (HTML or JSON export)",
-  "format": "html"
-}
-```
+Raw UTF-8 file contents. Browser bookmark HTML, CSV, plain URL lists, and Raindrop JSON are accepted. Send `X-Import-Source: raindrop` for Raindrop JSON exports.
 
 **Response:** `200 OK`
 ```json
 {
-  "job_id": "import_job_123",
-  "status": "processing",
-  "message": "Import started"
+  "message": "Imported 2 bookmarks",
+  "count": 2,
+  "import_job_id": "import_job_123"
 }
 ```
 
@@ -904,7 +1000,9 @@ Import bookmarks from external services.
 - Raindrop.io
 - Chrome Bookmarks
 - Firefox Bookmarks
-- Generic HTML/JSON
+- Generic HTML, CSV, plain text URL lists, and Raindrop-style JSON
+
+Unsafe URLs are skipped during import before placeholder bookmarks are created.
 
 ---
 

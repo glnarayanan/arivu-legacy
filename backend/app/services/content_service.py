@@ -7,7 +7,7 @@ and bookmark content processing orchestration.
 
 import logging
 from datetime import UTC, datetime
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import html2text
 import requests
@@ -31,29 +31,53 @@ logger = logging.getLogger(__name__)
 MAX_CONTENT_SIZE = 10 * 1024 * 1024  # 10MB max for webpage content
 
 
-async def fetch_webpage_content(url: str):
+async def fetch_webpage_content(url: str, *, raise_on_error: bool = False):
     """Fetch and parse webpage content with security validation"""
+    current_url = url
     try:
-        # Validate URL is safe before fetching
-        safe, error_msg = is_safe_url(url)
-        if not safe:
-            logger.warning(f"Unsafe URL blocked: {error_msg}")
-            raise ValueError(f"Unsafe URL: {error_msg}")
-
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.5",
         }
 
+        response = None
+        session = requests.Session()
+        session.trust_env = False
+        for _ in range(5):
+            safe, error_msg = is_safe_url(current_url, resolve_host=True)
+            if not safe:
+                logger.warning(f"Unsafe URL blocked: {error_msg}")
+                raise ValueError(f"Unsafe URL: {error_msg}")
+
+            response = session.get(
+                current_url,
+                headers=headers,
+                timeout=15,
+                allow_redirects=False,
+                stream=True,
+            )
+
+            if response.is_redirect:
+                location = response.headers.get("location")
+                response.close()
+                if not location:
+                    raise ValueError("Redirect missing Location header")
+                current_url = urljoin(current_url, location)
+                continue
+
+            break
+        else:
+            raise ValueError("Too many redirects while fetching content")
+
         # Use streaming to check size before loading into memory (SEC-05)
-        with requests.get(url, headers=headers, timeout=15, allow_redirects=True, stream=True) as response:
+        with response:
             response.raise_for_status()
 
             # Check Content-Length header BEFORE downloading
             content_length = response.headers.get("content-length")
             if content_length and int(content_length) > MAX_CONTENT_SIZE:
-                logger.warning(f"Content too large (Content-Length: {content_length}): {urlparse(url).netloc}")
+                logger.warning(f"Content too large (Content-Length: {content_length}): {urlparse(current_url).netloc}")
                 raise ValueError(
                     f"Content too large: {int(content_length) // (1024 * 1024)}MB exceeds {MAX_CONTENT_SIZE // (1024 * 1024)}MB limit"
                 )
@@ -64,7 +88,7 @@ async def fetch_webpage_content(url: str):
             for chunk in response.iter_content(chunk_size=8192):
                 total_size += len(chunk)
                 if total_size > MAX_CONTENT_SIZE:
-                    logger.warning(f"Content exceeded size limit during download: {urlparse(url).netloc}")
+                    logger.warning(f"Content exceeded size limit during download: {urlparse(current_url).netloc}")
                     raise ValueError(f"Content exceeded {MAX_CONTENT_SIZE // (1024 * 1024)}MB limit during download")
                 chunks.append(chunk)
 
@@ -87,7 +111,7 @@ async def fetch_webpage_content(url: str):
             if soup.title:
                 title = soup.title.string
             else:
-                title = urlparse(url).netloc
+                title = urlparse(current_url).netloc
 
         description = None
         meta_desc = soup.find("meta", attrs={"name": "description"}) or soup.find(
@@ -103,10 +127,10 @@ async def fetch_webpage_content(url: str):
             if favicon_url.startswith("//"):
                 favicon = "https:" + favicon_url
             elif favicon_url.startswith("/"):
-                parsed = urlparse(url)
+                parsed = urlparse(current_url)
                 favicon = f"{parsed.scheme}://{parsed.netloc}{favicon_url}"
             elif not favicon_url.startswith("http"):
-                parsed = urlparse(url)
+                parsed = urlparse(current_url)
                 favicon = f"{parsed.scheme}://{parsed.netloc}/{favicon_url}"
             else:
                 favicon = favicon_url
@@ -135,9 +159,11 @@ async def fetch_webpage_content(url: str):
                 )
                 if trafilatura_text and len(trafilatura_text) > len(text_content or ""):
                     text_content = trafilatura_text
-                    logger.info(f"Trafilatura fallback extracted {len(text_content)} chars from {urlparse(url).netloc}")
+                    logger.info(
+                        f"Trafilatura fallback extracted {len(text_content)} chars from {urlparse(current_url).netloc}"
+                    )
             except Exception as e:
-                logger.warning(f"Trafilatura fallback failed for {urlparse(url).netloc}: {e}")
+                logger.warning(f"Trafilatura fallback failed for {urlparse(current_url).netloc}: {e}")
 
         if not text_content or len(text_content) < 100:
             cleaned_soup = BeautifulSoup(summary_html, "html.parser")
@@ -157,21 +183,25 @@ async def fetch_webpage_content(url: str):
         # Store full content for offline reading (AI processing applies its own adaptive limits)
         text_content = " ".join(text_content.split())
 
-        logger.info(f"Successfully fetched content from {urlparse(url).netloc}")
+        logger.info(f"Successfully fetched content from {urlparse(current_url).netloc}")
         return {
-            "title": title.strip() if title else urlparse(url).netloc,
+            "url": current_url,
+            "title": title.strip() if title else urlparse(current_url).netloc,
             "description": description,
             "favicon": favicon,
             "thumbnail": thumbnail,
             "html_content": summary_html,
             "text_content": text_content,
-            "domain": urlparse(url).netloc,
+            "domain": urlparse(current_url).netloc,
         }
     except Exception:
-        logger.exception(f"Error fetching webpage from domain {urlparse(url).netloc}")
+        if raise_on_error:
+            raise
+        logger.exception(f"Error fetching webpage from domain {urlparse(current_url).netloc}")
         return {
-            "title": urlparse(url).netloc,
-            "domain": urlparse(url).netloc,
+            "url": current_url,
+            "title": urlparse(current_url).netloc,
+            "domain": urlparse(current_url).netloc,
             "text_content": "Failed to fetch content",
             "html_content": "",
         }

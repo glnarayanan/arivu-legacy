@@ -6,7 +6,7 @@ Includes snooze/archive management and daily featured bookmark (Memory Jogger).
 """
 
 import random
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -18,6 +18,8 @@ from resurfacing import (
 
 from app.core.database import get_database
 from app.core.dependencies import get_current_user
+
+UTC = timezone.utc
 
 router = APIRouter(tags=["resurfacing"])
 
@@ -495,3 +497,4 @@ async def dismiss_memory_jogger(
     )
 
     return {"message": "Memory jogger dismissed", "bookmark_id": request.bookmark_id}
+UTC = timezone.utc

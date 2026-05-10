@@ -22,7 +22,7 @@ import os
 import random
 import time
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from motor.motor_asyncio import AsyncIOMotorClient
 
@@ -385,3 +385,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+UTC = timezone.utc

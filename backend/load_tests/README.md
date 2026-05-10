@@ -4,7 +4,7 @@ Load testing infrastructure for the Arivu bookmarks API using [Locust](https://l
 
 ## Prerequisites
 
-- Python 3.10+ with `locust` and `motor` installed (`pip install -r requirements.txt`)
+- Python 3.11+ with `locust` and `motor` installed (`pip install -r requirements.txt`)
 - MongoDB running (local or Docker)
 - Backend API running on target host
 
@@ -20,6 +20,7 @@ python load_tests/seed_data.py --count 50000
 ```
 
 Options:
+
 - `--count N` -- Number of bookmarks (default: 50,000)
 - `--drop` -- Drop existing bookmark data before seeding
 - `--mongo-url URL` -- MongoDB connection string (default: `$MONGO_URL` or `mongodb://localhost:27017`)
@@ -49,6 +50,7 @@ locust -f load_tests/locustfile.py --host http://localhost:8001 \
 ```
 
 Or via environment variables:
+
 ```bash
 export LOAD_TEST_EMAIL="custom@test.com"
 export LOAD_TEST_PASSWORD="CustomPass123!"
@@ -56,33 +58,33 @@ export LOAD_TEST_PASSWORD="CustomPass123!"
 
 ## Test Scenarios
 
-| Scenario | Weight | Endpoint | Description |
-|----------|--------|----------|-------------|
-| List bookmarks | 5 | `GET /api/bookmarks` | Paginated listing with varied limits/sorts |
-| Search bookmarks | 3 | `GET /api/bookmarks?search=` | Keyword search across common terms |
-| View detail | 1 | `GET /api/bookmarks/{id}` | Single bookmark with AI summary |
-| Update read status | 1 | `PATCH /api/bookmarks/{id}/read-status` | Toggle read/unread |
+| Scenario           | Weight | Endpoint                                | Description                                |
+| ------------------ | ------ | --------------------------------------- | ------------------------------------------ |
+| List bookmarks     | 5      | `GET /api/bookmarks`                    | Paginated listing with varied limits/sorts |
+| Search bookmarks   | 3      | `GET /api/bookmarks?search=`            | Keyword search across common terms         |
+| View detail        | 1      | `GET /api/bookmarks/{id}`               | Single bookmark with AI summary            |
+| Update read status | 1      | `PATCH /api/bookmarks/{id}/read-status` | Toggle read/unread                         |
 
 ## Load Shape
 
 The `StagesShape` class defines a staged ramp:
 
-| Stage | Duration | Users | Spawn Rate |
-|-------|----------|-------|------------|
-| Warm-up | 0-60s | 10 | 2/s |
-| Normal | 60-180s | 50 | 5/s |
-| Peak | 180-300s | 100 | 10/s |
-| Cool-down | 300-360s | 25 | 5/s |
+| Stage     | Duration | Users | Spawn Rate |
+| --------- | -------- | ----- | ---------- |
+| Warm-up   | 0-60s    | 10    | 2/s        |
+| Normal    | 60-180s  | 50    | 5/s        |
+| Peak      | 180-300s | 100   | 10/s       |
+| Cool-down | 300-360s | 25    | 5/s        |
 
 ## Performance Targets
 
-| Metric | Target | Alert Threshold |
-|--------|--------|-----------------|
-| P50 list/search | < 200ms | > 500ms |
-| P95 list/search | < 500ms | > 1s |
-| P99 all operations | < 2s | > 5s |
-| Error rate | 0% | > 1% |
-| Throughput (50 users) | > 100 req/s | < 50 req/s |
+| Metric                | Target      | Alert Threshold |
+| --------------------- | ----------- | --------------- |
+| P50 list/search       | < 200ms     | > 500ms         |
+| P95 list/search       | < 500ms     | > 1s            |
+| P99 all operations    | < 2s        | > 5s            |
+| Error rate            | 0%          | > 1%            |
+| Throughput (50 users) | > 100 req/s | < 50 req/s      |
 
 ## Seed Data Characteristics
 

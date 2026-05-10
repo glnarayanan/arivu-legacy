@@ -22,7 +22,7 @@ This runs four containers: frontend (port 80), backend, MongoDB, and Redis.
 
 ### Manual Development
 
-**Prerequisites:** Python 3.9+, Node.js 18+, MongoDB, Gemini API Key
+**Prerequisites:** Python 3.11+, Node.js 18+, MongoDB, Gemini API Key
 
 ```bash
 # Backend (Terminal 1)
@@ -38,6 +38,7 @@ yarn start
 ```
 
 ### Browser Extension
+
 See `extension/README.md` for Chrome/Firefox installation instructions.
 
 ---
@@ -74,6 +75,7 @@ Four containers — frontend nginx is the entry point:
 ## Key Features
 
 ### Core Features
+
 ✅ **Instant Bookmarking** - Non-blocking save with background AI processing
 ✅ **AI Summaries** - Automatic one-sentence, bullet points, and long-form summaries
 ✅ **Smart Highlights** - AI-extracted key quotes from content
@@ -84,6 +86,7 @@ Four containers — frontend nginx is the entry point:
 ✅ **Reading List** - Auto-calculated reading times
 
 ### Advanced Features
+
 ✅ **Knowledge Graph** - Semantic AI-powered entity and relationship mapping
 ✅ **Intelligent Resurfacing** - Spaced repetition engine with context-aware suggestions
 ✅ **Learning Analytics** - Reading stats, topic analysis, and pattern detection
@@ -112,6 +115,7 @@ documentation/
 📖 **User-facing docs** are also available at [arivu.app/documentation](https://arivu.app/documentation/)
 
 ### Quick Links
+
 - **API Docs:** `documentation/api/README.md`
 - **Feature Guides:** `documentation/features/`
 - **X Integration:** `documentation/features/x-api-bookmarks.md`
