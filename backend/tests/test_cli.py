@@ -222,7 +222,7 @@ def test_save_command_accepts_single_url(monkeypatch):
     result = runner.invoke(app, ["save", "https://example.com"])
 
     assert result.exit_code == 0
-    assert "https://example.com" in client.saved_urls
+    assert client.saved_urls == ["https://example.com"]
 
 
 def test_save_command_accepts_multiple_urls(monkeypatch):
@@ -300,7 +300,7 @@ def test_preview_command_renders_metadata(monkeypatch):
     result = runner.invoke(app, ["preview", "https://example.com"], input="n\n")
 
     assert result.exit_code == 0
-    assert "https://example.com" in client.preview_calls
+    assert client.preview_calls == ["https://example.com"]
 
 
 def test_preview_command_saves_when_confirmed(monkeypatch):
@@ -310,7 +310,7 @@ def test_preview_command_saves_when_confirmed(monkeypatch):
     result = runner.invoke(app, ["preview", "https://example.com"], input="y\n")
 
     assert result.exit_code == 0
-    assert "https://example.com" in client.saved_urls
+    assert client.saved_urls == ["https://example.com"]
 
 
 def test_preview_command_skips_save_when_declined(monkeypatch):

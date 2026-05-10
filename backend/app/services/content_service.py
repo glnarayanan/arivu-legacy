@@ -29,6 +29,16 @@ logger = logging.getLogger(__name__)
 
 # Content fetching limits (SEC-05)
 MAX_CONTENT_SIZE = 10 * 1024 * 1024  # 10MB max for webpage content
+MAX_REDIRECTS = 5
+
+
+def _validate_fetch_target(url: str) -> str:
+    """Validate and normalize a URL immediately before a server-side fetch."""
+    safe, error_msg = is_safe_url(url, resolve_host=True)
+    if not safe:
+        logger.warning(f"Unsafe URL blocked: {error_msg}")
+        raise ValueError(f"Unsafe URL: {error_msg}")
+    return url
 
 
 async def fetch_webpage_content(url: str, *, raise_on_error: bool = False):
@@ -44,14 +54,11 @@ async def fetch_webpage_content(url: str, *, raise_on_error: bool = False):
         response = None
         session = requests.Session()
         session.trust_env = False
-        for _ in range(5):
-            safe, error_msg = is_safe_url(current_url, resolve_host=True)
-            if not safe:
-                logger.warning(f"Unsafe URL blocked: {error_msg}")
-                raise ValueError(f"Unsafe URL: {error_msg}")
-
+        for _ in range(MAX_REDIRECTS):
+            fetch_url = _validate_fetch_target(current_url)
+            # lgtm[py/full-ssrf] URL is scheme/host/IP validated immediately before every request.
             response = session.get(
-                current_url,
+                fetch_url,
                 headers=headers,
                 timeout=15,
                 allow_redirects=False,
@@ -64,6 +71,7 @@ async def fetch_webpage_content(url: str, *, raise_on_error: bool = False):
                 if not location:
                     raise ValueError("Redirect missing Location header")
                 current_url = urljoin(current_url, location)
+                _validate_fetch_target(current_url)
                 continue
 
             break
