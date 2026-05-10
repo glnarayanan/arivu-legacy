@@ -6,8 +6,10 @@ and bookmark content processing orchestration.
 """
 
 import logging
+import socket
+import ssl
 from datetime import UTC, datetime
-from http.client import HTTPConnection, HTTPResponse, HTTPSConnection
+from http.client import HTTPResponse
 from urllib.parse import urljoin, urlparse
 
 import html2text
@@ -44,7 +46,7 @@ def _validate_fetch_target(url: str) -> str:
 class StreamingFetchResponse:
     """Small response adapter for validated stdlib HTTP fetches."""
 
-    def __init__(self, connection: HTTPConnection, response: HTTPResponse):
+    def __init__(self, connection, response: HTTPResponse):
         self._connection = connection
         self._response = response
         self.status_code = response.status
@@ -85,10 +87,20 @@ def _request_target(url: str) -> str:
 def _open_validated_response(url: str, headers: dict[str, str]) -> StreamingFetchResponse:
     fetch_url = _validate_fetch_target(url)
     parsed = urlparse(fetch_url)
-    connection_cls = HTTPSConnection if parsed.scheme == "https" else HTTPConnection
-    connection = connection_cls(parsed.hostname, parsed.port, timeout=15)
-    connection.request("GET", _request_target(fetch_url), headers=headers)
-    return StreamingFetchResponse(connection, connection.getresponse())
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    connection = socket.create_connection((parsed.hostname, port), timeout=15)
+    if parsed.scheme == "https":
+        context = ssl.create_default_context()
+        connection = context.wrap_socket(connection, server_hostname=parsed.hostname)
+
+    request_headers = {**headers, "Host": parsed.netloc, "Connection": "close"}
+    header_lines = [f"{name}: {value}" for name, value in request_headers.items()]
+    request = f"GET {_request_target(fetch_url)} HTTP/1.1\r\n" + "\r\n".join(header_lines) + "\r\n\r\n"
+    connection.sendall(request.encode("utf-8"))
+
+    response = HTTPResponse(connection)
+    response.begin()
+    return StreamingFetchResponse(connection, response)
 
 
 async def fetch_webpage_content(url: str, *, raise_on_error: bool = False):
