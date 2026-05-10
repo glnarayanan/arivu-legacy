@@ -10,7 +10,7 @@ import json
 import logging
 import time
 from collections import deque
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import google.generativeai as genai
 from google.api_core.exceptions import (
@@ -31,8 +31,6 @@ from tenacity import (
 
 from app.core.database import get_database
 from app.core.instance_config import get_config_value
-
-UTC = timezone.utc
 
 logger = logging.getLogger(__name__)
 

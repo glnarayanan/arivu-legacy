@@ -7,7 +7,7 @@ Part of Advanced Content Intelligence & Curation (Roadmap Item 11)
 
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
@@ -313,4 +313,3 @@ async def check_duplicate_url(url: str, user_id: str, db) -> dict:
                 }
 
     return {"is_duplicate": False, "existing_bookmark": None, "similarity_type": None}
-UTC = timezone.utc

@@ -7,14 +7,12 @@ override) for authenticated profile/password endpoints.
 """
 
 import base64
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from app.core.config import settings
 from app.core.security import create_access_token, create_refresh_token, hash_password
-
-UTC = timezone.utc
 
 # ============================================
 # Auth Endpoint Tests (auth_client -- no auth override)
