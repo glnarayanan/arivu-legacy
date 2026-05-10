@@ -22,6 +22,7 @@ Access the app at `http://localhost/auth`.
 ```bash
 cd backend
 pip install -r requirements.txt
+cp ../.env.example .env
 uvicorn server:app --host 0.0.0.0 --port 8001 --reload
 ```
 
@@ -37,18 +38,20 @@ yarn dev
 
 ## Architecture Notes
 
-- **`backend/server.py` is monolithic by design.** Do not split it into separate modules.
+- The backend entry point is `backend/server.py`; many feature routes are extracted under `backend/app/routers/`.
 - The frontend uses a relative `/api` path behind the nginx proxy. No explicit backend URL config is needed in production.
 - The design system follows a **brutalist aesthetic**: sharp corners, 2px black borders, offset shadows.
 - **Light mode only.** No dark mode.
+- Keep long-form contributor/operator docs under `documentation/`; keep root docs limited to community-standard entry points.
 
 ## Making Changes
 
 1. Fork the repository
 2. Create a feature branch: `git checkout -b feat/your-feature`
 3. Make your changes following existing code patterns
-4. Run tests: `cd backend && python backend_test.py`
-5. Submit a pull request
+4. Run backend tests: `cd backend && pytest tests/ -m "not integration"`
+5. Run frontend checks: `cd frontend && yarn lint && yarn test --run`
+6. Submit a pull request
 
 ## Commit Messages
 
@@ -66,14 +69,15 @@ Examples:
 
 ## Code Style
 
-- **Python:** Follow existing patterns in `server.py`. Always filter by `user_id` in database queries. Always use field projections.
+- **Python:** Follow existing patterns in `backend/server.py` and `backend/app/routers/`. Always filter user-scoped database queries by `user_id`. Use field projections where practical.
 - **React/JSX:** Follow existing component patterns. Use Shadcn/ui components, Tailwind CSS, and framer-motion.
 - **No new dependencies** without discussion — open an issue first if you need a new library.
 
 ## Testing
 
 ```bash
-cd backend && python backend_test.py
+cd backend && pytest tests/ -m "not integration"
+cd frontend && yarn test --run
 ```
 
 ## Questions?
