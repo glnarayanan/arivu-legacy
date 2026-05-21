@@ -12,19 +12,12 @@ import time
 from collections import deque
 from datetime import UTC, datetime
 
-import google.generativeai as genai
-from google.api_core.exceptions import (
-    DeadlineExceeded,
-    ResourceExhausted,
-    ServiceUnavailable,
-)
-from google.api_core.exceptions import (
-    InternalServerError as GoogleInternalServerError,
-)
+from google import genai
+from google.genai import errors as genai_errors
 from tenacity import (
     before_sleep_log,
     retry,
-    retry_if_exception_type,
+    retry_if_exception,
     stop_after_attempt,
     wait_exponential_jitter,
 )
@@ -34,17 +27,13 @@ from app.core.instance_config import get_config_value
 
 logger = logging.getLogger(__name__)
 
-# Error classification for AI retry logic (Phase 7, Plan 01)
-# Only transient errors are retried; permanent errors (InvalidArgument,
-# PermissionDenied) fail fast without retry.
-RETRIABLE_AI_EXCEPTIONS = (
-    ResourceExhausted,  # 429 - Rate limit / quota
-    DeadlineExceeded,  # 504 - Timeout
-    ServiceUnavailable,  # 503 - Temporary unavailable
-    GoogleInternalServerError,  # 500 - Server error
-    ConnectionError,  # Network issues
-    TimeoutError,  # Python timeout
-)
+def _is_retriable_ai_error(exc: BaseException) -> bool:
+    """Return True for transient errors; False for permanent ones (bad request, auth)."""
+    if isinstance(exc, genai_errors.ServerError):
+        return True  # 5xx — timeout, unavailable, internal server error
+    if isinstance(exc, genai_errors.ClientError):
+        return exc.code == 429  # only rate-limit; not 400/403
+    return isinstance(exc, (ConnectionError, TimeoutError))
 
 
 # Enhanced Rate limiter for Gemini API with multi-dimensional tracking
@@ -208,21 +197,20 @@ def has_substantial_change(old_content: str, new_content: str, threshold: float 
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential_jitter(initial=1, max=10, jitter=1),
-    retry=retry_if_exception_type(RETRIABLE_AI_EXCEPTIONS),
+    retry=retry_if_exception(_is_retriable_ai_error),
     before_sleep=before_sleep_log(logger, logging.WARNING),
     reraise=True,
 )
-async def call_gemini_with_retry(model, prompt_text, generation_config=None):
+async def call_gemini_with_retry(client, model_name, prompt_text, config=None):
     """Call Gemini generate_content with retry for transient errors only.
 
     Non-retriable errors (InvalidArgument, PermissionDenied) propagate immediately.
     Retries up to 3 times with exponential backoff + jitter for transient errors.
     """
     await gemini_rate_limiter.acquire(estimated_tokens=1500)
-    if generation_config:
-        response = await asyncio.to_thread(model.generate_content, prompt_text, generation_config=generation_config)
-    else:
-        response = await asyncio.to_thread(model.generate_content, prompt_text)
+    response = await asyncio.to_thread(
+        lambda: client.models.generate_content(model=model_name, contents=prompt_text, config=config)
+    )
     if hasattr(response, "usage_metadata") and hasattr(response.usage_metadata, "total_token_count"):
         await gemini_rate_limiter.record_actual_tokens(response.usage_metadata.total_token_count)
     return response
@@ -231,11 +219,11 @@ async def call_gemini_with_retry(model, prompt_text, generation_config=None):
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential_jitter(initial=1, max=10, jitter=1),
-    retry=retry_if_exception_type(RETRIABLE_AI_EXCEPTIONS),
+    retry=retry_if_exception(_is_retriable_ai_error),
     before_sleep=before_sleep_log(logger, logging.WARNING),
     reraise=True,
 )
-async def call_embed_with_retry(content, model_name, task_type):
+async def call_embed_with_retry(client, content, model_name, task_type):
     """Call Gemini embed_content with retry for transient errors only.
 
     Non-retriable errors (InvalidArgument, PermissionDenied) propagate immediately.
@@ -243,10 +231,11 @@ async def call_embed_with_retry(content, model_name, task_type):
     """
     await gemini_rate_limiter.acquire(estimated_tokens=500)
     result = await asyncio.to_thread(
-        genai.embed_content,
-        model=model_name,
-        content=content,
-        task_type=task_type,
+        lambda: client.models.embed_content(
+            model=model_name,
+            contents=content,
+            config=genai.types.EmbedContentConfig(task_type=task_type),
+        )
     )
     return result
 
@@ -283,6 +272,8 @@ async def generate_embedding(
             logger.error("GEMINI_API_KEY not configured")
             return None
 
+        client = genai.Client(api_key=gemini_api_key)
+
         # Combine title, description, and content for richer embeddings
         combined_text = ""
         if title:
@@ -295,12 +286,13 @@ async def generate_embedding(
 
         # Use Google's embedding model with retry for transient errors
         result = await call_embed_with_retry(
+            client=client,
             content=combined_text,
             model_name="models/text-embedding-004",
             task_type=task_type,
         )
 
-        embedding = result["embedding"]
+        embedding = result.embeddings[0].values
         # L2-normalize for consistent cosine similarity (dot product after normalization)
         normalized_embedding = normalize_embedding(embedding)
         logger.info(f"Generated {task_type} embedding vector with {len(normalized_embedding)} dimensions")
@@ -348,8 +340,8 @@ async def _generate_ai_summaries_impl(text_content: str, bookmark_id: str):
             logger.error("GEMINI_API_KEY not configured")
             raise ValueError("GEMINI_API_KEY not found in environment variables")
 
-        genai.configure(api_key=gemini_api_key)
-        model = genai.GenerativeModel("gemini-2.5-flash")
+        client = genai.Client(api_key=gemini_api_key)
+        model_name = "gemini-2.5-flash"
 
         # Use generous content for AI processing (Gemini 2.5 Flash has 1M token context)
         # Full text stored in DB; this limit is just for AI summarization cost efficiency
@@ -418,7 +410,7 @@ TAGS:""",
 
         # Parallel API call function (rate limiting + retry handled by call_gemini_with_retry)
         async def call_gemini(prompt_type, prompt_text):
-            response = await call_gemini_with_retry(model, prompt_text)
+            response = await call_gemini_with_retry(client, model_name, prompt_text)
             return prompt_type, response
 
         # Execute all 4 calls in parallel (removed bullets and long_form, added exec_summary)
@@ -615,12 +607,13 @@ Rules:
 - Use canonical/full names when possible
 - No duplicates"""
 
-        model = genai.GenerativeModel("gemini-2.5-flash")
+        client = genai.Client(api_key=gemini_api_key)
         response = await call_gemini_with_retry(
-            model,
+            client,
+            "gemini-2.5-flash",
             extraction_prompt,
-            generation_config=genai.types.GenerationConfig(
-                temperature=0.1,  # Low temperature for consistent extraction
+            config=genai.types.GenerateContentConfig(
+                temperature=0.1,
                 max_output_tokens=1000,
             ),
         )
