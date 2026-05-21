@@ -31,10 +31,8 @@ google-api-python-client>=2.187.0
 google-auth>=2.49.0
 google-auth-httplib2>=0.2.1
 google-genai>=1.55.0
-google-generativeai>=0.8.5
 googleapis-common-protos>=1.72.0
-grpcio==1.67.1
-grpcio-status==1.67.1
+grpcio==1.80.0
 h11==0.16.0
 hf-xet==1.4.2
 html2text>=2025.4.15
@@ -75,8 +73,8 @@ platformdirs==4.5.1
 psutil>=5.9.0
 pluggy==1.6.0
 propcache==0.4.1
-proto-plus==1.26.1
-protobuf==5.29.6
+proto-plus==1.28.0
+protobuf==7.34.1
 pyasn1==0.6.3
 pyasn1_modules==0.4.2
 pycodestyle==2.14.0
