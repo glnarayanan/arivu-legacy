@@ -47,7 +47,7 @@ iniconfig==2.3.0
 isort==7.0.0
 Jinja2==3.1.6
 jiter==0.13.0
-jmespath==1.0.1
+jmespath==1.1.0
 jq==1.10.0
 jsonschema==4.26.0
 jsonschema-specifications==2025.9.1
