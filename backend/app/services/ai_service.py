@@ -27,6 +27,7 @@ from app.core.instance_config import get_config_value
 
 logger = logging.getLogger(__name__)
 
+
 def _is_retriable_ai_error(exc: BaseException) -> bool:
     """Return True for transient errors; False for permanent ones (bad request, auth)."""
     if isinstance(exc, genai_errors.ServerError):

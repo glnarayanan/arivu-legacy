@@ -82,6 +82,7 @@
     "vitest": "^4.1.6"
   },
   "resolutions": {
+    "esbuild": "^0.28.1",
     "minimatch": "^3.1.4",
     "ajv": "^6.14.0",
     "rollup": "^4.59.0",
