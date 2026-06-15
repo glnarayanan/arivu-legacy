@@ -1,17 +1,34 @@
-# Arivu - AI-Native Bookmarking Application
+# Arivu Legacy
 
-**Status:** Production Ready
+**Status:** Archived legacy implementation
 **License:** MIT
 
 > Transform saved web pages into instantly useful knowledge with AI-powered summaries, highlights, and smart organization.
+
+## This Repository Is Archived
+
+The active Arivu project now lives at [glnarayanan/arivu](https://github.com/glnarayanan/arivu).
+
+This repository is kept as `arivu-legacy` for historical reference to the original Python/FastAPI, MongoDB, Redis, React, and Vite implementation. The project moved to a new repository because Arivu was rebuilt as a low-dependency Go single-binary application with embedded frontend assets, SQLite persistence, and a smaller supply-chain surface.
+
+The rewrite preserves the product direction and user workflows while making the deployable artifact simpler to operate, easier to audit, and less dependent on broad npm/Python dependency trees. New development, issues, security fixes, and documentation updates should happen in the new repository.
 
 ---
 
 ## Quick Start
 
+For the current supported implementation:
+
 ```bash
 git clone https://github.com/glnarayanan/arivu.git
 cd arivu
+```
+
+For this archived legacy implementation:
+
+```bash
+git clone https://github.com/glnarayanan/arivu-legacy.git
+cd arivu-legacy
 cp .env.example .env  # Add GEMINI_API_KEY and SECRET_KEY
 docker-compose up -d --build
 
@@ -153,4 +170,4 @@ MIT License — see [LICENSE](LICENSE) for details.
 
 ---
 
-**Contact:** For questions or support, open a [GitHub issue](https://github.com/glnarayanan/arivu/issues).
+**Contact:** For current questions or support, open a [GitHub issue](https://github.com/glnarayanan/arivu/issues) in the new repository.
